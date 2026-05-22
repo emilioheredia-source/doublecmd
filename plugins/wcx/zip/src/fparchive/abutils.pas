@@ -517,8 +517,22 @@ var
   hFile: System.THandle;
   TempPath : String;
 begin
+  { Prefer the requested directory so that large swap files land on the same
+    filesystem as the archive (avoiding /tmp tmpfs size limits).  Fall back
+    to the system temp directory if Dir is absent or not writable. }
   if mbDirectoryExists(Dir) then
-    TempPath := IncludeTrailingPathDelimiter(Dir)
+  begin
+    TempPath := IncludeTrailingPathDelimiter(Dir);
+    { Quick writeability probe: try to create and immediately remove a file. }
+    hFile := mbFileCreate(TempPath + '~probe');
+    if hFile <> feInvalidHandle then
+    begin
+      FileClose(hFile);
+      mbDeleteFile(TempPath + '~probe');
+    end
+    else
+      TempPath := AbGetTempDirectory;
+  end
   else
     TempPath := AbGetTempDirectory;
 
