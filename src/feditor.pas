@@ -271,6 +271,15 @@ begin
     if not Editor.OpenFile(sFileName) then
       Exit;
   end;
+
+  { Open on the same monitor as the main DC window. }
+  if Assigned(Application.MainForm) then
+  with Application.MainForm.Monitor do
+    Editor.SetBounds(
+      Left + (Width  - Editor.Width)  div 2,
+      Top  + (Height - Editor.Height) div 2,
+      Editor.Width, Editor.Height);
+
   if (WaitData = nil) then
     Editor.ShowOnTop
   else begin

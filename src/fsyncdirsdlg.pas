@@ -289,13 +289,22 @@ type
   end;
 
 procedure ShowSyncDirsDlg(FileView1, FileView2: TFileView);
+var
+  Dlg: TfrmSyncDirsDlg;
 begin
   if not Assigned(FileView1) then
     raise Exception.Create('ShowSyncDirsDlg: FileView1=nil');
   if not Assigned(FileView2) then
     raise Exception.Create('ShowSyncDirsDlg: FileView2=nil');
-  with TfrmSyncDirsDlg.Create(Application, FileView1, FileView2) do
-    Show;
+  Dlg := TfrmSyncDirsDlg.Create(Application, FileView1, FileView2);
+  { Center on the same monitor as the main DC window. }
+  if Assigned(Application.MainForm) then
+  with Application.MainForm.Monitor do
+    Dlg.SetBounds(
+      Left + (Width  - Dlg.Width)  div 2,
+      Top  + (Height - Dlg.Height) div 2,
+      Dlg.Width, Dlg.Height);
+  Dlg.Show;
 end;
 
 { TDrawGrid }

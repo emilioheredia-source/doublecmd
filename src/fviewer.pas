@@ -662,6 +662,14 @@ begin
   end;
   Viewer.LoadFile(0);
 
+  { Open on the same monitor as the main DC window. }
+  if Assigned(Application.MainForm) then
+  with Application.MainForm.Monitor do
+    Viewer.SetBounds(
+      Left + (Width  - Viewer.Width)  div 2,
+      Top  + (Height - Viewer.Height) div 2,
+      Viewer.Width, Viewer.Height);
+
   if (WaitData = nil) then
     Viewer.ShowOnTop
   else begin
