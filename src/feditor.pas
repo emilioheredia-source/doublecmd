@@ -249,7 +249,7 @@ implementation
 
 uses
   Clipbrd, Dialogs, dmCommonData, dmHigh, SynEditTypes, LCLType, LConvEncoding,
-  uLng, uShowMsg, uGlobs, fOptions, DCClassesUtf8, uAdministrator, uHighlighters,
+  uLng, uShowMsg, uGlobs, fOptions, DCClassesUtf8, uAdministrator, uHighlighters, fMain,
   uOSUtils, uConvEncoding, fOptionsToolsEditor, uDCUtils, uClipboard, uFindFiles,
   DCOSUtils
 {$IFDEF DARWIN}
@@ -273,8 +273,8 @@ begin
   end;
 
   { Open on the same monitor as the main DC window. }
-  if Assigned(Application.MainForm) then
-  with Application.MainForm.Monitor do
+  if Assigned(frmMain) then
+  with frmMain.Monitor do
     Editor.SetBounds(
       Left + (Width  - Editor.Width)  div 2,
       Top  + (Height - Editor.Height) div 2,
