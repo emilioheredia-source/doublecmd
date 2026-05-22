@@ -517,24 +517,21 @@ var
   hFile: System.THandle;
   TempPath : String;
 begin
-  { Prefer the requested directory so that large swap files land on the same
-    filesystem as the archive (avoiding /tmp tmpfs size limits).  Fall back
-    to the system temp directory if Dir is absent or not writable. }
+  { Default to the system temp directory; upgrade to Dir if it exists and is
+    writable.  Using the archive's own directory avoids /tmp tmpfs size limits
+    when packing large archives. }
+  TempPath := AbGetTempDirectory;
   if mbDirectoryExists(Dir) then
   begin
-    TempPath := IncludeTrailingPathDelimiter(Dir);
     { Quick writeability probe: try to create and immediately remove a file. }
-    hFile := mbFileCreate(TempPath + '~probe');
+    hFile := mbFileCreate(IncludeTrailingPathDelimiter(Dir) + '~probe');
     if hFile <> feInvalidHandle then
     begin
       FileClose(hFile);
-      mbDeleteFile(TempPath + '~probe');
-    end
-    else
-      TempPath := AbGetTempDirectory;
-  end
-  else
-    TempPath := AbGetTempDirectory;
+      mbDeleteFile(IncludeTrailingPathDelimiter(Dir) + '~probe');
+      TempPath := IncludeTrailingPathDelimiter(Dir);
+    end;
+  end;
 
   Result := GetTempName(TempPath + 'VMS');
 
