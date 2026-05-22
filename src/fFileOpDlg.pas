@@ -166,7 +166,7 @@ implementation
 {$R *.lfm}
 
 uses
-   dmCommonData, uLng, uDCUtils, LCLVersion, uShowMsg, fMain,
+   dmCommonData, uLng, uDCUtils, LCLVersion, uShowMsg,
    fViewOperations,
    uFileSourceOperationMisc,
    uFileSourceOperationTypes,
@@ -586,13 +586,6 @@ begin
   end
   else
     AWindow.Show;
-  { Center on frmMain's monitor after showing. }
-  if Assigned(frmMain) and frmMain.HandleAllocated then
-  with frmMain.Monitor do
-    AWindow.SetBounds(
-      Left + (Width  - AWindow.Width)  div 2,
-      Top  + (Height - AWindow.Height) div 2,
-      AWindow.Width, AWindow.Height);
 end;
 
 procedure TfrmFileOp.DoAutoSize;

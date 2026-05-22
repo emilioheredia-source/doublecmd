@@ -50,6 +50,7 @@ type
     procedure CloseModal;
   protected
     procedure CreateParams(var Params: TCreateParams); override;
+    procedure DoShow; override;
   public
     procedure ExecuteModal; virtual;
     function ShowModal: Integer; override;
@@ -305,6 +306,31 @@ begin
   until False;
 end;
 
+procedure TModalDialog.DoShow;
+var
+  Mon: TMonitor;
+begin
+  inherited DoShow;
+  { Center on frmMain's monitor for non-modal shows (Show / Visible:=True)
+    that bypass ShowModal, e.g. the file-operation progress window.  For
+    modal dialogs ShowModal also does pre- and post-show centering, so this
+    is complementary but harmless.  Use Monitor coords — frmMain.Left/Width
+    are unreliable for maximized GTK2 windows on non-primary monitors. }
+  if Assigned(frmMain) and frmMain.HandleAllocated then
+  begin
+    Position := poDesigned;
+    Mon  := frmMain.Monitor;
+    Left := Mon.Left + (Mon.Width  - Width)  div 2;
+    Top  := Mon.Top  + (Mon.Height - Height) div 2;
+    if Left < Mon.Left then Left := Mon.Left;
+    if Top  < Mon.Top  then Top  := Mon.Top;
+    if Left + Width  > Mon.Left + Mon.Width  then
+      Left := Mon.Left + Mon.Width  - Width;
+    if Top  + Height > Mon.Top  + Mon.Height then
+      Top  := Mon.Top  + Mon.Height - Height;
+  end;
+end;
+
 function TModalDialog.ShowModal: Integer;
 
   procedure RaiseShowModalImpossible;
@@ -399,9 +425,13 @@ begin
         if Assigned(frmMain) and frmMain.HandleAllocated then
         begin
           Position := poDesigned;
+          { Use Monitor coords (always reliable global coords) instead of
+            frmMain.Left/Width which can be unreliable for maximized GTK2 windows
+            on non-primary monitors (may return monitor-relative 0 instead of
+            global screen coordinate). }
           Mon  := frmMain.Monitor;
-          Left := frmMain.Left + (frmMain.Width  - Width)  div 2;
-          Top  := frmMain.Top  + (frmMain.Height - Height) div 2;
+          Left := Mon.Left + (Mon.Width  - Width)  div 2;
+          Top  := Mon.Top  + (Mon.Height - Height) div 2;
           if Left < Mon.Left then Left := Mon.Left;
           if Top  < Mon.Top  then Top  := Mon.Top;
           if Left + Width  > Mon.Left + Mon.Width  then
@@ -415,8 +445,8 @@ begin
           if Assigned(frmMain) and frmMain.HandleAllocated then
           begin
             Mon  := frmMain.Monitor;
-            Left := frmMain.Left + (frmMain.Width  - Width)  div 2;
-            Top  := frmMain.Top  + (frmMain.Height - Height) div 2;
+            Left := Mon.Left + (Mon.Width  - Width)  div 2;
+            Top  := Mon.Top  + (Mon.Height - Height) div 2;
             if Left < Mon.Left then Left := Mon.Left;
             if Top  < Mon.Top  then Top  := Mon.Top;
             if Left + Width  > Mon.Left + Mon.Width  then
@@ -605,9 +635,21 @@ procedure ScreenFormEvent(Self, Sender: TObject; Form: TCustomForm);
 {$IF DEFINED(LCLGTK2)}
 var
   ClassName: String;
+  Mon: TMonitor;
 begin
   ClassName:= Form.ClassName;
   gtk_window_set_role(PGtkWindow(Form.Handle), PAnsiChar(ClassName));
+  { Pre-show centering: covers LCL standard dialogs (MessageDlg, QuestionDlg
+    etc.) that bypass TModalDialog.ShowModal. Setting poDesigned here prevents
+    GTK2 from applying its own auto-positioning when the window is mapped. }
+  if Assigned(frmMain) and frmMain.HandleAllocated and
+     (Form <> TCustomForm(frmMain)) and not (Form is THintWindow) then
+  begin
+    Form.Position := poDesigned;
+    Mon := frmMain.Monitor;
+    Form.Left := Mon.Left + (Mon.Width  - Form.Width)  div 2;
+    Form.Top  := Mon.Top  + (Mon.Height - Form.Height) div 2;
+  end;
 end;
 {$ELSEIF DEFINED(LCLQT) or DEFINED(LCLQT5) or DEFINED(LCLQT6)}
 var
