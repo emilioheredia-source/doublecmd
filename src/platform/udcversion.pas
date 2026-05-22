@@ -336,6 +336,7 @@ begin
         DCVersion+= ' beta';
       end;
     end;
+    DCVersion+= '-EH'; { local build with personal patches }
     Free;
   end;
 
