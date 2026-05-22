@@ -34,28 +34,17 @@ function ShowDeleteDialog(TheOwner: TComponent; const TrashMessage, DeleteMessag
 implementation
 
 uses
-  LCLType, fMain;
+  LCLType;
 
 function ShowDeleteDialog(TheOwner: TComponent; const Message: String; FileSource: IFileSource;
   out QueueId: TOperationsManagerQueueIdentifier): Boolean;
 var
   Dlg: TfrmDeleteDlg;
-  Mon: TMonitor;
 begin
   Dlg := TfrmDeleteDlg.Create(TheOwner, FileSource);
   try
     Dlg.Caption := Application.Title;
     Dlg.lblMessage.Caption := Message;
-    if Assigned(frmMain) and frmMain.HandleAllocated then
-    begin
-      Mon := frmMain.Monitor;
-      Dlg.Left := frmMain.Left + (frmMain.Width  - Dlg.Width)  div 2;
-      Dlg.Top  := frmMain.Top  + (frmMain.Height - Dlg.Height) div 2;
-      if Dlg.Left < Mon.Left then Dlg.Left := Mon.Left;
-      if Dlg.Top  < Mon.Top  then Dlg.Top  := Mon.Top;
-      if Dlg.Left + Dlg.Width  > Mon.Left + Mon.Width  then Dlg.Left := Mon.Left + Mon.Width  - Dlg.Width;
-      if Dlg.Top  + Dlg.Height > Mon.Top  + Mon.Height then Dlg.Top  := Mon.Top  + Mon.Height - Dlg.Height;
-    end;
     Result := Dlg.ShowModal = mrOK;
     QueueId := Dlg.QueueIdentifier;
   finally
@@ -68,7 +57,6 @@ function ShowDeleteDialog(TheOwner: TComponent; const TrashMessage, DeleteMessag
   ShowTrash, ShowWipe: Boolean; var DeleteMode: TDeleteMode): Boolean;
 var
   Dlg: TfrmDeleteDlg;
-  Mon: TMonitor;
 begin
   Dlg := TfrmDeleteDlg.Create(TheOwner, FileSource);
   try
@@ -86,16 +74,6 @@ begin
       else           Dlg.rbDelete.Checked := True;
     end;
     Dlg.lblMessage.Caption := Dlg.FMessages[DeleteMode];
-    if Assigned(frmMain) and frmMain.HandleAllocated then
-    begin
-      Mon := frmMain.Monitor;
-      Dlg.Left := frmMain.Left + (frmMain.Width  - Dlg.Width)  div 2;
-      Dlg.Top  := frmMain.Top  + (frmMain.Height - Dlg.Height) div 2;
-      if Dlg.Left < Mon.Left then Dlg.Left := Mon.Left;
-      if Dlg.Top  < Mon.Top  then Dlg.Top  := Mon.Top;
-      if Dlg.Left + Dlg.Width  > Mon.Left + Mon.Width  then Dlg.Left := Mon.Left + Mon.Width  - Dlg.Width;
-      if Dlg.Top  + Dlg.Height > Mon.Top  + Mon.Height then Dlg.Top  := Mon.Top  + Mon.Height - Dlg.Height;
-    end;
     Result := Dlg.ShowModal = mrOK;
     if Result then
     begin
