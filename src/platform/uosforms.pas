@@ -331,6 +331,9 @@ var
 {$ENDIF}
   SavedFocusState: TFocusState;
   ActiveWindow: HWnd;
+  I: Integer;
+  CenterPoint: TPoint;
+  OnScreen: Boolean;
 begin
   if Self = nil then
     raise EInvalidOperation.Create('TModalForm.ShowModal Self = nil');
@@ -388,6 +391,21 @@ begin
 {$ENDIF}
         Show;
         try
+          // Safety net: if the dialog landed off all visible monitors (owner
+          // minimised, disconnected display, etc.) fall back to screen centre.
+          CenterPoint := Point(Left + Width div 2, Top + Height div 2);
+          OnScreen := False;
+          for I := 0 to Screen.MonitorCount - 1 do
+            if PtInRect(Screen.Monitors[I].BoundsRect, CenterPoint) then
+            begin
+              OnScreen := True;
+              Break;
+            end;
+          if not OnScreen then
+          begin
+            Left := (Screen.Width  - Width)  div 2;
+            Top  := (Screen.Height - Height) div 2;
+          end;
           EnableWindow(Handle, True);
           // Activate must happen after show
           Perform(CM_ACTIVATE, 0, 0);

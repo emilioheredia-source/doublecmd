@@ -10,7 +10,7 @@ object frmEditHotkey: TfrmEditHotkey
   Constraints.MinWidth = 200
   OnCreate = FormCreate
   OnShow = FormShow
-  Position = poScreenCenter
+  Position = poOwnerFormCenter
   ShowHint = True
   LCLVersion = '3.3.0.0'
   object lblShortcuts: TLabel

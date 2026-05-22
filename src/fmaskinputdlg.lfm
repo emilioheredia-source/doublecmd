@@ -9,7 +9,7 @@ object frmMaskInputDlg: TfrmMaskInputDlg
   ClientHeight = 300
   ClientWidth = 331
   OnCreate = FormCreate
-  Position = poScreenCenter
+  Position = poOwnerFormCenter
   SessionProperties = 'Height;Width'
   LCLVersion = '1.6.0.4'
   object lblPrompt: TLabel

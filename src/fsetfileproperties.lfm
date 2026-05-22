@@ -10,7 +10,7 @@ object frmSetFileProperties: TfrmSetFileProperties
   ClientHeight = 593
   ClientWidth = 309
   OnCreate = FormCreate
-  Position = poScreenCenter
+  Position = poOwnerFormCenter
   LCLVersion = '1.4.3.0'
   object btnOK: TBitBtn
     AnchorSideTop.Control = chkRecursive

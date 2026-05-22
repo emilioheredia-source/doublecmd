@@ -13,7 +13,7 @@ object frmMultiRename: TfrmMultiRename
   OnCloseQuery = FormCloseQuery
   OnCreate = FormCreate
   OnShow = FormShow
-  Position = poScreenCenter
+  Position = poOwnerFormCenter
   SessionProperties = 'Height;Left;Top;Width;WindowState;pnlOptionsLeft.Width'
   ShowHint = True
   ShowInTaskBar = stAlways

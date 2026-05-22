@@ -12,7 +12,7 @@ object frmViewOperations: TfrmViewOperations
   OnClose = FormClose
   OnCreate = FormCreate
   OnDestroy = FormDestroy
-  Position = poScreenCenter
+  Position = poOwnerFormCenter
   SessionProperties = 'Height;Left;Top;Width;WindowState;cbAlwaysOnTop.Checked'
   LCLVersion = '1.1'
   object pnlHeader: TPanel

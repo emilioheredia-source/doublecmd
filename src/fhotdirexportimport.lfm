@@ -7,7 +7,7 @@ object frmhotdirexportimport: Tfrmhotdirexportimport
   ClientHeight = 283
   ClientWidth = 427
   OnCreate = FormCreate
-  Position = poScreenCenter
+  Position = poOwnerFormCenter
   SessionProperties = 'Height;Width;WindowState'
   LCLVersion = '1.2.4.0'
   object lblHintHoldControl: TLabel

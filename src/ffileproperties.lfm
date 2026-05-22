@@ -15,7 +15,7 @@ object frmFileProperties: TfrmFileProperties
   KeyPreview = True
   OnCreate = FormCreate
   OnKeyDown = FormKeyDown
-  Position = poScreenCenter
+  Position = poOwnerFormCenter
   SessionProperties = 'Height;Width'
   LCLVersion = '2.2.4.0'
   object pcPageControl: TPageControl
