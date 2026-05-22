@@ -10,7 +10,7 @@ object frmPackInfoDlg: TfrmPackInfoDlg
   Caption = 'Properties of packed file'
   ClientHeight = 400
   ClientWidth = 284
-  Position = poScreenCenter
+  Position = poOwnerFormCenter
   LCLVersion = '2.0.8.0'
   object pnlInfo: TPanel
     Left = 0

@@ -20,7 +20,7 @@ object frmMainCommandsDlg: TfrmMainCommandsDlg
   OnActivate = FormActivate
   OnCreate = FormCreate
   OnDestroy = FormDestroy
-  Position = poScreenCenter
+  Position = poOwnerFormCenter
   SessionProperties = 'cbCategorySortOrNot.ItemIndex;cbCommandsSortOrNot.ItemIndex;Height;Width;cbSelectAllCategoryDefault.Checked'
   LCLVersion = '1.6.0.4'
   object lblCategory: TLabel

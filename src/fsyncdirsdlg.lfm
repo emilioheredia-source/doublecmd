@@ -12,7 +12,7 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
   OnCreate = FormCreate
   OnKeyDown = FormKeyDown
   OnResize = FormResize
-  Position = poScreenCenter
+  Position = poOwnerFormCenter
   SessionProperties = 'Height;Left;Top;Width;WindowState'
   ShowInTaskBar = stAlways
   LCLVersion = '2.2.0.4'

@@ -9,7 +9,7 @@ object frmFileOp: TfrmFileOp
   Constraints.MinWidth = 500
   OnClose = FormClose
   OnCreate = FormCreate
-  Position = poScreenCenter
+  Position = poOwnerFormCenter
   ShowInTaskBar = stAlways
   LCLVersion = '2.0.0.2'
   object pnlClient: TPanel

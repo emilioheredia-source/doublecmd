@@ -3,7 +3,7 @@ object frmHackForm: TfrmHackForm
   Height = 300
   Top = 236
   Width = 400
-  Position = poScreenCenter
+  Position = poOwnerFormCenter
   ShowInTaskBar = stNever
   LCLVersion = '1.0.1.3'
 end

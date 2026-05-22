@@ -7,7 +7,7 @@ object frmConnectionManager: TfrmConnectionManager
   ClientHeight = 366
   ClientWidth = 431
   OnDestroy = FormDestroy
-  Position = poScreenCenter
+  Position = poOwnerFormCenter
   LCLVersion = '1.1'
   object gbConnectTo: TGroupBox
     AnchorSideLeft.Control = Owner

@@ -15,7 +15,7 @@ object frmFindDlg: TfrmFindDlg
   OnCreate = FormCreate
   OnDestroy = FormDestroy
   OnShow = frmFindDlgShow
-  Position = poScreenCenter
+  Position = poOwnerFormCenter
   SessionProperties = 'Height;Left;Top;Width;WindowState'
   ShowInTaskBar = stAlways
   LCLVersion = '2.0.7.0'

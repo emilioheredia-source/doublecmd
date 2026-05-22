@@ -8,7 +8,7 @@ object frmOptions: TfrmOptions
   Caption = 'Options'
   ClientHeight = 600
   ClientWidth = 800
-  Position = poScreenCenter
+  Position = poOwnerFormCenter
   SessionProperties = 'Height;Left;Top;TreeFilterEdit.Width;tvTreeView.Width;Width;WindowState'
   ShowInTaskBar = stAlways
   LCLVersion = '4.99.0.0'

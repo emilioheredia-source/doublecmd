@@ -9,7 +9,7 @@ object TfrmConfirmCommandLine: TTfrmConfirmCommandLine
   ClientHeight = 205
   ClientWidth = 500
   OnCreate = FormCreate
-  Position = poScreenCenter
+  Position = poOwnerFormCenter
   SessionProperties = 'Width'
   LCLVersion = '1.2.6.0'
   object btnCancel: TBitBtn

@@ -8,7 +8,7 @@ object frmTweakPlugin: TfrmTweakPlugin
   ClientHeight = 703
   ClientWidth = 533
   OnCreate = FormCreate
-  Position = poScreenCenter
+  Position = poOwnerFormCenter
   ShowInTaskBar = stNever
   LCLVersion = '2.2.7.0'
   object nbTweakAll: TNotebook
