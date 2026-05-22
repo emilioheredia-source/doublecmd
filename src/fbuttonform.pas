@@ -6,13 +6,13 @@ interface
 
 uses
   Classes, SysUtils, FileUtil, Forms, Controls, Graphics, Dialogs, ExtCtrls,
-  Buttons, Menus, uOperationsManager, uFileSource, uFormCommands, uOSForms;
+  Buttons, Menus, uOperationsManager, uFileSource, uFormCommands;
 
 type
 
   { TfrmButtonForm }
 
-  TfrmButtonForm = class(TModalDialog, IFormCommands)
+  TfrmButtonForm = class(TForm, IFormCommands)
     btnAddToQueue: TBitBtn;
     btnCancel: TBitBtn;
     btnCreateSpecialQueue: TBitBtn;
