@@ -34,50 +34,78 @@ function ShowDeleteDialog(TheOwner: TComponent; const TrashMessage, DeleteMessag
 implementation
 
 uses
-  LCLType;
+  LCLType, fMain;
 
 function ShowDeleteDialog(TheOwner: TComponent; const Message: String; FileSource: IFileSource;
   out QueueId: TOperationsManagerQueueIdentifier): Boolean;
+var
+  Dlg: TfrmDeleteDlg;
+  Mon: TMonitor;
 begin
-  with TfrmDeleteDlg.Create(TheOwner, FileSource) do
-  begin
-    Caption:= Application.Title;
-    lblMessage.Caption:= Message;
-    Result:= ShowModal = mrOK;
-    QueueId:= QueueIdentifier;
-    Free;
+  Dlg := TfrmDeleteDlg.Create(TheOwner, FileSource);
+  try
+    Dlg.Caption := Application.Title;
+    Dlg.lblMessage.Caption := Message;
+    if Assigned(frmMain) and frmMain.HandleAllocated then
+    begin
+      Mon := frmMain.Monitor;
+      Dlg.Left := frmMain.Left + (frmMain.Width  - Dlg.Width)  div 2;
+      Dlg.Top  := frmMain.Top  + (frmMain.Height - Dlg.Height) div 2;
+      if Dlg.Left < Mon.Left then Dlg.Left := Mon.Left;
+      if Dlg.Top  < Mon.Top  then Dlg.Top  := Mon.Top;
+      if Dlg.Left + Dlg.Width  > Mon.Left + Mon.Width  then Dlg.Left := Mon.Left + Mon.Width  - Dlg.Width;
+      if Dlg.Top  + Dlg.Height > Mon.Top  + Mon.Height then Dlg.Top  := Mon.Top  + Mon.Height - Dlg.Height;
+    end;
+    Result := Dlg.ShowModal = mrOK;
+    QueueId := Dlg.QueueIdentifier;
+  finally
+    Dlg.Free;
   end;
 end;
 
 function ShowDeleteDialog(TheOwner: TComponent; const TrashMessage, DeleteMessage, WipeMessage: String;
   FileSource: IFileSource; out QueueId: TOperationsManagerQueueIdentifier;
   ShowTrash, ShowWipe: Boolean; var DeleteMode: TDeleteMode): Boolean;
+var
+  Dlg: TfrmDeleteDlg;
+  Mon: TMonitor;
 begin
-  with TfrmDeleteDlg.Create(TheOwner, FileSource) do
-  begin
-    Caption:= Application.Title;
-    FMessages[dmTrash]  := TrashMessage;
-    FMessages[dmDelete] := DeleteMessage;
-    FMessages[dmWipe]   := WipeMessage;
-    rbTrash.Visible  := ShowTrash;
-    rbDelete.Visible := True;
-    rbWipe.Visible   := ShowWipe;
+  Dlg := TfrmDeleteDlg.Create(TheOwner, FileSource);
+  try
+    Dlg.Caption := Application.Title;
+    Dlg.FMessages[dmTrash]  := TrashMessage;
+    Dlg.FMessages[dmDelete] := DeleteMessage;
+    Dlg.FMessages[dmWipe]   := WipeMessage;
+    Dlg.rbTrash.Visible  := ShowTrash;
+    Dlg.rbDelete.Visible := True;
+    Dlg.rbWipe.Visible   := ShowWipe;
     // Set initial selection; fall back to dmDelete if the preferred mode is unavailable
     case DeleteMode of
-      dmTrash:  if ShowTrash then rbTrash.Checked  := True else rbDelete.Checked := True;
-      dmWipe:   if ShowWipe  then rbWipe.Checked   := True else rbDelete.Checked := True;
-      else           rbDelete.Checked := True;
+      dmTrash:  if ShowTrash then Dlg.rbTrash.Checked  := True else Dlg.rbDelete.Checked := True;
+      dmWipe:   if ShowWipe  then Dlg.rbWipe.Checked   := True else Dlg.rbDelete.Checked := True;
+      else           Dlg.rbDelete.Checked := True;
     end;
-    lblMessage.Caption:= FMessages[DeleteMode];
-    Result:= ShowModal = mrOK;
+    Dlg.lblMessage.Caption := Dlg.FMessages[DeleteMode];
+    if Assigned(frmMain) and frmMain.HandleAllocated then
+    begin
+      Mon := frmMain.Monitor;
+      Dlg.Left := frmMain.Left + (frmMain.Width  - Dlg.Width)  div 2;
+      Dlg.Top  := frmMain.Top  + (frmMain.Height - Dlg.Height) div 2;
+      if Dlg.Left < Mon.Left then Dlg.Left := Mon.Left;
+      if Dlg.Top  < Mon.Top  then Dlg.Top  := Mon.Top;
+      if Dlg.Left + Dlg.Width  > Mon.Left + Mon.Width  then Dlg.Left := Mon.Left + Mon.Width  - Dlg.Width;
+      if Dlg.Top  + Dlg.Height > Mon.Top  + Mon.Height then Dlg.Top  := Mon.Top  + Mon.Height - Dlg.Height;
+    end;
+    Result := Dlg.ShowModal = mrOK;
     if Result then
     begin
-      if rbTrash.Checked then DeleteMode := dmTrash
-      else if rbWipe.Checked then DeleteMode := dmWipe
+      if Dlg.rbTrash.Checked then DeleteMode := dmTrash
+      else if Dlg.rbWipe.Checked then DeleteMode := dmWipe
       else DeleteMode := dmDelete;
     end;
-    QueueId:= QueueIdentifier;
-    Free;
+    QueueId := Dlg.QueueIdentifier;
+  finally
+    Dlg.Free;
   end;
 end;
 
