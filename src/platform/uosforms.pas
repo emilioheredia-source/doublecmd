@@ -334,6 +334,7 @@ var
   I: Integer;
   CenterPoint: TPoint;
   OnScreen: Boolean;
+  Mon: TMonitor;
 begin
   if Self = nil then
     raise EInvalidOperation.Create('TModalForm.ShowModal Self = nil');
@@ -389,10 +390,29 @@ begin
         else
           DisabledList := nil;
 {$ENDIF}
+        { Always place the dialog on the same monitor as the DC main window,
+          centered on it.  Set poDesigned so GTK/LCL does not then move it. }
+        if Assigned(Application.MainForm) and
+           Application.MainForm.HandleAllocated then
+        begin
+          Position := poDesigned;
+          Mon  := Application.MainForm.Monitor;
+          Left := Application.MainForm.Left +
+                  (Application.MainForm.Width  - Width)  div 2;
+          Top  := Application.MainForm.Top  +
+                  (Application.MainForm.Height - Height) div 2;
+          { Clamp so the dialog stays fully within its monitor. }
+          if Left < Mon.Left then Left := Mon.Left;
+          if Top  < Mon.Top  then Top  := Mon.Top;
+          if Left + Width  > Mon.Left + Mon.Width  then
+            Left := Mon.Left + Mon.Width  - Width;
+          if Top  + Height > Mon.Top  + Mon.Height then
+            Top  := Mon.Top  + Mon.Height - Height;
+        end;
         Show;
         try
-          // Safety net: if the dialog landed off all visible monitors (owner
-          // minimised, disconnected display, etc.) fall back to screen centre.
+          { Final fallback: if somehow still off all monitors (e.g. MainForm
+            not yet visible), snap to the primary screen centre. }
           CenterPoint := Point(Left + Width div 2, Top + Height div 2);
           OnScreen := False;
           for I := 0 to Screen.MonitorCount - 1 do
