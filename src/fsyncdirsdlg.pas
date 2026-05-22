@@ -298,8 +298,8 @@ begin
     raise Exception.Create('ShowSyncDirsDlg: FileView2=nil');
   Dlg := TfrmSyncDirsDlg.Create(Application, FileView1, FileView2);
   { Center on the same monitor as the main DC window. }
-  if Assigned(Application.MainForm) then
-  with Application.MainForm.Monitor do
+  if Assigned(frmMain) then
+  with frmMain.Monitor do
     Dlg.SetBounds(
       Left + (Width  - Dlg.Width)  div 2,
       Top  + (Height - Dlg.Height) div 2,

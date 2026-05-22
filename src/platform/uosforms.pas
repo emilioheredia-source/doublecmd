@@ -390,18 +390,18 @@ begin
         else
           DisabledList := nil;
 {$ENDIF}
-        { Always place the dialog on the same monitor as the DC main window,
-          centered on it.  Set poDesigned so GTK/LCL does not then move it. }
-        if Assigned(Application.MainForm) and
-           Application.MainForm.HandleAllocated then
+        { Center the dialog on the DC main window.
+          NB: Application.MainForm is TfrmHackForm (the first-created form),
+          so we reference frmMain directly.
+          Pre-show: set Position := poDesigned + Left/Top so LCL/GTK does not
+          override the position when the window is first mapped.
+          Post-show: reapply in case the WM moved it anyway. }
+        if Assigned(frmMain) and frmMain.HandleAllocated then
         begin
           Position := poDesigned;
-          Mon  := Application.MainForm.Monitor;
-          Left := Application.MainForm.Left +
-                  (Application.MainForm.Width  - Width)  div 2;
-          Top  := Application.MainForm.Top  +
-                  (Application.MainForm.Height - Height) div 2;
-          { Clamp so the dialog stays fully within its monitor. }
+          Mon  := frmMain.Monitor;
+          Left := frmMain.Left + (frmMain.Width  - Width)  div 2;
+          Top  := frmMain.Top  + (frmMain.Height - Height) div 2;
           if Left < Mon.Left then Left := Mon.Left;
           if Top  < Mon.Top  then Top  := Mon.Top;
           if Left + Width  > Mon.Left + Mon.Width  then
@@ -411,20 +411,35 @@ begin
         end;
         Show;
         try
-          { Final fallback: if somehow still off all monitors (e.g. MainForm
-            not yet visible), snap to the primary screen centre. }
-          CenterPoint := Point(Left + Width div 2, Top + Height div 2);
-          OnScreen := False;
-          for I := 0 to Screen.MonitorCount - 1 do
-            if PtInRect(Screen.Monitors[I].BoundsRect, CenterPoint) then
-            begin
-              OnScreen := True;
-              Break;
-            end;
-          if not OnScreen then
+          { Post-show: reapply position in case GTK/WM moved it. }
+          if Assigned(frmMain) and frmMain.HandleAllocated then
           begin
-            Left := (Screen.Width  - Width)  div 2;
-            Top  := (Screen.Height - Height) div 2;
+            Mon  := frmMain.Monitor;
+            Left := frmMain.Left + (frmMain.Width  - Width)  div 2;
+            Top  := frmMain.Top  + (frmMain.Height - Height) div 2;
+            if Left < Mon.Left then Left := Mon.Left;
+            if Top  < Mon.Top  then Top  := Mon.Top;
+            if Left + Width  > Mon.Left + Mon.Width  then
+              Left := Mon.Left + Mon.Width  - Width;
+            if Top  + Height > Mon.Top  + Mon.Height then
+              Top  := Mon.Top  + Mon.Height - Height;
+          end
+          else
+          begin
+            { frmMain not yet visible (startup dialogs): just keep on screen. }
+            CenterPoint := Point(Left + Width div 2, Top + Height div 2);
+            OnScreen := False;
+            for I := 0 to Screen.MonitorCount - 1 do
+              if PtInRect(Screen.Monitors[I].BoundsRect, CenterPoint) then
+              begin
+                OnScreen := True;
+                Break;
+              end;
+            if not OnScreen then
+            begin
+              Left := (Screen.Width  - Width)  div 2;
+              Top  := (Screen.Height - Height) div 2;
+            end;
           end;
           EnableWindow(Handle, True);
           // Activate must happen after show

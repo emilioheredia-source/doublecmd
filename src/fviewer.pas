@@ -581,7 +581,7 @@ implementation
 
 uses
   FileUtil, IntfGraphics, Math, uLng, uShowMsg, uGlobs, LCLType, LConvEncoding,
-  DCClassesUtf8, uFindMmap, DCStrUtils, uDCUtils, LCLIntf, uDebug, uHotkeyManager,
+  DCClassesUtf8, uFindMmap, DCStrUtils, uDCUtils, LCLIntf, uDebug, uHotkeyManager, fMain,
   uConvEncoding, DCBasicTypes, DCOSUtils, uOSUtils, uFindByrMr, uFileViewWithGrid,
   fPrintSetup, uFindFiles, uAdministrator, uOfficeXML, uHighlighterProcs, dmHigh,
   SynEditTypes, uFile, uFileSystemFileSource, uFileProcs, uOperationsManager,
@@ -663,8 +663,8 @@ begin
   Viewer.LoadFile(0);
 
   { Open on the same monitor as the main DC window. }
-  if Assigned(Application.MainForm) then
-  with Application.MainForm.Monitor do
+  if Assigned(frmMain) then
+  with frmMain.Monitor do
     Viewer.SetBounds(
       Left + (Width  - Viewer.Width)  div 2,
       Top  + (Height - Viewer.Height) div 2,
