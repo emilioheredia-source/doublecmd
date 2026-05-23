@@ -459,6 +459,22 @@ begin
   end;
 end;
 
+{ Strip optional '0o'/'0O' prefix (pyftpdlib quirk) then parse as octal.
+  Returns 0 on any parse error so a bad server response never crashes DC. }
+function ParseOctalMode(const Value: String): TFileAttrs;
+var
+  S: String;
+begin
+  S := Value;
+  if (Length(S) >= 2) and (S[1] = '0') and ((S[2] = 'o') or (S[2] = 'O')) then
+    S := Copy(S, 3, MaxInt);
+  try
+    Result := OctToDec(S);
+  except
+    Result := 0;
+  end;
+end;
+
 function TFTPSendEx.ListMachine(Directory: String): Boolean;
 var
   v: String;
@@ -541,7 +557,7 @@ begin
           end
           else if (option = 'unix.mode') then
           begin
-            flr.Mode:= flr.Mode or OctToDec(value);
+            flr.Mode:= flr.Mode or ParseOctalMode(value);
           end;
           if (y < Length(v)) and (v[y + 1] = ' ') then
           begin
