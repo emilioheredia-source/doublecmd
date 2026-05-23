@@ -39,10 +39,12 @@ function ShowAuthDlg(const Message: String; var Flags: TGAskPasswordFlags;
 
 implementation
 
+uses fMain;
+
 function ShowAuthDlg(const Message: String; var Flags: TGAskPasswordFlags;
   var DefaultUser, DefaultDomain: String; out Password: String): Boolean;
 begin
-  with TfrmGioAuthDialog.Create(Application) do
+  with TfrmGioAuthDialog.Create(frmMain) do
   try
     Caption:= Application.Title;
     lblMessage.Caption:= Message;

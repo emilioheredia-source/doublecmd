@@ -11,7 +11,7 @@ object frmMsg: TfrmMsg
   ClientHeight = 254
   ClientWidth = 426
   Constraints.MinWidth = 250
-  DefaultMonitor = dmMainForm
+  Position = poOwnerFormCenter
   KeyPreview = True
   OnClose = FormClose
   OnCreate = FormCreate

@@ -50,11 +50,11 @@ implementation
 {$R *.lfm}
 
 uses
-  uLng;
+  uLng, fMain;
 
 function CreateMasterKey(Short: Boolean; out Password: String; out ArgonType: Targon2_type; out M: UInt32; out T, P: UInt16): Boolean;
 begin
-  with TfrmMasterKey.Create(Application) do
+  with TfrmMasterKey.Create(frmMain) do
   try
     seMemory.Value:= 256;
     seIterations.Value:= 2;

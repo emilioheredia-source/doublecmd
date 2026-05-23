@@ -10,7 +10,7 @@ object frmGioAuthDialog: TfrmGioAuthDialog
   ClientHeight = 215
   ClientWidth = 375
   Constraints.MinWidth = 375
-  Position = poScreenCenter
+  Position = poOwnerFormCenter
   LCLVersion = '1.6.0.4'
   object imgAuth: TImage
     AnchorSideLeft.Control = Owner
