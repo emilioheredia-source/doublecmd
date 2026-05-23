@@ -577,26 +577,17 @@ var
   bbtnOK,
   bbtnCancel : TBitBtn;
 begin
-  frmDialog := TForm.CreateNew(nil, 0);
+  frmDialog := TForm.CreateNew(frmMain, 0);
   with frmDialog do
     try
       BorderStyle := bsDialog;
-      Position := poScreenCenter;
+      Position := poOwnerFormCenter;
       AutoSize := True;
       Height := 120;
       ChildSizing.TopBottomSpacing := 8;
       ChildSizing.LeftRightSpacing := 8;
       Caption := sCaption;
       lblPrompt := TLabel.Create(frmDialog);
-      with lblPrompt do
-        begin
-          Parent := frmDialog;
-          Caption := sPrompt;
-          Top := 6;
-          Left := 6;
-          WordWrap := True;
-        end;
-      cbValue := TComboBox.Create(frmDialog);
       with cbValue do
         begin
           Parent := frmDialog;
@@ -672,11 +663,11 @@ begin
   SelectedChoice:=-1;
   ProcedureHolder:=TProcedureHolder.Create;
   try
-  frmDialog := TForm.CreateNew(nil, 0);
+  frmDialog := TForm.CreateNew(frmMain, 0);
   with frmDialog do
     try
       BorderStyle := bsDialog;
-      Position := poScreenCenter;
+      Position := poOwnerFormCenter;
       AutoSize := True;
       Height := 120;
       ChildSizing.TopBottomSpacing := 8;
