@@ -27,6 +27,8 @@ implementation
 
 {$R *.lfm}
 
+uses fMain;
+
 {$IF DEFINED(MSWINDOWS)}
 uses
   Windows, uBitmap;
@@ -56,7 +58,7 @@ end;
 
 procedure TElevationData.ShowElevation;
 begin
-  with TfrmElevation.Create(Application) do
+  with TfrmElevation.Create(frmMain) do
   try
     Caption:= FTitle;
     lblText.Caption:= FText;

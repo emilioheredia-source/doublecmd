@@ -141,7 +141,7 @@ implementation
 
 uses
   LCLIntf, SysUtils, StdCtrls, Graphics, Math, typinfo, Menus,
-  fMsg, uLng, Buttons, Controls, uLog, uGlobs, uDebug;
+  fMsg, uLng, Buttons, Controls, uLog, uGlobs, uDebug, fMain;
 
 const
   cMsgName = 'Double Commander';
@@ -405,7 +405,7 @@ var
   MsgBoxHelper: TMsgBoxHelper = nil;
   I: Integer;
 begin
-  frmMsg:=TfrmMsg.Create(Application);
+  frmMsg:=TfrmMsg.Create(frmMain);
   try
     MsgBoxHelper := TMsgBoxHelper.Create();
     SetLength(MsgBoxHelper.Buttons, Length(Buttons));
@@ -824,7 +824,7 @@ var
   CaptionWidth: Integer;
   MinButtonWidth, iCount: Integer;
 begin
-  frmMsg:= TfrmMsg.Create(Application);
+  frmMsg:= TfrmMsg.Create(frmMain);
   try
     frmMsg.BorderStyle:= bsSingle;
     frmMsg.Position:= poScreenCenter;

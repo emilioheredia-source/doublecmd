@@ -11,7 +11,7 @@ object frmMasterKey: TfrmMasterKey
   ClientHeight = 494
   ClientWidth = 480
   Constraints.MinWidth = 480
-  Position = poMainFormCenter
+  Position = poOwnerFormCenter
   LCLVersion = '4.3.0.0'
   object gbMasterKey: TGroupBox
     AnchorSideLeft.Control = Owner
