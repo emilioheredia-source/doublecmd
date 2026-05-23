@@ -137,11 +137,11 @@ function DarkStyle: Boolean;
 }
 function GetFrmMainMonitor: TMonitor;
 {en
-   Returns the TRUE global screen bounds of frmMain's window.
-   On GTK2, gdk_window_get_origin() is used so that the result is correct
-   even for maximized windows on non-primary monitors.
+   Centers AForm over frmMain's window, clamped to the monitor.
+   On GTK2, uses gdk_window_get_origin() for correct results on
+   non-primary monitors even when the window is maximized.
 }
-function GetFrmMainBoundsRect: TRect;
+procedure CenterFormOnFrmMain(AForm: TCustomForm);
 
 implementation
 
@@ -321,38 +321,35 @@ begin
 end;
 
 {$IF DEFINED(LCLGTK2)}
-{ Returns the LCL TMonitor that frmMain currently occupies.
-  On GTK2, frmMain.Left/Top = 0 for maximized windows on non-primary monitors
-  (GTK2 returns monitor-relative coordinates, not global screen coordinates).
-  This function uses gdk_window_get_origin() to get the TRUE global coords. }
-function GetFrmMainMonitor: TMonitor;
+{ Reads the TRUE global screen origin of frmMain's GTK window via GDK.
+  Returns False if the window is not yet realized; WinX/WinY are undefined
+  in that case. }
+function GetFrmMainGdkOrigin(out WinX, WinY: gint): Boolean;
 var
   GdkWin: PGdkWindow;
-  WinX, WinY: gint;
 begin
   GdkWin := PGtkWidget(frmMain.Handle)^.window;
-  if GdkWin <> nil then
-  begin
+  Result  := GdkWin <> nil;
+  if Result then
     gdk_window_get_origin(GdkWin, @WinX, @WinY);
-    Result := Screen.MonitorFromPoint(
-      Point(WinX + frmMain.Width div 2, WinY + frmMain.Height div 2));
-  end
+end;
+
+function GetFrmMainMonitor: TMonitor;
+var
+  WinX, WinY: gint;
+begin
+  if GetFrmMainGdkOrigin(WinX, WinY) then
+    Result := Screen.MonitorFromPoint(Point(WinX + frmMain.Width div 2, WinY + frmMain.Height div 2))
   else
     Result := Screen.PrimaryMonitor;
 end;
 
-{ Returns the TRUE global screen bounds of frmMain's window. }
 function GetFrmMainBoundsRect: TRect;
 var
-  GdkWin: PGdkWindow;
   WinX, WinY: gint;
 begin
-  GdkWin := PGtkWidget(frmMain.Handle)^.window;
-  if GdkWin <> nil then
-  begin
-    gdk_window_get_origin(GdkWin, @WinX, @WinY);
-    Result := Rect(WinX, WinY, WinX + frmMain.Width, WinY + frmMain.Height);
-  end
+  if GetFrmMainGdkOrigin(WinX, WinY) then
+    Result := Rect(WinX, WinY, WinX + frmMain.Width, WinY + frmMain.Height)
   else
     Result := frmMain.BoundsRect;
 end;
@@ -369,28 +366,37 @@ begin
 end;
 {$ENDIF}
 
-procedure TModalDialog.DoShow;
+{ Centers AForm over frmMain's window, clamped to the monitor so it stays
+  fully on screen.  Callers must set Position := poDesigned beforehand to
+  prevent the WM from overriding the placement. }
+procedure CenterFormOnFrmMain(AForm: TCustomForm);
 var
-  Mon: TMonitor;
   Frm: TRect;
+  Mon: TMonitor;
+begin
+  Frm := GetFrmMainBoundsRect;
+  Mon := GetFrmMainMonitor;
+  AForm.Left := Frm.Left + (Frm.Right  - Frm.Left - AForm.Width)  div 2;
+  AForm.Top  := Frm.Top  + (Frm.Bottom - Frm.Top  - AForm.Height) div 2;
+  if AForm.Left < Mon.Left then AForm.Left := Mon.Left;
+  if AForm.Top  < Mon.Top  then AForm.Top  := Mon.Top;
+  if AForm.Left + AForm.Width  > Mon.Left + Mon.Width  then
+    AForm.Left := Mon.Left + Mon.Width  - AForm.Width;
+  if AForm.Top  + AForm.Height > Mon.Top  + Mon.Height then
+    AForm.Top  := Mon.Top  + Mon.Height - AForm.Height;
+end;
+
+procedure TModalDialog.DoShow;
 begin
   inherited DoShow;
-  { Center over frmMain's window (like TC/Krusader), clamped to the monitor.
-    GetFrmMainBoundsRect() uses gdk_window_get_origin on GTK2 so the result is
-    correct even for maximized windows on non-primary monitors. }
+  { Position over frmMain's window (TC/Krusader-style).  Handles non-modal
+    shows (Show/Visible:=True) that bypass ShowModal, e.g. file-op progress.
+    ShowModal also calls CenterFormOnFrmMain pre/post-show, so this is
+    complementary but harmless for modal dialogs. }
   if Assigned(frmMain) and frmMain.HandleAllocated then
   begin
     Position := poDesigned;
-    Frm := GetFrmMainBoundsRect;
-    Mon := GetFrmMainMonitor;
-    Left := Frm.Left + (Frm.Right  - Frm.Left - Width)  div 2;
-    Top  := Frm.Top  + (Frm.Bottom - Frm.Top  - Height) div 2;
-    if Left < Mon.Left then Left := Mon.Left;
-    if Top  < Mon.Top  then Top  := Mon.Top;
-    if Left + Width  > Mon.Left + Mon.Width  then
-      Left := Mon.Left + Mon.Width  - Width;
-    if Top  + Height > Mon.Top  + Mon.Height then
-      Top  := Mon.Top  + Mon.Height - Height;
+    CenterFormOnFrmMain(Self);
   end;
 end;
 
@@ -423,8 +429,6 @@ var
   I: Integer;
   CenterPoint: TPoint;
   OnScreen: Boolean;
-  Mon: TMonitor;
-  Frm: TRect;
 begin
   if Self = nil then
     raise EInvalidOperation.Create('TModalForm.ShowModal Self = nil');
@@ -480,44 +484,19 @@ begin
         else
           DisabledList := nil;
 {$ENDIF}
-        { Center the dialog on the DC main window.
-          NB: Application.MainForm is TfrmHackForm (the first-created form),
-          so we reference frmMain directly.
-          Pre-show: set Position := poDesigned + Left/Top so LCL/GTK does not
-          override the position when the window is first mapped.
-          Post-show: reapply in case the WM moved it anyway.
-          Use GetFrmMainBoundsRect() so dialogs center over frmMain's window,
-          not the whole monitor.  Clamped to monitor bounds. }
+        { Pre-show: set position before the window is mapped so LCL/GTK does
+          not apply its own auto-positioning.  Post-show reapplies in case the
+          WM moves it.  NB: Application.MainForm = TfrmHackForm — use frmMain. }
         if Assigned(frmMain) and frmMain.HandleAllocated then
         begin
           Position := poDesigned;
-          Frm := GetFrmMainBoundsRect;
-          Mon := GetFrmMainMonitor;
-          Left := Frm.Left + (Frm.Right  - Frm.Left - Width)  div 2;
-          Top  := Frm.Top  + (Frm.Bottom - Frm.Top  - Height) div 2;
-          if Left < Mon.Left then Left := Mon.Left;
-          if Top  < Mon.Top  then Top  := Mon.Top;
-          if Left + Width  > Mon.Left + Mon.Width  then
-            Left := Mon.Left + Mon.Width  - Width;
-          if Top  + Height > Mon.Top  + Mon.Height then
-            Top  := Mon.Top  + Mon.Height - Height;
+          CenterFormOnFrmMain(Self);
         end;
         Show;
         try
           { Post-show: reapply in case GTK/WM moved it. }
           if Assigned(frmMain) and frmMain.HandleAllocated then
-          begin
-            Frm := GetFrmMainBoundsRect;
-            Mon := GetFrmMainMonitor;
-            Left := Frm.Left + (Frm.Right  - Frm.Left - Width)  div 2;
-            Top  := Frm.Top  + (Frm.Bottom - Frm.Top  - Height) div 2;
-            if Left < Mon.Left then Left := Mon.Left;
-            if Top  < Mon.Top  then Top  := Mon.Top;
-            if Left + Width  > Mon.Left + Mon.Width  then
-              Left := Mon.Left + Mon.Width  - Width;
-            if Top  + Height > Mon.Top  + Mon.Height then
-              Top  := Mon.Top  + Mon.Height - Height;
-          end
+            CenterFormOnFrmMain(Self)
           else
           begin
             { frmMain not yet visible (startup dialogs): just keep on screen. }
@@ -699,29 +678,16 @@ procedure ScreenFormEvent(Self, Sender: TObject; Form: TCustomForm);
 {$IF DEFINED(LCLGTK2)}
 var
   ClassName: String;
-  Mon: TMonitor;
-  Frm: TRect;
 begin
   ClassName:= Form.ClassName;
   gtk_window_set_role(PGtkWindow(Form.Handle), PAnsiChar(ClassName));
-  { Pre-show centering: covers LCL standard dialogs (MessageDlg, QuestionDlg
-    etc.) that bypass TModalDialog.ShowModal. Setting poDesigned here prevents
-    GTK2 from applying its own auto-positioning when the window is mapped.
-    Center over frmMain's window (not the whole monitor), clamped to monitor. }
+  { Covers LCL standard dialogs (MessageDlg, QuestionDlg, etc.) that bypass
+    TModalDialog.ShowModal.  poDesigned prevents GTK2's own auto-positioning. }
   if Assigned(frmMain) and frmMain.HandleAllocated and
      (Form <> TCustomForm(frmMain)) and not (Form is THintWindow) then
   begin
     Form.Position := poDesigned;
-    Frm := GetFrmMainBoundsRect;
-    Mon := GetFrmMainMonitor;
-    Form.Left := Frm.Left + (Frm.Right  - Frm.Left - Form.Width)  div 2;
-    Form.Top  := Frm.Top  + (Frm.Bottom - Frm.Top  - Form.Height) div 2;
-    if Form.Left < Mon.Left then Form.Left := Mon.Left;
-    if Form.Top  < Mon.Top  then Form.Top  := Mon.Top;
-    if Form.Left + Form.Width  > Mon.Left + Mon.Width  then
-      Form.Left := Mon.Left + Mon.Width  - Form.Width;
-    if Form.Top  + Form.Height > Mon.Top  + Mon.Height then
-      Form.Top  := Mon.Top  + Mon.Height - Form.Height;
+    CenterFormOnFrmMain(Form);
   end;
 end;
 {$ELSEIF DEFINED(LCLQT) or DEFINED(LCLQT5) or DEFINED(LCLQT6)}
