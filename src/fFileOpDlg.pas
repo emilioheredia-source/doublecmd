@@ -167,7 +167,7 @@ implementation
 
 uses
    dmCommonData, uLng, uDCUtils, LCLVersion, uShowMsg,
-   fViewOperations,
+   fMain, fViewOperations,
    uFileSourceOperationMisc,
    uFileSourceOperationTypes,
    uFileSourceCopyOperation,
@@ -344,7 +344,7 @@ var
 begin
   FOperationHandle := InvalidOperationHandle;
 
-  inherited Create(Application);
+  inherited Create(frmMain);
 
   AutoSize := True;
 

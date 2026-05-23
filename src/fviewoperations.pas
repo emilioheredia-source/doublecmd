@@ -167,7 +167,7 @@ implementation
 
 uses
   GraphMath, GraphType, Math,
-  fFileOpDlg, uLng, uGlobs, uFileSourceOperationMisc;
+  fMain, fFileOpDlg, uLng, uGlobs, uFileSourceOperationMisc;
 
 const
   ExpandSignSize = 9;
@@ -196,7 +196,7 @@ var
 procedure ShowOperationsViewer;
 begin
   if not Assigned(frmViewOperations) then
-    frmViewOperations := TfrmViewOperations.Create(Application);
+    frmViewOperations := TfrmViewOperations.Create(frmMain);
   frmViewOperations.ShowOnTop;
 end;
 
