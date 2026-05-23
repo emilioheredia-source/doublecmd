@@ -724,6 +724,8 @@ begin
         ConvertFromUtf8:= @Ymmud;
         FTPCommand('OPTS UTF8 ON');
       end;
+      if FMachine then
+        FTPCommand('OPTS MLST unix.mode;type;size;modify;');
     end;
     if (not FMachine) and FShowHidden then
     begin
@@ -886,6 +888,9 @@ begin
       Semi := Pos(';', Val);
       if Semi > 0 then Val := Copy(Val, 1, Semi - 1);
       Val := Trim(Val);
+      // Strip Python-style '0o' prefix (pyftpdlib quirk; plain digits or leading 0 are fine)
+      if (Length(Val) >= 2) and (Val[1] = '0') and ((Val[2] = 'o') or (Val[2] = 'O')) then
+        Val := Copy(Val, 3, MaxInt);
       if Val <> '' then
       begin
         Mode := OctToDec(Val);
