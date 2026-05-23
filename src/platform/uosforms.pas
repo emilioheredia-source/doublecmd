@@ -128,6 +128,14 @@ function GetWindowHandle(AHandle: HWND): HWND; overload;
 procedure CopyNetNamesToClip;
 procedure MapNetworkDrive;
 function DarkStyle: Boolean;
+{en
+   Returns the TMonitor where the DC main window (frmMain) currently resides.
+   On GTK2, frmMain.Left/Top=0 for maximized windows on non-primary monitors
+   (GTK2 returns monitor-relative coordinates), so this function uses
+   gdk_window_get_origin() to obtain true global screen coordinates.
+   On all other backends frmMain.Monitor is returned directly.
+}
+function GetFrmMainMonitor: TMonitor;
 
 implementation
 
@@ -173,7 +181,7 @@ uses
     , qt6, qtwidgets
     {$ENDIF}
     {$IF DEFINED(LCLGTK2)}
-    , Gtk2,  Glib2, Themes
+    , Gtk2, Gdk2, Glib2, Themes
     {$ENDIF}
   {$ENDIF}
   {$IF FPC_FULLVERSION < 30300}
@@ -306,6 +314,37 @@ begin
   until False;
 end;
 
+{$IF DEFINED(LCLGTK2)}
+{ Returns the LCL TMonitor that frmMain currently occupies.
+  On GTK2, frmMain.Left/Top = 0 for maximized windows on non-primary monitors
+  (GTK2 returns monitor-relative coordinates, not global screen coordinates).
+  frmMain.Monitor calls Screen.MonitorFromRect(BoundsRect) with these wrong
+  values and therefore returns the PRIMARY monitor instead of the real one.
+  This function uses gdk_window_get_origin() to get the TRUE global coords and
+  derives the correct monitor from them. }
+function GetFrmMainMonitor: TMonitor;
+var
+  GdkWin: PGdkWindow;
+  WinX, WinY: gint;
+begin
+  GdkWin := PGtkWidget(frmMain.Handle)^.window;
+  if GdkWin <> nil then
+  begin
+    gdk_window_get_origin(GdkWin, @WinX, @WinY);
+    Result := Screen.MonitorFromPoint(
+      Point(WinX + frmMain.Width div 2, WinY + frmMain.Height div 2));
+  end
+  else
+    Result := Screen.PrimaryMonitor;
+end;
+{$ELSE}
+{ On non-GTK2 backends frmMain.Monitor is reliable. }
+function GetFrmMainMonitor: TMonitor;
+begin
+  Result := frmMain.Monitor;
+end;
+{$ENDIF}
+
 procedure TModalDialog.DoShow;
 var
   Mon: TMonitor;
@@ -314,12 +353,12 @@ begin
   { Center on frmMain's monitor for non-modal shows (Show / Visible:=True)
     that bypass ShowModal, e.g. the file-operation progress window.  For
     modal dialogs ShowModal also does pre- and post-show centering, so this
-    is complementary but harmless.  Use Monitor coords — frmMain.Left/Width
+    is complementary but harmless.  Use GetFrmMainMonitor() — frmMain.Left/Width
     are unreliable for maximized GTK2 windows on non-primary monitors. }
   if Assigned(frmMain) and frmMain.HandleAllocated then
   begin
     Position := poDesigned;
-    Mon  := frmMain.Monitor;
+    Mon  := GetFrmMainMonitor;
     Left := Mon.Left + (Mon.Width  - Width)  div 2;
     Top  := Mon.Top  + (Mon.Height - Height) div 2;
     if Left < Mon.Left then Left := Mon.Left;
@@ -421,15 +460,13 @@ begin
           so we reference frmMain directly.
           Pre-show: set Position := poDesigned + Left/Top so LCL/GTK does not
           override the position when the window is first mapped.
-          Post-show: reapply in case the WM moved it anyway. }
+          Post-show: reapply in case the WM moved it anyway.
+          Use GetFrmMainMonitor() — frmMain.Left/Width are unreliable for maximized
+          GTK2 windows on non-primary monitors (GTK2 returns monitor-relative 0). }
         if Assigned(frmMain) and frmMain.HandleAllocated then
         begin
           Position := poDesigned;
-          { Use Monitor coords (always reliable global coords) instead of
-            frmMain.Left/Width which can be unreliable for maximized GTK2 windows
-            on non-primary monitors (may return monitor-relative 0 instead of
-            global screen coordinate). }
-          Mon  := frmMain.Monitor;
+          Mon  := GetFrmMainMonitor;
           Left := Mon.Left + (Mon.Width  - Width)  div 2;
           Top  := Mon.Top  + (Mon.Height - Height) div 2;
           if Left < Mon.Left then Left := Mon.Left;
@@ -444,7 +481,7 @@ begin
           { Post-show: reapply position in case GTK/WM moved it. }
           if Assigned(frmMain) and frmMain.HandleAllocated then
           begin
-            Mon  := frmMain.Monitor;
+            Mon  := GetFrmMainMonitor;
             Left := Mon.Left + (Mon.Width  - Width)  div 2;
             Top  := Mon.Top  + (Mon.Height - Height) div 2;
             if Left < Mon.Left then Left := Mon.Left;
@@ -646,7 +683,7 @@ begin
      (Form <> TCustomForm(frmMain)) and not (Form is THintWindow) then
   begin
     Form.Position := poDesigned;
-    Mon := frmMain.Monitor;
+    Mon := GetFrmMainMonitor;
     Form.Left := Mon.Left + (Mon.Width  - Form.Width)  div 2;
     Form.Top  := Mon.Top  + (Mon.Height - Form.Height) div 2;
   end;

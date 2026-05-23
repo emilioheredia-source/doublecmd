@@ -264,7 +264,7 @@ var
   iIndexDefault : Integer = -1;
 begin
   Assert(Assigned(frmMsg));
-  frmMsg.Position:= poScreenCenter;
+  frmMsg.Position:= poOwnerFormCenter;
   frmMsg.BorderStyle:= bsSingle;
   frmMsg.BorderIcons:= [biSystemMenu];
 
@@ -827,7 +827,7 @@ begin
   frmMsg:= TfrmMsg.Create(frmMain);
   try
     frmMsg.BorderStyle:= bsSingle;
-    frmMsg.Position:= poScreenCenter;
+    frmMsg.Position:= poOwnerFormCenter;
     frmMsg.BorderIcons:= [biSystemMenu];
 
     if Length(ACaption) > 0 then

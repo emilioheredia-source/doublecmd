@@ -274,7 +274,7 @@ begin
 
   { Open on the same monitor as the main DC window. }
   if Assigned(frmMain) then
-  with frmMain.Monitor do
+  with GetFrmMainMonitor do
     Editor.SetBounds(
       Left + (Width  - Editor.Width)  div 2,
       Top  + (Height - Editor.Height) div 2,
