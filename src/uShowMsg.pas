@@ -264,7 +264,7 @@ var
   iIndexDefault : Integer = -1;
 begin
   Assert(Assigned(frmMsg));
-  frmMsg.Position:= poOwnerFormCenter;
+  frmMsg.Position:= poDesigned;
   frmMsg.BorderStyle:= bsSingle;
   frmMsg.BorderIcons:= [biSystemMenu];
 
@@ -581,7 +581,7 @@ begin
   with frmDialog do
     try
       BorderStyle := bsDialog;
-      Position := poOwnerFormCenter;
+      Position := poDesigned;
       AutoSize := True;
       Height := 120;
       ChildSizing.TopBottomSpacing := 8;
@@ -667,7 +667,7 @@ begin
   with frmDialog do
     try
       BorderStyle := bsDialog;
-      Position := poOwnerFormCenter;
+      Position := poDesigned;
       AutoSize := True;
       Height := 120;
       ChildSizing.TopBottomSpacing := 8;
@@ -818,7 +818,7 @@ begin
   frmMsg:= TfrmMsg.Create(frmMain);
   try
     frmMsg.BorderStyle:= bsSingle;
-    frmMsg.Position:= poOwnerFormCenter;
+    frmMsg.Position:= poDesigned;
     frmMsg.BorderIcons:= [biSystemMenu];
 
     if Length(ACaption) > 0 then

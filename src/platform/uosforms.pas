@@ -386,6 +386,22 @@ begin
     AForm.Top  := Mon.Top  + Mon.Height - AForm.Height;
 end;
 
+{ Fallback for startup dialogs shown before frmMain is ready.
+  Moves AForm to the centre of the virtual desktop when no monitor
+  currently contains its centre point. }
+procedure EnsureOnAnyScreen(AForm: TCustomForm);
+var
+  I: Integer;
+  CenterPt: TPoint;
+begin
+  CenterPt := Point(AForm.Left + AForm.Width div 2, AForm.Top + AForm.Height div 2);
+  for I := 0 to Screen.MonitorCount - 1 do
+    if PtInRect(Screen.Monitors[I].BoundsRect, CenterPt) then
+      Exit;
+  AForm.Left := (Screen.Width  - AForm.Width)  div 2;
+  AForm.Top  := (Screen.Height - AForm.Height) div 2;
+end;
+
 procedure TModalDialog.DoShow;
 begin
   inherited DoShow;
@@ -426,9 +442,6 @@ var
 {$ENDIF}
   SavedFocusState: TFocusState;
   ActiveWindow: HWnd;
-  I: Integer;
-  CenterPoint: TPoint;
-  OnScreen: Boolean;
 begin
   if Self = nil then
     raise EInvalidOperation.Create('TModalForm.ShowModal Self = nil');
@@ -498,22 +511,7 @@ begin
           if Assigned(frmMain) and frmMain.HandleAllocated then
             CenterFormOnFrmMain(Self)
           else
-          begin
-            { frmMain not yet visible (startup dialogs): just keep on screen. }
-            CenterPoint := Point(Left + Width div 2, Top + Height div 2);
-            OnScreen := False;
-            for I := 0 to Screen.MonitorCount - 1 do
-              if PtInRect(Screen.Monitors[I].BoundsRect, CenterPoint) then
-              begin
-                OnScreen := True;
-                Break;
-              end;
-            if not OnScreen then
-            begin
-              Left := (Screen.Width  - Width)  div 2;
-              Top  := (Screen.Height - Height) div 2;
-            end;
-          end;
+            EnsureOnAnyScreen(Self);  { frmMain not yet ready (startup dialog) }
           EnableWindow(Handle, True);
           // Activate must happen after show
           Perform(CM_ACTIVATE, 0, 0);
@@ -672,22 +670,51 @@ begin
 end;
 {$ENDIF}
 
+{$IF DEFINED(LCLGTK2)}
+{ Second-pass centering, fired on the next idle cycle after a form is shown.
+  By this point GTK2 has finished AutoSize layout and the WM has sent its
+  ConfigureNotify, so Form.Width/Height are the real rendered dimensions.
+  Screen.CustomFormIndex guards against dangling pointers: it returns -1
+  once the form has been destroyed and removed from Screen.CustomForms. }
+{ Standalone procedure used as TDataEvent via TMethod trick (Dummy receives
+  TMethod.Data = nil, Data receives PtrInt(Form) from QueueAsyncCall). }
+procedure DeferredCenterForm(Dummy: TObject; Data: PtrInt);
+var
+  Form: TCustomForm;
+begin
+  Form := TCustomForm(Data);
+  if (Screen.CustomFormIndex(Form) >= 0) and Form.Visible
+     and Assigned(frmMain) and frmMain.HandleAllocated then
+  begin
+    Form.Position := poDesigned;
+    CenterFormOnFrmMain(Form);
+  end;
+end;
+{$ENDIF}
+
 {$IF DEFINED(LCLGTK2) or ((DEFINED(LCLQT) or DEFINED(LCLQT5) or DEFINED(LCLQT6)) and not (DEFINED(DARWIN) or DEFINED(MSWINDOWS)))}
 
 procedure ScreenFormEvent(Self, Sender: TObject; Form: TCustomForm);
 {$IF DEFINED(LCLGTK2)}
 var
   ClassName: String;
+  DeferHandler: TDataEvent;
 begin
   ClassName:= Form.ClassName;
   gtk_window_set_role(PGtkWindow(Form.Handle), PAnsiChar(ClassName));
   { Covers LCL standard dialogs (MessageDlg, QuestionDlg, etc.) that bypass
-    TModalDialog.ShowModal.  poDesigned prevents GTK2's own auto-positioning. }
+    TModalDialog.ShowModal.  poDesigned prevents GTK2's own auto-positioning.
+    A second deferred pass is queued so the final AutoSize dimensions are used
+    for the centering calculation (GTK2 may not have settled the layout yet
+    at the moment this hook fires). }
   if Assigned(frmMain) and frmMain.HandleAllocated and
      (Form <> TCustomForm(frmMain)) and not (Form is THintWindow) then
   begin
     Form.Position := poDesigned;
     CenterFormOnFrmMain(Form);
+    TMethod(DeferHandler).Code := @DeferredCenterForm;
+    TMethod(DeferHandler).Data := nil;
+    Application.QueueAsyncCall(DeferHandler, PtrInt(Form));
   end;
 end;
 {$ELSEIF DEFINED(LCLQT) or DEFINED(LCLQT5) or DEFINED(LCLQT6)}

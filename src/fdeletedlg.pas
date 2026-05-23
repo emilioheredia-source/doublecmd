@@ -22,6 +22,7 @@ type
     procedure rbModeChange(Sender: TObject);
   private
     FMessages: array[TDeleteMode] of String;
+    procedure CycleDeleteMode(AForward: Boolean);
   public
     { public declarations }
   end;
@@ -73,7 +74,7 @@ begin
     case DeleteMode of
       dmTrash:  if ShowTrash then Dlg.rbTrash.Checked  := True else Dlg.rbDelete.Checked := True;
       dmWipe:   if ShowWipe  then Dlg.rbWipe.Checked   := True else Dlg.rbDelete.Checked := True;
-      else           Dlg.rbDelete.Checked := True;
+      else Dlg.rbDelete.Checked := True;
     end;
     Dlg.lblMessage.Caption := Dlg.FMessages[DeleteMode];
     Dlg.Position := poDesigned;
@@ -95,11 +96,28 @@ end;
 
 { TfrmDeleteDlg }
 
-procedure TfrmDeleteDlg.FormKeyDown(Sender: TObject; var Key: Word;
-  Shift: TShiftState);
+procedure TfrmDeleteDlg.CycleDeleteMode(AForward: Boolean);
 var
   Modes: array[0..2] of TRadioButton;
   Count, Cur, I: Integer;
+begin
+  Count := 0;
+  Cur   := -1;
+  for I := 0 to 2 do
+    Modes[I] := nil;
+  if rbTrash.Visible  then begin Modes[Count] := rbTrash;  if rbTrash.Checked  then Cur := Count; Inc(Count); end;
+  if rbDelete.Visible then begin Modes[Count] := rbDelete; if rbDelete.Checked then Cur := Count; Inc(Count); end;
+  if rbWipe.Visible   then begin Modes[Count] := rbWipe;   if rbWipe.Checked   then Cur := Count; Inc(Count); end;
+  if Count <= 1 then Exit;
+  if AForward then
+    Cur := (Cur + 1) mod Count
+  else
+    Cur := (Cur + Count - 1) mod Count;
+  Modes[Cur].Checked := True;
+end;
+
+procedure TfrmDeleteDlg.FormKeyDown(Sender: TObject; var Key: Word;
+  Shift: TShiftState);
 begin
   case Key of
     VK_RETURN:
@@ -109,22 +127,7 @@ begin
       end;
     VK_UP, VK_DOWN:
       begin
-        { Build ordered list of visible radio buttons. }
-        Count := 0;
-        Cur   := -1;
-        for I := 0 to 2 do
-          Modes[I] := nil;
-        if rbTrash.Visible  then begin Modes[Count] := rbTrash;  if rbTrash.Checked  then Cur := Count; Inc(Count); end;
-        if rbDelete.Visible then begin Modes[Count] := rbDelete; if rbDelete.Checked then Cur := Count; Inc(Count); end;
-        if rbWipe.Visible   then begin Modes[Count] := rbWipe;   if rbWipe.Checked   then Cur := Count; Inc(Count); end;
-        if Count > 1 then
-        begin
-          if Key = VK_DOWN then
-            Cur := (Cur + 1) mod Count
-          else
-            Cur := (Cur + Count - 1) mod Count;
-          Modes[Cur].Checked := True;
-        end;
+        CycleDeleteMode(Key = VK_DOWN);
         Key := 0;
       end;
   end;
