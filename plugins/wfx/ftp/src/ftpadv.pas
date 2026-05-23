@@ -475,6 +475,25 @@ begin
   end;
 end;
 
+{ Extract the raw value of a named fact from one MLST/MLSD response line.
+  Fact names are matched case-insensitively (RFC 3659 §7.5).
+  Returns the trimmed value string, or '' when the fact is absent in Line. }
+function ExtractMlstFactValue(const Line, FactName: String): String;
+var
+  Key: String;
+  Idx, Semi: Integer;
+begin
+  Result := '';
+  Key := LowerCase(FactName) + '=';
+  Idx := Pos(Key, LowerCase(Line));
+  if Idx = 0 then Exit;
+  Result := Copy(Line, Idx + Length(Key), MaxInt);
+  Semi := Pos(';', Result);
+  if Semi > 0 then
+    Result := Copy(Result, 1, Semi - 1);
+  Result := Trim(Result);
+end;
+
 function TFTPSendEx.ListMachine(Directory: String): Boolean;
 var
   v: String;
@@ -740,8 +759,14 @@ begin
         ConvertFromUtf8:= @Ymmud;
         FTPCommand('OPTS UTF8 ON');
       end;
+{$IFDEF UNIX}
+      // Tell the server which MLST facts we want.  unix.mode is required for
+      // permission preservation; the rest are kept so that real servers
+      // (vsftpd, proftpd) don't lose facts they already return by default.
+      // Per RFC 3659, any fact name the server doesn't know is silently ignored.
       if FMachine then
-        FTPCommand('OPTS MLST unix.mode;type;size;modify;');
+        FTPCommand('OPTS MLST unix.mode;unix.owner;unix.group;type;size;modify;perm;unique;');
+{$ENDIF}
     end;
     if (not FMachine) and FShowHidden then
     begin
@@ -886,34 +911,25 @@ begin
   Result:= FTPCommand('MFMT ' + Time + ' ' + FileName) = 213;
 end;
 
+{ Query MLST for a remote file and return its Unix permission bits in Mode.
+  Returns False when the server doesn't support MLST, when the response
+  contains no unix.mode fact, or when the parsed value is zero. }
 function TFTPSendEx.GetRemoteMode(const FileName: String; out Mode: TFileAttrs): Boolean;
 var
-  I, Idx, Semi: Integer;
-  Line, Val: String;
+  I: Integer;
+  RawVal: String;
 begin
   Result := False;
   Mode := 0;
+  if not FMachine then Exit;  // Server didn't advertise MLST in FEAT — skip round-trip
   if (FTPCommand('MLST ' + FileName) div 100) <> 2 then Exit;
   for I := 0 to FullResult.Count - 1 do
   begin
-    Line := FullResult[I];
-    Idx := Pos('unix.mode=', LowerCase(Line));
-    if Idx > 0 then
-    begin
-      Val := Copy(Line, Idx + Length('unix.mode='), MaxInt);
-      Semi := Pos(';', Val);
-      if Semi > 0 then Val := Copy(Val, 1, Semi - 1);
-      Val := Trim(Val);
-      // Strip Python-style '0o' prefix (pyftpdlib quirk; plain digits or leading 0 are fine)
-      if (Length(Val) >= 2) and (Val[1] = '0') and ((Val[2] = 'o') or (Val[2] = 'O')) then
-        Val := Copy(Val, 3, MaxInt);
-      if Val <> '' then
-      begin
-        Mode := OctToDec(Val);
-        Result := Mode <> 0;
-        Exit;
-      end;
-    end;
+    RawVal := ExtractMlstFactValue(FullResult[I], 'unix.mode');
+    if RawVal = '' then Continue;
+    Mode := ParseOctalMode(RawVal);  // handles '0o' prefix and parse errors
+    Result := Mode <> 0;
+    Exit;
   end;
 end;
 
@@ -968,7 +984,8 @@ begin
 {$IFDEF UNIX}
     if Result then
       if FpStat(FDirectFileName, LocalStat) = 0 then
-        ChangeMode(FileName, Format('%o', [LocalStat.st_mode and $0FFF]));
+        // FPC's Format() does not support %o; use DecToOct from DCStrUtils.
+        ChangeMode(FileName, DecToOct(LocalStat.st_mode and $0FFF));
 {$ENDIF}
   finally
     SendStream.Free;
