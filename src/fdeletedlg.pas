@@ -34,7 +34,7 @@ function ShowDeleteDialog(TheOwner: TComponent; const TrashMessage, DeleteMessag
 implementation
 
 uses
-  LCLType;
+  LCLType, fMain, uOSForms;
 
 function ShowDeleteDialog(TheOwner: TComponent; const Message: String; FileSource: IFileSource;
   out QueueId: TOperationsManagerQueueIdentifier): Boolean;
@@ -45,6 +45,8 @@ begin
   try
     Dlg.Caption := Application.Title;
     Dlg.lblMessage.Caption := Message;
+    Dlg.Position := poDesigned;
+    CenterFormOnFrmMain(Dlg);
     Result := Dlg.ShowModal = mrOK;
     QueueId := Dlg.QueueIdentifier;
   finally
@@ -74,6 +76,8 @@ begin
       else           Dlg.rbDelete.Checked := True;
     end;
     Dlg.lblMessage.Caption := Dlg.FMessages[DeleteMode];
+    Dlg.Position := poDesigned;
+    CenterFormOnFrmMain(Dlg);
     Result := Dlg.ShowModal = mrOK;
     if Result then
     begin
