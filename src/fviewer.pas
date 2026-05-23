@@ -664,7 +664,7 @@ begin
 
   { Open on the same monitor as the main DC window. }
   if Assigned(frmMain) then
-  with frmMain.Monitor do
+  with GetFrmMainMonitor do
     Viewer.SetBounds(
       Left + (Width  - Viewer.Width)  div 2,
       Top  + (Height - Viewer.Height) div 2,

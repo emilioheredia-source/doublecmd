@@ -236,6 +236,7 @@ implementation
 
 uses
   fMain, uDebug, fDiffer, fSyncDirsPerformDlg, uGlobs, LCLType, LazUTF8, LazFileUtils,
+  uOSForms,
   uFileSystemFileSource, uFileSourceOperationOptions, DCDateTimeUtils, SyncObjs,
   uDCUtils, uFileSourceUtil, uFileSourceOperationTypes, uShowForm, uAdministrator,
   uOSUtils, uLng, uMasks, Math, uClipboard, IntegerList, fMaskInputDlg, uSearchTemplate,
@@ -299,7 +300,7 @@ begin
   Dlg := TfrmSyncDirsDlg.Create(Application, FileView1, FileView2);
   { Center on the same monitor as the main DC window. }
   if Assigned(frmMain) then
-  with frmMain.Monitor do
+  with GetFrmMainMonitor do
     Dlg.SetBounds(
       Left + (Width  - Dlg.Width)  div 2,
       Top  + (Height - Dlg.Height) div 2,
