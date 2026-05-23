@@ -93,11 +93,36 @@ end;
 
 procedure TfrmDeleteDlg.FormKeyDown(Sender: TObject; var Key: Word;
   Shift: TShiftState);
+var
+  Modes: array[0..2] of TRadioButton;
+  Count, Cur, I: Integer;
 begin
-  if (Key = VK_RETURN) and (ssShift in Shift) then
-  begin
-    btnOK.Click;
-    Key:= 0;
+  case Key of
+    VK_RETURN:
+      begin
+        btnOK.Click;
+        Key := 0;
+      end;
+    VK_UP, VK_DOWN:
+      begin
+        { Build ordered list of visible radio buttons. }
+        Count := 0;
+        Cur   := -1;
+        for I := 0 to 2 do
+          Modes[I] := nil;
+        if rbTrash.Visible  then begin Modes[Count] := rbTrash;  if rbTrash.Checked  then Cur := Count; Inc(Count); end;
+        if rbDelete.Visible then begin Modes[Count] := rbDelete; if rbDelete.Checked then Cur := Count; Inc(Count); end;
+        if rbWipe.Visible   then begin Modes[Count] := rbWipe;   if rbWipe.Checked   then Cur := Count; Inc(Count); end;
+        if Count > 1 then
+        begin
+          if Key = VK_DOWN then
+            Cur := (Cur + 1) mod Count
+          else
+            Cur := (Cur + Count - 1) mod Count;
+          Modes[Cur].Checked := True;
+        end;
+        Key := 0;
+      end;
   end;
 end;
 
