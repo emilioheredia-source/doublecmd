@@ -127,6 +127,7 @@ type
     function FileProperties(const FileName: String): Boolean; virtual;
     function CopyFile(const OldName, NewName: String): Boolean; virtual;
     function ChangeMode(const FileName, Mode: String): Boolean; virtual;
+    function GetRemoteMode(const FileName: String; out Mode: TFileAttrs): Boolean; virtual;
     function List(Directory: String; NameList: Boolean): Boolean; override;
     function StoreFile(const FileName: string; Restore: Boolean): Boolean; override;
     function ExecuteCommand(const Command: String; const Directory: String = ''): Boolean; virtual;
@@ -153,6 +154,9 @@ uses
   DCDateTimeUtils
 {$IF (FPC_FULLVERSION < 30000)}
   , LazUTF8SysUtils
+{$ENDIF}
+{$IFDEF UNIX}
+  , BaseUnix
 {$ENDIF}
   ;
 
@@ -864,11 +868,42 @@ begin
   Result:= FTPCommand('MFMT ' + Time + ' ' + FileName) = 213;
 end;
 
+function TFTPSendEx.GetRemoteMode(const FileName: String; out Mode: TFileAttrs): Boolean;
+var
+  I, Idx, Semi: Integer;
+  Line, Val: String;
+begin
+  Result := False;
+  Mode := 0;
+  if (FTPCommand('MLST ' + FileName) div 100) <> 2 then Exit;
+  for I := 0 to FullResult.Count - 1 do
+  begin
+    Line := FullResult[I];
+    Idx := Pos('unix.mode=', LowerCase(Line));
+    if Idx > 0 then
+    begin
+      Val := Copy(Line, Idx + Length('unix.mode='), MaxInt);
+      Semi := Pos(';', Val);
+      if Semi > 0 then Val := Copy(Val, 1, Semi - 1);
+      Val := Trim(Val);
+      if Val <> '' then
+      begin
+        Mode := OctToDec(Val);
+        Result := Mode <> 0;
+        Exit;
+      end;
+    end;
+  end;
+end;
+
 function TFTPSendEx.StoreFile(const FileName: string; Restore: Boolean): Boolean;
 var
   StorSize: Int64;
   RestoreAt: Int64 = 0;
   SendStream: TProgressStream;
+{$IFDEF UNIX}
+  LocalStat: BaseUnix.TStat;
+{$ENDIF}
 begin
   Result := False;
   Restore := Restore and FCanResume;
@@ -909,6 +944,11 @@ begin
     if (FTPCommand('STOR ' + FileName) div 100) <> 1 then
       Exit;
     Result := DataWrite(SendStream);
+{$IFDEF UNIX}
+    if Result then
+      if FpStat(FDirectFileName, LocalStat) = 0 then
+        ChangeMode(FileName, Format('%o', [LocalStat.st_mode and $0FFF]));
+{$ENDIF}
   finally
     SendStream.Free;
   end;
@@ -917,6 +957,9 @@ end;
 function TFTPSendEx.RetrieveFile(const FileName: string; FileSize: Int64; Restore: Boolean): Boolean;
 var
   RetrStream: TProgressStream;
+{$IFDEF UNIX}
+  RemoteMode: TFileAttrs;
+{$ENDIF}
 begin
   Result := False;
   if not DataSocket then Exit;
@@ -947,6 +990,11 @@ begin
     if (FTPCommand('RETR ' + FileName) div 100) <> 1 then
       Exit;
     Result := DataRead(RetrStream);
+{$IFDEF UNIX}
+    if Result then
+      if GetRemoteMode(FileName, RemoteMode) then
+        FpChmod(FDirectFileName, RemoteMode and $0FFF);
+{$ENDIF}
   finally
     RetrStream.Free;
   end;
