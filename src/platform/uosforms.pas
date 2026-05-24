@@ -394,7 +394,8 @@ var
   I: Integer;
   CenterPt: TPoint;
 begin
-  CenterPt := Point(AForm.Left + AForm.Width div 2, AForm.Top + AForm.Height div 2);
+  CenterPt.X := AForm.Left + AForm.Width div 2;
+  CenterPt.Y := AForm.Top + AForm.Height div 2;
   for I := 0 to Screen.MonitorCount - 1 do
     if PtInRect(Screen.Monitors[I].BoundsRect, CenterPt) then
       Exit;
