@@ -401,10 +401,18 @@ begin
         PartialTarData := TMemoryStream.Create;
         GHlp.SeekToItemData;
         Hlpr := TAbDeflateHelper.Create;
-        Hlpr.PartialSize := AB_TAR_RECORDSIZE * 4;
+        { Use enough records to cover GNU long-name / PAX meta-header chains
+          before the first FILE_HEADER.  4 records (2048 bytes) was too small
+          for paths longer than ~1024 chars; 20 records (10 KB) covers all
+          realistic path lengths without significantly increasing overhead. }
+        Hlpr.PartialSize := AB_TAR_RECORDSIZE * 20;
         PartialTarData.SetSize(Hlpr.PartialSize);
         Inflate(Strm, PartialTarData, Hlpr);
 
+        { Trim to actual decompressed bytes so LoadTarHeaderFromStream sees
+          a clean EOF rather than uninitialized memory past the written data.
+          If trimming or VerifyTar fails, Result stays atGZip (set above). }
+        PartialTarData.SetSize(PartialTarData.Position);
         {set to beginning of extracted data}
         PartialTarData.Position := 0;
 
