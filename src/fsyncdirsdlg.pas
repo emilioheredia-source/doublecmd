@@ -475,7 +475,12 @@ begin
             end;
             if R.FAction = srsUnknown then
             begin
-              R.FAction := R.FState;
+              // Mirror asymmetric logic from TFileSyncRec.Recalc:
+              // in asymmetric mode srsNotEq means left wins → srsCopyRight.
+              if chkAsymmetric.Checked and (R.FState = srsNotEq) then
+                R.FAction := srsCopyRight
+              else
+                R.FAction := R.FState;
             end;
           except
             on E: Exception do
@@ -599,10 +604,11 @@ begin
   end;
   if FForm.chkAsymmetric.Checked then
   begin
-    if FState = srsCopyLeft then
-      FAction := srsDoNothing
-    else if FState = srsNotEq then
-      FAction := srsCopyRight  // left is authoritative — copy left→right for ambiguous diffs
+    // In asymmetric/mirror mode left is unconditionally authoritative.
+    // srsCopyLeft means right is newer — left still wins (overwrite right).
+    // srsNotEq means ambiguous diff (e.g. content check) — left still wins.
+    if FState in [srsCopyLeft, srsNotEq] then
+      FAction := srsCopyRight
     else
       FAction := FState;
   end
