@@ -27,12 +27,11 @@ implementation
 
 {$R *.lfm}
 
-uses fMain;
-
+uses fMain
 {$IF DEFINED(MSWINDOWS)}
-uses
-  Windows, uBitmap;
+  , Windows, uBitmap
 {$ENDIF}
+  ;
 
 type
   TElevationData = class
