@@ -2584,8 +2584,12 @@ end;
 // "norecycle"         - delete directly
 // "recyclesetting"    - if gUseTrash then delete to trash, otherwise delete directly
 // "recyclesettingrev" - if gUseTrash then delete directly, otherwise delete to trash
+// Workaround: FPC -O3 optimizer crashes (EAccessViolation in ppcx64) on this
+// procedure due to its many local variables + overloaded ShowDeleteDialog with
+// a var-parameter.  Disabling optimisation for this one UI callback is safe;
+// it is called infrequently and any speed difference is imperceptible.
+{$PUSH}{$OPTIMIZATION OFF}
 procedure TMainCommands.cm_Delete(const Params: array of string);
-{$OPTIMIZATION OFF}
 var
   I: Integer;
   Message: String;
@@ -2772,7 +2776,7 @@ begin
     end;
   end;
 end;
-{$OPTIMIZATION DEFAULT}
+{$POP}
 
 procedure TMainCommands.cm_CheckSumCalc(const Params: array of string);
 var
