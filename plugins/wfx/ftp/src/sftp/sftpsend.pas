@@ -228,11 +228,46 @@ var
   TotalBytesToWrite: Int64 = 0;
   TargetHandle: PLIBSSH2_SFTP_HANDLE = nil;
   Flags: cint = LIBSSH2_FXF_CREAT or LIBSSH2_FXF_WRITE;
+{$IFDEF UNIX}
+  LocalStat: BaseUnix.TStat;
+  LinkTarget: String;
+{$ENDIF}
 begin
   if FCopySCP then begin
     Result:= inherited StoreFile(FileName, Restore);
     Exit;
   end;
+
+{$IFDEF UNIX}
+  // If the local source is a symlink, try to create it on the remote.
+  // If the server refuses (e.g. symlinks disabled, or the relative target would
+  // be meaningless on the remote), fall back to uploading the file content.
+  if fpLStat(FDirectFileName, LocalStat) = 0 then
+  begin
+    if FPS_ISLNK(LocalStat.st_mode) then
+    begin
+      LinkTarget := fpReadLink(FDirectFileName);
+      if Length(LinkTarget) > 0 then
+      begin
+        repeat
+          // libssh2_sftp_symlink(sftp, orig, linkpath):
+          //   orig     = where the symlink is created on the remote (new link name)
+          //   linkpath = what the symlink points to (the target)
+          // libssh2 internally swaps these for OpenSSH server compatibility.
+          FLastError := libssh2_sftp_symlink(FSFTPSession, PAnsiChar(FileName), PAnsiChar(LinkTarget));
+          if FLastError = LIBSSH2_ERROR_EAGAIN then FSock.CanRead(10);
+        until FLastError <> LIBSSH2_ERROR_EAGAIN;
+        if FLastError = 0 then
+        begin
+          Result := True;
+          Exit;
+        end;
+        // Symlink creation refused by server — fall through to content upload.
+        // FDirectFileName is a symlink so Open() below will follow it to the target.
+      end;
+    end;
+  end;
+{$ENDIF}
 
   SendStream := TFileStreamEx.Create(FDirectFileName, fmOpenRead or fmShareDenyWrite);
 
