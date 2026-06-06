@@ -382,6 +382,7 @@ type
    procedure cm_AddPlugin(const Params: array of string);
    procedure cm_LoadList(const Params: array of string);
    procedure cm_SetSortMode(const Params: array of string);
+   procedure cm_AddToStash(const {%H-}Params: array of string);
 
    // Internal commands
    procedure cm_ExecuteToolbarItem(const Params: array of string);
@@ -410,7 +411,8 @@ uses fOptionsPluginsBase, fOptionsPluginsDSX, fOptionsPluginsWCX,
      uHotDir, DCXmlConfig, dmCommonData, fOptionsFrame, foptionsDirectoryHotlist,
      fMainCommandsDlg, uConnectionManager, fOptionsFavoriteTabs, fTreeViewMenu,
      uArchiveFileSource, fOptionsHotKeys, fBenchmark, uAdministrator, uWcxArchiveFileSource,
-     uColumnsFileView, uTypes
+     uColumnsFileView, uTypes,
+     uStashFilesBackend
      ;
 
 resourcestring
@@ -1288,8 +1290,7 @@ procedure TMainCommands.cm_OpenDirInNewTab(const Params: array of string);
   function OpenTab(const aFullPath: string): TFileViewPage;
   begin
     Result := FrmMain.ActiveNotebook.NewPage(FrmMain.ActiveFrame);
-    // Workaround for Search Result File Source
-    if Result.FileView.FileSource is TSearchResultFileSource then
+    if fspDontChangePath in Result.FileView.FileSource.Properties then
       SetFileSystemPath(Result.FileView, aFullPath)
     else
       Result.FileView.CurrentPath := aFullPath;
@@ -2508,12 +2509,13 @@ begin
   try
     if not (fsoCreateDirectory in ActiveFrame.FileSource.GetOperationsTypes) then
     begin
-      if (fsoCopyIn in ActiveFrame.FileSource.GetOperationsTypes) then
-        bMakeViaCopy := True
-      else begin
+      if (fspDontCreateDirectory in ActiveFrame.FileSource.Properties) or
+         NOT (fsoCopyIn in ActiveFrame.FileSource.GetOperationsTypes) then
+      begin
         msgWarning(rsMsgErrNotSupported);
         Exit;
       end;
+      bMakeViaCopy := True
     end;
 
     ActiveFile := ActiveFrame.CloneActiveFile;
@@ -3576,18 +3578,17 @@ procedure TMainCommands.cm_Search(const Params: array of string);
 var
   TemplateName: String;
 begin
-  if not (frmMain.ActiveFrame.FileSource.IsClass(TFileSystemFileSource) or
-    frmMain.ActiveFrame.FileSource.IsClass(TWcxArchiveFileSource)) then
+  if fspSearchable in frmMain.ActiveFrame.FileSource.GetProperties then
   begin
-    msgError(rsMsgErrNotSupported)
-  end
-  else begin
     if Length(Params) > 0 then
       TemplateName:= Params[0]
     else begin
       TemplateName:= gSearchDefaultTemplate;
     end;
     ShowFindDlg(frmMain.ActiveFrame, TemplateName);
+  end
+  else begin
+    msgError(rsMsgErrNotSupported)
   end;
 end;
 
@@ -5278,8 +5279,7 @@ begin
     localPath := ANotebook.Page[iPage].FileView.CurrentPath;
 
     localFileViewPage := TargetNotebook.NewPage(ANotebook.Page[iPage].FileView);
-    // Workaround for Search Result File Source
-    if localFileViewPage.FileView.FileSource is TSearchResultFileSource then
+    if fspDontChangePath in localFileViewPage.FileView.FileSource.Properties then
       SetFileSystemPath(localFileViewPage.FileView, localPath)
     else
       localFileViewPage.FileView.CurrentPath := localPath;
@@ -5740,6 +5740,15 @@ begin
   end;
   frmMain.ActiveFrame.Reload(True);
   frmMain.NotActiveFrame.Reload(True);
+end;
+
+procedure TMainCommands.cm_AddToStash(const Params: array of string);
+var
+  files: TFiles;
+begin
+  files:= frmMain.ActiveFrame.CloneSelectedOrActiveFiles;
+  stashFilesBackend.addPaths( files );
+  files.Free;
 end;
 
 end.

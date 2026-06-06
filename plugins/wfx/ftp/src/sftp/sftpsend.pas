@@ -231,12 +231,36 @@ var
 {$IFDEF UNIX}
   LocalStat: BaseUnix.TStat;
   UploadAttrs: LIBSSH2_SFTP_ATTRIBUTES;
+  LinkTarget: String;
 {$ENDIF}
 begin
   if FCopySCP then begin
     Result:= inherited StoreFile(FileName, Restore);
     Exit;
   end;
+
+{$IFDEF UNIX}
+  // If the local source is a symlink, create it on the remote instead of uploading content
+  if fpLStat(FDirectFileName, LocalStat) = 0 then
+  begin
+    if FPS_ISLNK(LocalStat.st_mode) then
+    begin
+      LinkTarget := fpReadLink(FDirectFileName);
+      if Length(LinkTarget) > 0 then
+      begin
+        repeat
+          // libssh2_sftp_symlink(sftp, orig, linkpath):
+          //   orig     = the target the symlink points to
+          //   linkpath = where the symlink is created on the remote
+          FLastError := libssh2_sftp_symlink(FSFTPSession, PAnsiChar(LinkTarget), PAnsiChar(FileName));
+          if FLastError = LIBSSH2_ERROR_EAGAIN then FSock.CanRead(10);
+        until FLastError <> LIBSSH2_ERROR_EAGAIN;
+        Result := (FLastError = 0);
+        Exit;
+      end;
+    end;
+  end;
+{$ENDIF}
 
   SendStream := TFileStreamEx.Create(FDirectFileName, fmOpenRead or fmShareDenyWrite);
 

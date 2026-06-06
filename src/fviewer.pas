@@ -455,9 +455,6 @@ type
     procedure ImagePaintBackground(ASender: TObject; ACanvas: TCanvas; ARect: TRect);
     procedure CreatePreview(FullPathToFile:string; index:integer; delete: boolean = false);
     procedure showLCLToolBar( newVisibility: Boolean );
-{$IFDEF DARWIN}
-    function modernToolBarEnabled: Boolean;
-{$ENDIF}
 
     property Commands: TFormCommands read FCommands implements IFormCommands;
 
@@ -590,7 +587,7 @@ uses
   , SynEditWrappedView
 {$endif}
 {$IFDEF DARWIN}
-  , uDarwinApplication, uEarlyConfig
+  , uCocoaModernFormConfig
 {$ENDIF}
   ;
 
@@ -1210,7 +1207,7 @@ end;
 procedure TfrmViewer.GifAnimMouseEnter(Sender: TObject);
 begin
 {$IFDEF DARWIN}
-  if NOT self.modernToolBarEnabled then
+  if NOT TDCCocoaModernFormUtils.isEnabled then
 {$ENDIF}
     if miFullScreen.Checked then TimerViewer.Enabled:=true;
 end;
@@ -1306,7 +1303,7 @@ end;
 procedure TfrmViewer.ImageMouseEnter(Sender: TObject);
 begin
 {$IFDEF DARWIN}
-  if NOT self.modernToolBarEnabled then
+  if NOT TDCCocoaModernFormUtils.isEnabled then
 {$ENDIF}
     if miFullScreen.Checked then TimerViewer.Enabled:=true;
 end;
@@ -1314,7 +1311,7 @@ end;
 procedure TfrmViewer.ImageMouseLeave(Sender: TObject);
 begin
 {$IFDEF DARWIN}
-  if NOT self.modernToolBarEnabled then
+  if NOT TDCCocoaModernFormUtils.isEnabled then
 {$ENDIF}
     if miFullScreen.Checked then TimerViewer.Enabled:=false;
 end;
@@ -1514,18 +1511,11 @@ end;
 procedure TfrmViewer.showLCLToolBar( newVisibility: Boolean );
 begin
 {$IFDEF DARWIN}
-  if self.modernToolBarEnabled then
+  if TDCCocoaModernFormUtils.isEnabled then
     newVisibility:= False;
 {$ENDIF}
   ToolBar1.Visible:= newVisibility;
 end;
-
-{$IFDEF DARWIN}
-function TfrmViewer.modernToolBarEnabled: Boolean;
-begin
-  Result:= gModernUI and TDarwinApplicationUtil.supportsModernForm;
-end;
-{$ENDIF}
 
 procedure TfrmViewer.WMCommand(var Message: TLMCommand);
 var
@@ -1635,7 +1625,7 @@ begin
   sboxImage.VertScrollBar.Visible:= not(miFullScreen.Checked);
 
 {$IFDEF DARWIN}
-  if NOT self.modernToolBarEnabled then
+  if NOT TDCCocoaModernFormUtils.isEnabled then
 {$ENDIF}
     TimerViewer.Enabled:=miFullScreen.Checked;
 
@@ -2206,7 +2196,7 @@ end;
 procedure TfrmViewer.sboxImageMouseEnter(Sender: TObject);
 begin
 {$IFDEF DARWIN}
-  if NOT self.modernToolBarEnabled then
+  if NOT TDCCocoaModernFormUtils.isEnabled then
 {$ENDIF}
     if miFullScreen.Checked then TimerViewer.Enabled:=true;
 end;
@@ -2214,7 +2204,7 @@ end;
 procedure TfrmViewer.sboxImageMouseLeave(Sender: TObject);
 begin
 {$IFDEF DARWIN}
-  if NOT self.modernToolBarEnabled then
+  if NOT TDCCocoaModernFormUtils.isEnabled then
 {$ENDIF}
     if miFullScreen.Checked then TimerViewer.Enabled:=false;
 end;
