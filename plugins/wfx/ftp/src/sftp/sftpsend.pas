@@ -344,12 +344,12 @@ begin
       if FpStat(FDirectFileName, LocalStat) = 0 then
       begin
         FillChar(UploadAttrs, SizeOf(UploadAttrs), 0);
-        UploadAttrs.permissions := LocalStat.st_mode;
-        UploadAttrs.flags       := LIBSSH2_SFTP_ATTR_PERMISSIONS;
+        UploadAttrs.permissions:= LocalStat.st_mode;
+        UploadAttrs.flags:= LIBSSH2_SFTP_ATTR_PERMISSIONS;
         libssh2_sftp_setstat(FSFTPSession, PAnsiChar(FileName), @UploadAttrs);
-        UploadAttrs.uid   := LocalStat.st_uid;
-        UploadAttrs.gid   := LocalStat.st_gid;
-        UploadAttrs.flags := LIBSSH2_SFTP_ATTR_UIDGID;
+        UploadAttrs.uid:= LocalStat.st_uid;
+        UploadAttrs.gid:= LocalStat.st_gid;
+        UploadAttrs.flags:= LIBSSH2_SFTP_ATTR_UIDGID;
         libssh2_sftp_setstat(FSFTPSession, PAnsiChar(FileName), @UploadAttrs);
       end;
     end;
@@ -494,7 +494,7 @@ begin
     if (Attributes.permissions and S_IFMT) = S_IFLNK then
     begin
       // Follow the link to detect if the target is a directory, but keep
-      // the symlink's own mtime so sync comparisons see the link itself.
+      // the symlink's own mtime and size for sync comparisons.
       LinkAttrs:= Attributes;
       if libssh2_sftp_stat(FSFTPSession, PAnsiChar(FindRec.Path + AFileName), @Attributes) = 0 then
       begin
@@ -503,6 +503,12 @@ begin
           FindData.nFileSizeLow:= 0;
           FindData.nFileSizeHigh:= 0;
           FindData.dwFileAttributes:= FindData.dwFileAttributes or FILE_ATTRIBUTE_REPARSE_POINT;
+        end
+        else
+        begin
+          // Restore the symlink's own size (= byte length of link target string).
+          FindData.nFileSizeLow:= Int64Rec(LinkAttrs.filesize).Lo;
+          FindData.nFileSizeHigh:= Int64Rec(LinkAttrs.filesize).Hi;
         end;
       end;
       FindData.ftLastWriteTime:= TWfxFileTime(UnixFileTimeToWinTime(LinkAttrs.mtime));

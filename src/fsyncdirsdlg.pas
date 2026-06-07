@@ -576,9 +576,10 @@ var
 
     if (LeftTarget = EmptyStr) or (RightTarget = EmptyStr) then
     begin
-      // One side doesn't expose the link target (e.g. a WFX/SFTP plugin).
-      // Symlink size equals the byte length of the target string, so equal
-      // sizes strongly imply equal targets.
+      // One side doesn't expose the link target (e.g. WFX/SFTP plugin).
+      // SFTP file size for a symlink equals the byte length of its target
+      // string, so equal sizes strongly imply equal targets. This is a
+      // best-effort check for the copy-then-verify use case.
       Result := FFileL.Size = FFileR.Size;
       Exit;
     end;
@@ -598,8 +599,8 @@ begin
     FState := srsCopyRight
   else begin
     FileTimeDiff := FileTimeCompare(FFileL.ModificationTime, FFileR.ModificationTime, FForm.FNtfsShift);
-    if ((FileTimeDiff = 0) or ignoreDate) and
-       ((FFileL.Size = FFileR.Size) or AreEquivalentLinks) then
+    if (((FileTimeDiff = 0) or ignoreDate) and (FFileL.Size = FFileR.Size))
+       or AreEquivalentLinks then
       FState := srsEqual
     else
     if not ignoreDate then
