@@ -364,7 +364,6 @@ begin
     Result := ProcessFile(aNode, AbsoluteTargetFileName)
   else if aNode.SubNodesCount > 0 then
   begin
-    // Symlink was followed: process the resolved target.
     aSubNode := aNode.SubNodes[0];
     if aSubNode.TheFile.AttributesProperty.IsDirectory then
       Result := ProcessDirectory(aSubNode, AbsoluteTargetFileName)
@@ -372,12 +371,8 @@ begin
       Result := ProcessFile(aSubNode, AbsoluteTargetFileName);
   end
   else
-  begin
-    // Symlink was not followed (fsooslDontFollow) or target was unreachable.
-    // Pass the symlink itself to ProcessFile; StoreFile/RetrieveFile will
-    // handle it appropriately (e.g. create a remote symlink over SFTP).
+    // Link not followed — pass it to ProcessFile to handle (e.g. SFTP symlink creation).
     Result := ProcessFile(aNode, AbsoluteTargetFileName);
-  end;
 end;
 
 function TWfxPluginOperationHelper.ProcessFile(aNode: TFileTreeNode;

@@ -574,7 +574,14 @@ var
     // Fast path: identical link text means semantically identical link.
     if LeftTarget = RightTarget then Exit(True);
 
-    if (LeftTarget = EmptyStr) or (RightTarget = EmptyStr) then Exit;
+    if (LeftTarget = EmptyStr) or (RightTarget = EmptyStr) then
+    begin
+      // One side doesn't expose the link target (e.g. a WFX/SFTP plugin).
+      // Symlink size equals the byte length of the target string, so equal
+      // sizes strongly imply equal targets.
+      Result := FFileL.Size = FFileR.Size;
+      Exit;
+    end;
 
     // Also accept different textual forms that resolve to the same target.
     LeftResolved := GetAbsoluteFileName(FFileL.Path, LeftTarget);
