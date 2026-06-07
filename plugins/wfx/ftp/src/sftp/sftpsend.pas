@@ -240,23 +240,29 @@ begin
   end;
 
 {$IFDEF UNIX}
-  // If the local source is a symlink, create it on the remote instead of uploading content
+  // If the local source is a symlink, recreate it on the remote.
+  // On failure (server refused), fall through to a normal content upload.
   if fpLStat(FDirectFileName, LocalStat) = 0 then
   begin
     if FPS_ISLNK(LocalStat.st_mode) then
     begin
-      LinkTarget := fpReadLink(FDirectFileName);
+      LinkTarget:= fpReadLink(FDirectFileName);
       if Length(LinkTarget) > 0 then
       begin
+        // Remove any existing destination; sftp_symlink does not overwrite.
         repeat
-          // libssh2_sftp_symlink(sftp, orig, linkpath):
-          //   orig     = the target the symlink points to
-          //   linkpath = where the symlink is created on the remote
-          FLastError := libssh2_sftp_symlink(FSFTPSession, PAnsiChar(LinkTarget), PAnsiChar(FileName));
+          FLastError:= libssh2_sftp_unlink(FSFTPSession, PAnsiChar(FileName));
           if FLastError = LIBSSH2_ERROR_EAGAIN then FSock.CanRead(10);
         until FLastError <> LIBSSH2_ERROR_EAGAIN;
-        Result := (FLastError = 0);
-        Exit;
+        repeat
+          FLastError:= libssh2_sftp_symlink(FSFTPSession, PAnsiChar(LinkTarget), PAnsiChar(FileName));
+          if FLastError = LIBSSH2_ERROR_EAGAIN then FSock.CanRead(10);
+        until FLastError <> LIBSSH2_ERROR_EAGAIN;
+        if FLastError = 0 then
+        begin
+          Result:= True;
+          Exit;
+        end;
       end;
     end;
   end;
@@ -465,6 +471,7 @@ var
   Return: Integer;
   FindRec: PFindRec absolute Handle;
   Attributes: LIBSSH2_SFTP_ATTRIBUTES;
+  LinkAttrs: LIBSSH2_SFTP_ATTRIBUTES;
   AFileName: array[0..1023] of AnsiChar;
   AFullData: array[0..2047] of AnsiChar;
 begin
@@ -486,6 +493,9 @@ begin
     FindData.ftLastAccessTime:= TWfxFileTime(UnixFileTimeToWinTime(Attributes.atime));
     if (Attributes.permissions and S_IFMT) = S_IFLNK then
     begin
+      // Follow the link to detect if the target is a directory, but keep
+      // the symlink's own mtime so sync comparisons see the link itself.
+      LinkAttrs:= Attributes;
       if libssh2_sftp_stat(FSFTPSession, PAnsiChar(FindRec.Path + AFileName), @Attributes) = 0 then
       begin
         if (Attributes.permissions and S_IFMT) = S_IFDIR then
@@ -495,6 +505,8 @@ begin
           FindData.dwFileAttributes:= FindData.dwFileAttributes or FILE_ATTRIBUTE_REPARSE_POINT;
         end;
       end;
+      FindData.ftLastWriteTime:= TWfxFileTime(UnixFileTimeToWinTime(LinkAttrs.mtime));
+      FindData.ftLastAccessTime:= TWfxFileTime(UnixFileTimeToWinTime(LinkAttrs.atime));
     end;
   end;
 end;
