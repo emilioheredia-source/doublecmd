@@ -99,6 +99,7 @@ end;
 procedure TGioMoveOperation.Finalize;
 begin
   FileExistsOption := FOperationHelper.FileExistsOption;
+  DirExistsOption := FOperationHelper.DirExistsOption;
   FOperationHelper.Free;
 end;
 

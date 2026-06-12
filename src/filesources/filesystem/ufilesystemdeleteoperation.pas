@@ -27,9 +27,7 @@ type
 
     // Options.
     FSymLinkOption: TFileSourceOperationOptionSymLink;
-    FSkipErrors: Boolean;
     FRecycle: Boolean;
-    FDeleteReadOnly,
     FDeleteDirectly: TFileSourceOperationOptionGeneral;
 
     procedure DeleteSubDirectory(const aFile: TFile);
@@ -52,9 +50,8 @@ type
 
     // For delete to trash
     property Recycle : boolean read FRecycle write FRecycle default false;
-    property DeleteReadOnly: TFileSourceOperationOptionGeneral read FDeleteReadOnly write FDeleteReadOnly;
+    property DeleteDirectly: TFileSourceOperationOptionGeneral read FDeleteDirectly write FDeleteDirectly;
     property SymLinkOption: TFileSourceOperationOptionSymLink read FSymLinkOption write FSymLinkOption;
-    property SkipErrors: Boolean read FSkipErrors write FSkipErrors;
   end;
 
 implementation
