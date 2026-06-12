@@ -1595,6 +1595,10 @@ var
       if GetTickCount64 - LastMessagesTime >= 50 then
       begin
         LastMessagesTime := GetTickCount64;
+        // Update the displayed percentage only when pumping messages: a
+        // status bar update per scanned directory is measurably expensive
+        StatusBar1.Panels[0].Text :=
+          Format(rsComparingPercent, [ScanDone * 100 div ScanTotal]);
         Application.ProcessMessages;
       end;
       if FCancel then Exit;
@@ -1604,8 +1608,6 @@ var
       Inc(ScanDone);
       if not Subdirs then Exit;
       Inc(ScanTotal, dirsLeft.Count + dirsRight.Count);
-      StatusBar1.Panels[0].Text :=
-        Format(rsComparingPercent, [ScanDone * 100 div ScanTotal]);
       for i := 0 to dirsLeft.Count - 1 do
       begin
         d := dirsLeft[i];
