@@ -1491,6 +1491,7 @@ var
   RightFirst: Boolean = True;
   BaseDirL, BaseDirR: string;
   ignoreDate, Subdirs, ByContent: Boolean;
+  LastMessagesTime: QWord = 0;
 
   procedure ScanDir(dir: string);
 
@@ -1583,7 +1584,15 @@ var
     dirsRight.CaseSensitive := FileNameCaseSensitive;
     dirsRight.Sorted := True;
     try
-      Application.ProcessMessages;
+      // Pump messages at most every 50 ms: each call may process queued
+      // inotify events and trigger file panel reloads, degrading the scan
+      // to O(n^2) over many directories (same issue as was fixed in
+      // TFileSourceOperation.AppProcessMessages)
+      if GetTickCount64 - LastMessagesTime >= 50 then
+      begin
+        LastMessagesTime := GetTickCount64;
+        Application.ProcessMessages;
+      end;
       if FCancel then Exit;
       ProcessOneSide(it, dirsLeft, LeftFirst, True);
       ProcessOneSide(it, dirsRight, RightFirst, False);
