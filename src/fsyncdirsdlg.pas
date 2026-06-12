@@ -301,6 +301,46 @@ type
     property Done: Boolean read FDone;
   end;
 
+  {en
+     One directory to list during the compare scan. Workers fill in the
+     file lists (or an error); the GUI thread merges the results.
+  }
+
+  { TSyncScanTask }
+
+  TSyncScanTask = class
+  public
+    RelKey: String;      // relative dir without trailing delimiter ('' = root)
+    RelDir: String;      // relative dir with trailing delimiter ('' = root)
+    FilesL: TFiles;
+    FilesR: TFiles;
+    ErrorMsg: String;
+    destructor Destroy; override;
+  end;
+
+  {en
+     Lists pending directories on both sides over and over until terminated.
+     Several workers run concurrently so that, on high-latency file systems
+     (network mounts), directory listings overlap instead of being awaited
+     one at a time.
+  }
+
+  { TSyncScanWorker }
+
+  TSyncScanWorker = class(TThread)
+  private
+    FPending: TThreadList;
+    FDone: TThreadList;
+    FFileSourceL, FFileSourceR: IFileSource;
+    FBaseDirL, FBaseDirR: String;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(APending, ADone: TThreadList;
+                       AFileSourceL, AFileSourceR: IFileSource;
+                       const ABaseDirL, ABaseDirR: String);
+  end;
+
 procedure ShowSyncDirsDlg(FileView1, FileView2: TFileView);
 var
   Dlg: TfrmSyncDirsDlg;
@@ -341,6 +381,71 @@ begin
         InvalidateRow(R);
       end;
     end;
+  end;
+end;
+
+{ TSyncScanTask }
+
+destructor TSyncScanTask.Destroy;
+begin
+  FilesL.Free;
+  FilesR.Free;
+  inherited Destroy;
+end;
+
+{en Pop the most recently added scan task, or nil if the queue is empty }
+function PopScanTask(AQueue: TThreadList): TSyncScanTask;
+var
+  AList: TList;
+begin
+  AList := AQueue.LockList;
+  try
+    if AList.Count > 0 then
+    begin
+      Result := TSyncScanTask(AList[AList.Count - 1]);
+      AList.Delete(AList.Count - 1);
+    end
+    else
+      Result := nil;
+  finally
+    AQueue.UnlockList;
+  end;
+end;
+
+{ TSyncScanWorker }
+
+constructor TSyncScanWorker.Create(APending, ADone: TThreadList;
+  AFileSourceL, AFileSourceR: IFileSource; const ABaseDirL, ABaseDirR: String);
+begin
+  FPending := APending;
+  FDone := ADone;
+  FFileSourceL := AFileSourceL;
+  FFileSourceR := AFileSourceR;
+  FBaseDirL := ABaseDirL;
+  FBaseDirR := ABaseDirR;
+  inherited Create(False);
+end;
+
+procedure TSyncScanWorker.Execute;
+var
+  Task: TSyncScanTask;
+begin
+  while not Terminated do
+  begin
+    Task := PopScanTask(FPending);
+    if Task = nil then
+    begin
+      Sleep(5);
+      Continue;
+    end;
+    try
+      Task.FilesL := FFileSourceL.GetFiles(FBaseDirL + Task.RelDir);
+      Task.FilesR := FFileSourceR.GetFiles(FBaseDirR + Task.RelDir);
+    except
+      on E: Exception do
+        Task.ErrorMsg := E.Message;
+    end;
+    FDone.Add(Task);
   end;
 end;
 
@@ -979,6 +1084,7 @@ procedure TfrmSyncDirsDlg.FormClose(Sender: TObject;
 var
   Index: Integer;
 begin
+  FCancel := True;
   StopCheckContentThread;
   CloseAction := caFree;
   { settings }
@@ -1492,95 +1598,94 @@ var
   BaseDirL, BaseDirR: string;
   ignoreDate, Subdirs, ByContent: Boolean;
   LastMessagesTime: QWord = 0;
-  // Progress accounting over all directories discovered so far, so the
-  // percentage advances smoothly instead of only per top-level directory
+  // Progress accounting over all directories discovered so far, shared by
+  // both scan modes, so the percentage advances smoothly
   ScanDone: Integer = 0;
   ScanTotal: Integer = 1;
 
-  procedure ScanDir(dir: string);
-
-    procedure ProcessOneSide(it, dirs: TStringList; var ASide: Boolean; sideLeft: Boolean);
-    var
-      fs: TFiles;
-      i, j: Integer;
-      f: TFile;
-      r: TFileSyncRec;
-      fn: String;
-    begin
-      if sideLeft then
-        fs := FFileSourceL.GetFiles(BaseDirL + dir)
-      else begin
-        fs := FFileSourceR.GetFiles(BaseDirR + dir);
-      end;
-      if chkOnlySelected.Checked and ASide then
-      begin
-        ASide:= False;
-        for I:= fs.Count - 1 downto 0 do
-        begin
-          if FSelectedItems.IndexOf(fs[I].Name) < 0 then
-            fs.Delete(I);
-        end;
-      end;
-      try
-        for i := 0 to fs.Count - 1 do
-        begin
-          f := fs.Items[i];
-          fn := NormalizeFileName(f.Name);
-          if f.IsDirectory or f.IsLinkToDirectory then
-          begin
-            if (f.NameNoExt <> '.') and (f.NameNoExt <> '..') then
-            begin
-              if (Template = nil) or (CheckDirectoryName(Template.FileChecks, f.Name)) then
-                dirs.Add(fn);
-            end;
-          end
-          else if (Template = nil) or Template.CheckFile(f) then
-          begin
-            if ((MaskList = nil) or MaskList.Matches(f.Name)) then
-            begin
-              j := it.IndexOf(fn);
-              if j < 0 then
-                r := TFileSyncRec.Create(Self, dir)
-              else
-                r := TFileSyncRec(it.Objects[j]);
-              if sideLeft then
-              begin
-                r.FFileL := f.Clone;
-                r.UpdateState(ignoreDate);
-              end else begin
-                r.FFileR := f.Clone;
-                r.UpdateState(ignoreDate);
-                if ByContent and (r.FState = srsEqual) and (r.FFileR.Size > 0) then
-                begin
-                  r.FAction := srsUnknown;
-                  r.FState := srsUnknown;
-                end;
-              end;
-              it.AddObject(fn, r);
-            end;
-          end;
-        end;
-      finally
-        fs.Free;
-      end;
-    end;
-
+  { Merge one side's file listing into the per-directory item list and
+    collect its subdirectory names. Takes ownership of fs. }
+  procedure MergeOneSide(it, dirs: TStringList; fs: TFiles; const ADir: String;
+    var ASide: Boolean; sideLeft: Boolean);
   var
     i, j: Integer;
+    f: TFile;
+    r: TFileSyncRec;
+    fn: String;
+  begin
+    if chkOnlySelected.Checked and ASide then
+    begin
+      ASide:= False;
+      for I:= fs.Count - 1 downto 0 do
+      begin
+        if FSelectedItems.IndexOf(fs[I].Name) < 0 then
+          fs.Delete(I);
+      end;
+    end;
+    try
+      for i := 0 to fs.Count - 1 do
+      begin
+        f := fs.Items[i];
+        fn := NormalizeFileName(f.Name);
+        if f.IsDirectory or f.IsLinkToDirectory then
+        begin
+          if (f.NameNoExt <> '.') and (f.NameNoExt <> '..') then
+          begin
+            if (Template = nil) or (CheckDirectoryName(Template.FileChecks, f.Name)) then
+              dirs.Add(fn);
+          end;
+        end
+        else if (Template = nil) or Template.CheckFile(f) then
+        begin
+          if ((MaskList = nil) or MaskList.Matches(f.Name)) then
+          begin
+            j := it.IndexOf(fn);
+            if j < 0 then
+              r := TFileSyncRec.Create(Self, ADir)
+            else
+              r := TFileSyncRec(it.Objects[j]);
+            if sideLeft then
+            begin
+              r.FFileL := f.Clone;
+              r.UpdateState(ignoreDate);
+            end else begin
+              r.FFileR := f.Clone;
+              r.UpdateState(ignoreDate);
+              if ByContent and (r.FState = srsEqual) and (r.FFileR.Size > 0) then
+              begin
+                r.FAction := srsUnknown;
+                r.FState := srsUnknown;
+              end;
+            end;
+            it.AddObject(fn, r);
+          end;
+        end;
+      end;
+    finally
+      fs.Free;
+    end;
+  end;
+
+  { Merge the listings of one directory (both sides) into FFoundItems and
+    return the union of subdirectories to scan (left side first, then those
+    existing only on the right). Takes ownership of AFilesL/AFilesR. }
+  procedure MergeDirectory(ADirKey: String; AFilesL, AFilesR: TFiles;
+    ASubdirs: TStringList);
+  var
+    i: Integer;
     it: TStringList;
     dirsLeft, dirsRight: TStringListEx;
-    d: string;
   begin
-    i := FFoundItems.IndexOf(dir);
+    i := FFoundItems.IndexOf(ADirKey);
     if i < 0 then
     begin
       it := TStringListEx.Create;
       it.CaseSensitive := FileNameCaseSensitive;
       it.Sorted := True;
-      FFoundItems.AddObject(dir, it);
+      FFoundItems.AddObject(ADirKey, it);
     end else
       it := TStringList(FFoundItems.Objects[i]);
-    if dir <> '' then dir := AppendPathDelim(dir);
+    if ADirKey <> '' then ADirKey := AppendPathDelim(ADirKey);
     dirsLeft := TStringListEx.Create;
     dirsLeft.CaseSensitive := FileNameCaseSensitive;
     dirsLeft.Sorted := True;
@@ -1588,47 +1693,173 @@ var
     dirsRight.CaseSensitive := FileNameCaseSensitive;
     dirsRight.Sorted := True;
     try
-      // Pump messages at most every 50 ms: each call may process queued
-      // inotify events and trigger file panel reloads, degrading the scan
-      // to O(n^2) over many directories (same issue as was fixed in
-      // TFileSourceOperation.AppProcessMessages)
-      if GetTickCount64 - LastMessagesTime >= 50 then
-      begin
-        LastMessagesTime := GetTickCount64;
-        // Update the displayed percentage only when pumping messages: a
-        // status bar update per scanned directory is measurably expensive
-        StatusBar1.Panels[0].Text :=
-          Format(rsComparingPercent, [ScanDone * 100 div ScanTotal]);
-        Application.ProcessMessages;
-      end;
-      if FCancel then Exit;
-      ProcessOneSide(it, dirsLeft, LeftFirst, True);
-      ProcessOneSide(it, dirsRight, RightFirst, False);
+      MergeOneSide(it, dirsLeft, AFilesL, ADirKey, LeftFirst, True);
+      MergeOneSide(it, dirsRight, AFilesR, ADirKey, RightFirst, False);
       SortFoundItems(it);
-      Inc(ScanDone);
       if not Subdirs then Exit;
-      Inc(ScanTotal, dirsLeft.Count + dirsRight.Count);
       for i := 0 to dirsLeft.Count - 1 do
-      begin
-        d := dirsLeft[i];
-        ScanDir(dir + d);
-        if FCancel then Exit;
-        j := dirsRight.IndexOf(d);
-        if j >= 0 then
-        begin
-          dirsRight.Delete(j);
-          Dec(ScanTotal);
-        end
-      end;
+        ASubdirs.Add(ADirKey + dirsLeft[i]);
       for i := 0 to dirsRight.Count - 1 do
-      begin
-        d := dirsRight[i];
-        ScanDir(dir + d);
-        if FCancel then Exit;
-      end;
+        if dirsLeft.IndexOf(dirsRight[i]) < 0 then
+          ASubdirs.Add(ADirKey + dirsRight[i]);
     finally
       dirsLeft.Free;
       dirsRight.Free;
+    end;
+  end;
+
+  procedure PumpMessagesThrottled;
+  begin
+    // Pump messages at most every 50 ms: each call may process queued
+    // inotify events and trigger file panel reloads, degrading the scan
+    // to O(n^2) over many directories (same issue as was fixed in
+    // TFileSourceOperation.AppProcessMessages)
+    if GetTickCount64 - LastMessagesTime >= 50 then
+    begin
+      LastMessagesTime := GetTickCount64;
+      // Update the displayed percentage only when pumping messages: a
+      // status bar update per scanned directory is measurably expensive
+      StatusBar1.Panels[0].Text :=
+        Format(rsComparingPercent, [ScanDone * 100 div ScanTotal]);
+      Application.ProcessMessages;
+    end;
+  end;
+
+  procedure ScanDir(dir: string);
+  var
+    i: Integer;
+    APath: String;
+    FilesL, FilesR: TFiles;
+    ASubdirs: TStringListEx;
+  begin
+    PumpMessagesThrottled;
+    if FCancel then Exit;
+    APath := dir;
+    if APath <> '' then APath := AppendPathDelim(APath);
+    FilesL := FFileSourceL.GetFiles(BaseDirL + APath);
+    try
+      FilesR := FFileSourceR.GetFiles(BaseDirR + APath);
+    except
+      FilesL.Free;
+      raise;
+    end;
+    ASubdirs := TStringListEx.Create;
+    try
+      MergeDirectory(dir, FilesL, FilesR, ASubdirs);
+      Inc(ScanDone);
+      Inc(ScanTotal, ASubdirs.Count);
+      for i := 0 to ASubdirs.Count - 1 do
+      begin
+        ScanDir(ASubdirs[i]);
+        if FCancel then Exit;
+      end;
+    finally
+      ASubdirs.Free;
+    end;
+  end;
+
+  { Scan with several listing threads so that directory listings overlap
+    instead of being awaited one at a time; merging stays in the GUI
+    thread. Results are identical to ScanDir, only the order directories
+    are listed in differs. }
+  procedure ScanDirsParallel;
+  const
+    cScanWorkers = 8;
+  var
+    Pending, Done: TThreadList;
+    Workers: array[0..cScanWorkers - 1] of TSyncScanWorker;
+    Outstanding: Integer;
+
+    procedure Enqueue(const AKey: String);
+    var
+      Task: TSyncScanTask;
+    begin
+      Task := TSyncScanTask.Create;
+      Task.RelKey := AKey;
+      if AKey = '' then
+        Task.RelDir := ''
+      else
+        Task.RelDir := AppendPathDelim(AKey);
+      Pending.Add(Task);
+      Inc(Outstanding);
+      Inc(ScanTotal);
+    end;
+
+    procedure FreeQueuedTasks(AQueue: TThreadList);
+    var
+      Task: TSyncScanTask;
+    begin
+      repeat
+        Task := PopScanTask(AQueue);
+        Task.Free;
+      until Task = nil;
+    end;
+
+  var
+    i: Integer;
+    Task: TSyncScanTask;
+    FilesL, FilesR: TFiles;
+    ASubdirs: TStringListEx;
+  begin
+    Pending := TThreadList.Create;
+    Done := TThreadList.Create;
+    try
+      Outstanding := 0;
+      ScanDone := 0;
+      ScanTotal := 0;
+      Enqueue('');
+      for i := 0 to High(Workers) do
+        Workers[i] := TSyncScanWorker.Create(Pending, Done,
+          FFileSourceL, FFileSourceR, BaseDirL, BaseDirR);
+      try
+        while (Outstanding > 0) and not FCancel do
+        begin
+          PumpMessagesThrottled;
+          if FCancel then Break;
+          Task := PopScanTask(Done);
+          if Task = nil then
+          begin
+            Sleep(5);
+            Continue;
+          end;
+          try
+            if Task.ErrorMsg <> '' then
+            begin
+              FCancel := True;
+              MessageDlg(Task.ErrorMsg, mtError, [mbOK], 0);
+            end
+            else begin
+              FilesL := Task.FilesL; Task.FilesL := nil;
+              FilesR := Task.FilesR; Task.FilesR := nil;
+              ASubdirs := TStringListEx.Create;
+              try
+                MergeDirectory(Task.RelKey, FilesL, FilesR, ASubdirs);
+                for i := 0 to ASubdirs.Count - 1 do
+                  Enqueue(ASubdirs[i]);
+              finally
+                ASubdirs.Free;
+              end;
+            end;
+          finally
+            Task.Free;
+            Dec(Outstanding);
+            Inc(ScanDone);
+          end;
+        end;
+      finally
+        for i := 0 to High(Workers) do
+          Workers[i].Terminate;
+        for i := 0 to High(Workers) do
+        begin
+          Workers[i].WaitFor;
+          Workers[i].Free;
+        end;
+      end;
+      FreeQueuedTasks(Pending);
+      FreeQueuedTasks(Done);
+    finally
+      Pending.Free;
+      Done.Free;
     end;
   end;
 
@@ -1663,7 +1894,14 @@ begin
   else begin
     FFileExists:= srsCopyLeft;
   end;
-  ScanDir('');
+  // Listing threads are only used when both sides are plain file systems
+  // (always safe to call concurrently); plugin file sources keep the
+  // serial scan since plugins may not support concurrent calls.
+  if FFileSourceL.IsClass(TFileSystemFileSource) and
+     FFileSourceR.IsClass(TFileSystemFileSource) then
+    ScanDirsParallel
+  else
+    ScanDir('');
   MaskList.Free;
   FillFoundItemsDG;
   if FCancel then Exit;
