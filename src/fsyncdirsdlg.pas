@@ -1492,6 +1492,10 @@ var
   BaseDirL, BaseDirR: string;
   ignoreDate, Subdirs, ByContent: Boolean;
   LastMessagesTime: QWord = 0;
+  // Progress accounting over all directories discovered so far, so the
+  // percentage advances smoothly instead of only per top-level directory
+  ScanDone: Integer = 0;
+  ScanTotal: Integer = 1;
 
   procedure ScanDir(dir: string);
 
@@ -1562,7 +1566,7 @@ var
     end;
 
   var
-    i, j, tot: Integer;
+    i, j: Integer;
     it: TStringList;
     dirsLeft, dirsRight: TStringListEx;
     d: string;
@@ -1597,13 +1601,13 @@ var
       ProcessOneSide(it, dirsLeft, LeftFirst, True);
       ProcessOneSide(it, dirsRight, RightFirst, False);
       SortFoundItems(it);
+      Inc(ScanDone);
       if not Subdirs then Exit;
-      tot := dirsLeft.Count + dirsRight.Count;
+      Inc(ScanTotal, dirsLeft.Count + dirsRight.Count);
+      StatusBar1.Panels[0].Text :=
+        Format(rsComparingPercent, [ScanDone * 100 div ScanTotal]);
       for i := 0 to dirsLeft.Count - 1 do
       begin
-        if dir = '' then
-          StatusBar1.Panels[0].Text :=
-            Format(rsComparingPercent, [i * 100 div tot]);
         d := dirsLeft[i];
         ScanDir(dir + d);
         if FCancel then Exit;
@@ -1611,14 +1615,11 @@ var
         if j >= 0 then
         begin
           dirsRight.Delete(j);
-          Dec(tot);
+          Dec(ScanTotal);
         end
       end;
       for i := 0 to dirsRight.Count - 1 do
       begin
-        if dir = '' then
-          StatusBar1.Panels[0].Text :=
-            Format(rsComparingPercent, [(dirsLeft.Count + i) * 100 div tot]);
         d := dirsRight[i];
         ScanDir(dir + d);
         if FCancel then Exit;
