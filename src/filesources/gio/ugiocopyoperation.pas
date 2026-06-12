@@ -130,6 +130,7 @@ end;
 procedure TGioCopyOperation.Finalize;
 begin
   FileExistsOption := FOperationHelper.FileExistsOption;
+  DirExistsOption := FOperationHelper.DirExistsOption;
   FOperationHelper.Free;
 end;
 

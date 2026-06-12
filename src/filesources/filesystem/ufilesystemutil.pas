@@ -45,6 +45,27 @@ type
     = function(SourceFile: TFile; TargetFileName: String;
                Mode: TFileSystemOperationHelperCopyMode): Boolean of object;
 
+  {en
+     Bundle of "skip all"-type answers given by the user during an operation.
+     Callers that run several consecutive operations (e.g. directory
+     synchronization) can read this after one operation and apply it to the
+     next one, so the user's choice is remembered for the whole run.
+  }
+  TFileSystemOperationHelperSkipFlags = record
+    SkipAllBigFiles: Boolean;
+    SkipAllCopyItSelf: Boolean;
+    SkipAllSpecialFiles: Boolean;
+    SkipRenameError: Boolean;
+    SkipOpenForReadingError: Boolean;
+    SkipOpenForWritingError: Boolean;
+    SkipCreateSymLinkError: Boolean;
+    SkipReadError: Boolean;
+    SkipWriteError: Boolean;
+    SkipCopyError: Boolean;
+    MaxPathOption: TFileSourceOperationUIResponse;
+    DeleteFileOption: TFileSourceOperationUIResponse;
+  end;
+
   { TFileSystemTreeBuilder }
 
   TFileSystemTreeBuilder = class(TFileSourceTreeBuilder)
@@ -145,6 +166,9 @@ type
     procedure SkipStatistics(aNode: TFileTreeNode);
     procedure CountStatistics(aNode: TFileTreeNode);
 
+    function GetSkipFlags: TFileSystemOperationHelperSkipFlags;
+    procedure SetSkipFlags(const AValue: TFileSystemOperationHelperSkipFlags);
+
   public
     constructor Create(AskQuestionFunction: TAskQuestionFunction;
                        AbortOperationFunction: TAbortOperationFunction;
@@ -176,6 +200,7 @@ type
     property CopyAttributesOptions: TCopyAttributesOptions read FCopyAttributesOptions write FCopyAttributesOptions;
     property CorrectSymLinks: Boolean read FCorrectSymLinks write FCorrectSymLinks;
     property RenameMask: String read FRenameMask write FRenameMask;
+    property SkipFlags: TFileSystemOperationHelperSkipFlags read GetSkipFlags write SetSkipFlags;
   end;
 
 implementation
@@ -483,6 +508,47 @@ begin
     FDescription.SaveDescription;
     FreeAndNil(FDescription);
   end;
+end;
+
+function TFileSystemOperationHelper.GetSkipFlags: TFileSystemOperationHelperSkipFlags;
+begin
+  Result := Default(TFileSystemOperationHelperSkipFlags);
+  Result.SkipAllBigFiles := FSkipAllBigFiles;
+  Result.SkipAllCopyItSelf := FSkipAllCopyItSelf;
+{$IF DEFINED(UNIX)}
+  Result.SkipAllSpecialFiles := FSkipAllSpecialFiles;
+{$ENDIF}
+  Result.SkipRenameError := FSkipRenameError;
+  Result.SkipOpenForReadingError := FSkipOpenForReadingError;
+  Result.SkipOpenForWritingError := FSkipOpenForWritingError;
+  Result.SkipCreateSymLinkError := FSkipCreateSymLinkError;
+  Result.SkipReadError := FSkipReadError;
+  Result.SkipWriteError := FSkipWriteError;
+  Result.SkipCopyError := FSkipCopyError;
+{$IF DEFINED(MSWINDOWS)}
+  Result.MaxPathOption := FMaxPathOption;
+{$ENDIF}
+  Result.DeleteFileOption := FDeleteFileOption;
+end;
+
+procedure TFileSystemOperationHelper.SetSkipFlags(const AValue: TFileSystemOperationHelperSkipFlags);
+begin
+  FSkipAllBigFiles := AValue.SkipAllBigFiles;
+  FSkipAllCopyItSelf := AValue.SkipAllCopyItSelf;
+{$IF DEFINED(UNIX)}
+  FSkipAllSpecialFiles := AValue.SkipAllSpecialFiles;
+{$ENDIF}
+  FSkipRenameError := AValue.SkipRenameError;
+  FSkipOpenForReadingError := AValue.SkipOpenForReadingError;
+  FSkipOpenForWritingError := AValue.SkipOpenForWritingError;
+  FSkipCreateSymLinkError := AValue.SkipCreateSymLinkError;
+  FSkipReadError := AValue.SkipReadError;
+  FSkipWriteError := AValue.SkipWriteError;
+  FSkipCopyError := AValue.SkipCopyError;
+{$IF DEFINED(MSWINDOWS)}
+  FMaxPathOption := AValue.MaxPathOption;
+{$ENDIF}
+  FDeleteFileOption := AValue.DeleteFileOption;
 end;
 
 procedure TFileSystemOperationHelper.Initialize;

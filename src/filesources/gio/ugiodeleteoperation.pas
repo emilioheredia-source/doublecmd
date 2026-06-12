@@ -25,8 +25,6 @@ type
 
     // Options.
     FSymLinkOption: TFileSourceOperationOptionSymLink;
-    FSkipErrors: Boolean;
-    FDeleteReadOnly: TFileSourceOperationOptionGeneral;
 
   protected
     function ProcessFile(aFile: TFile): Boolean;

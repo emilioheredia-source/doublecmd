@@ -35,10 +35,12 @@ type
     FVerify,
     FReserveSpace,
     FCheckFreeSpace: Boolean;
-    FSkipAllBigFiles: Boolean;
+    FSkipFlags: TFileSystemOperationHelperSkipFlags;
     FAutoRenameItSelf: Boolean;
     FCorrectSymLinks: Boolean;
     procedure SetSearchTemplate(AValue: TSearchTemplate);
+    function GetSkipAllBigFiles: Boolean;
+    procedure SetSkipAllBigFiles(AValue: Boolean);
 
   public
     constructor Create(aSourceFileSource: IFileSource;
@@ -57,11 +59,14 @@ type
     property Verify: Boolean read FVerify write FVerify;
     property CheckFreeSpace: Boolean read FCheckFreeSpace write FCheckFreeSpace;
     property ReserveSpace: Boolean read FReserveSpace write FReserveSpace;
-    property SkipAllBigFiles: Boolean read FSkipAllBigFiles write FSkipAllBigFiles;
+    property SkipAllBigFiles: Boolean read GetSkipAllBigFiles write SetSkipAllBigFiles;
     property AutoRenameItSelf: Boolean read FAutoRenameItSelf write FAutoRenameItSelf;
     property CorrectSymLinks: Boolean read FCorrectSymLinks write FCorrectSymLinks;
     property CopyOnWrite: TFileSourceOperationOptionGeneral read FCopyOnWrite write FCopyOnWrite;
     property SetPropertyError: TFileSourceOperationOptionSetPropertyError read FSetPropertyError write FSetPropertyError;
+    // "Skip all"-type answers given by the user, so callers running several
+    // consecutive operations can carry them over to the next operation
+    property SkipFlags: TFileSystemOperationHelperSkipFlags read FSkipFlags write FSkipFlags;
     property ExcludeEmptyTemplateDirectories: Boolean read FExcludeEmptyTemplateDirectories write FExcludeEmptyTemplateDirectories;
     {en
        Operation takes ownership of assigned template and will free it.
@@ -110,7 +115,7 @@ begin
   FSetPropertyError := gOperationOptionSetPropertyError;
   FReserveSpace := gOperationOptionReserveSpace;
   FCheckFreeSpace := gOperationOptionCheckFreeSpace;
-  FSkipAllBigFiles := False;
+  FSkipFlags := Default(TFileSystemOperationHelperSkipFlags);
   FAutoRenameItSelf := False;
   FCorrectSymLinks := gOperationOptionCorrectLinks;
   FExcludeEmptyTemplateDirectories := True;
@@ -191,7 +196,7 @@ begin
   FOperationHelper.ReserveSpace :=  FReserveSpace;
   FOperationHelper.CheckFreeSpace := CheckFreeSpace;
   FOperationHelper.CopyAttributesOptions := CopyAttributesOptions;
-  FOperationHelper.SkipAllBigFiles := SkipAllBigFiles;
+  FOperationHelper.SkipFlags := FSkipFlags;
   FOperationHelper.AutoRenameItSelf := AutoRenameItSelf;
   FOperationHelper.CorrectSymLinks := CorrectSymLinks;
   FOperationHelper.FileExistsOption := FileExistsOption;
@@ -214,8 +219,24 @@ end;
 
 procedure TFileSystemCopyOperation.Finalize;
 begin
+  // Write back options that could have been changed by the user answering
+  // "All"-type responses, so that callers running several consecutive
+  // operations can carry the choice over to the next operation.
   FileExistsOption := FOperationHelper.FileExistsOption;
+  DirExistsOption := FOperationHelper.DirExistsOption;
+  SetPropertyError := FOperationHelper.SetPropertyError;
+  FSkipFlags := FOperationHelper.SkipFlags;
   FreeAndNil(FOperationHelper);
+end;
+
+function TFileSystemCopyOperation.GetSkipAllBigFiles: Boolean;
+begin
+  Result := FSkipFlags.SkipAllBigFiles;
+end;
+
+procedure TFileSystemCopyOperation.SetSkipAllBigFiles(AValue: Boolean);
+begin
+  FSkipFlags.SkipAllBigFiles := AValue;
 end;
 
 class function TFileSystemCopyOperation.GetOptionsUIClass: TFileSourceOperationOptionsUIClass;
