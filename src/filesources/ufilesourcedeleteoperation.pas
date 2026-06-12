@@ -8,6 +8,7 @@ uses
   Classes, SysUtils, syncobjs,
   uFileSourceOperation,
   uFileSourceOperationTypes,
+  uFileSourceOperationOptions,
   uFileSource,
   uFile;
 
@@ -41,6 +42,13 @@ type
     FFilesToDelete: TFiles;
 
   protected
+    // Options that remember user's "All"-type answers. They are kept in the
+    // base class so that callers which execute several consecutive delete
+    // operations (e.g. directory synchronization) can carry the user's
+    // choice from one operation to the next.
+    FSkipErrors: Boolean;
+    FDeleteReadOnly: TFileSourceOperationOptionGeneral;
+
     function GetID: TFileSourceOperationType; override;
     procedure DoReloadFileSources; override;
 
@@ -57,6 +65,9 @@ type
 
     function GetDescription(Details: TFileSourceOperationDescriptionDetails): String; override;
     function RetrieveStatistics: TFileSourceDeleteOperationStatistics;
+
+    property SkipErrors: Boolean read FSkipErrors write FSkipErrors;
+    property DeleteReadOnly: TFileSourceOperationOptionGeneral read FDeleteReadOnly write FDeleteReadOnly;
   end;
 
 implementation
