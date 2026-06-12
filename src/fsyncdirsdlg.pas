@@ -333,7 +333,6 @@ type
     FDone: TThreadList;
     FFileSourceL, FFileSourceR: IFileSource;
     FBaseDirL, FBaseDirR: String;
-    function PopPending: TSyncScanTask;
   protected
     procedure Execute; override;
   public
@@ -394,6 +393,25 @@ begin
   inherited Destroy;
 end;
 
+{en Pop the most recently added scan task, or nil if the queue is empty }
+function PopScanTask(AQueue: TThreadList): TSyncScanTask;
+var
+  AList: TList;
+begin
+  AList := AQueue.LockList;
+  try
+    if AList.Count > 0 then
+    begin
+      Result := TSyncScanTask(AList[AList.Count - 1]);
+      AList.Delete(AList.Count - 1);
+    end
+    else
+      Result := nil;
+  finally
+    AQueue.UnlockList;
+  end;
+end;
+
 { TSyncScanWorker }
 
 constructor TSyncScanWorker.Create(APending, ADone: TThreadList;
@@ -408,31 +426,13 @@ begin
   inherited Create(False);
 end;
 
-function TSyncScanWorker.PopPending: TSyncScanTask;
-var
-  AList: TList;
-begin
-  AList := FPending.LockList;
-  try
-    if AList.Count > 0 then
-    begin
-      Result := TSyncScanTask(AList[AList.Count - 1]);
-      AList.Delete(AList.Count - 1);
-    end
-    else
-      Result := nil;
-  finally
-    FPending.UnlockList;
-  end;
-end;
-
 procedure TSyncScanWorker.Execute;
 var
   Task: TSyncScanTask;
 begin
   while not Terminated do
   begin
-    Task := PopPending;
+    Task := PopScanTask(FPending);
     if Task = nil then
     begin
       Sleep(5);
@@ -1779,37 +1779,14 @@ var
       Inc(TotalTasks);
     end;
 
-    function PopDone: TSyncScanTask;
-    var
-      AList: TList;
-    begin
-      AList := Done.LockList;
-      try
-        if AList.Count > 0 then
-        begin
-          Result := TSyncScanTask(AList[AList.Count - 1]);
-          AList.Delete(AList.Count - 1);
-        end
-        else
-          Result := nil;
-      finally
-        Done.UnlockList;
-      end;
-    end;
-
     procedure FreeQueuedTasks(AQueue: TThreadList);
     var
-      i: Integer;
-      AList: TList;
+      Task: TSyncScanTask;
     begin
-      AList := AQueue.LockList;
-      try
-        for i := 0 to AList.Count - 1 do
-          TObject(AList[i]).Free;
-        AList.Clear;
-      finally
-        AQueue.UnlockList;
-      end;
+      repeat
+        Task := PopScanTask(AQueue);
+        Task.Free;
+      until Task = nil;
     end;
 
   var
@@ -1833,7 +1810,7 @@ var
         begin
           PumpMessagesThrottled;
           if FCancel then Break;
-          Task := PopDone;
+          Task := PopScanTask(Done);
           if Task = nil then
           begin
             Sleep(5);
