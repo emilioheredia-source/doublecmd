@@ -1493,9 +1493,12 @@ var
   ignoreDate, Subdirs, ByContent: Boolean;
   LastMessagesTime: QWord = 0;
   // Progress accounting over all directories discovered so far, so the
-  // percentage advances smoothly instead of only per top-level directory
+  // percentage advances smoothly instead of only per top-level directory.
+  // The displayed value is clamped to never step backwards, since the
+  // total keeps growing while subdirectories are still being discovered.
   ScanDone: Integer = 0;
   ScanTotal: Integer = 1;
+  ScanShownPercent: Integer = 0;
 
   procedure ScanDir(dir: string);
 
@@ -1597,8 +1600,9 @@ var
         LastMessagesTime := GetTickCount64;
         // Update the displayed percentage only when pumping messages: a
         // status bar update per scanned directory is measurably expensive
+        ScanShownPercent := Max(ScanShownPercent, ScanDone * 100 div ScanTotal);
         StatusBar1.Panels[0].Text :=
-          Format(rsComparingPercent, [ScanDone * 100 div ScanTotal]);
+          Format(rsComparingPercent, [ScanShownPercent]);
         Application.ProcessMessages;
       end;
       if FCancel then Exit;
