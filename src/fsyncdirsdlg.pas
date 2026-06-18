@@ -166,6 +166,9 @@ type
     FCmpFileSourceL, FCmpFileSourceR: IFileSource;
     FCmpFilePathL, FCmpFilePathR: string;
     FAddressL, FAddressR: string;
+    // The two source panels, kept so their directory watchers can be
+    // suspended during bulk copy/delete (avoids the per-file reload storm).
+    FFileView1, FFileView2: TFileView;
     hCols: array [0..6] of record Left, Width: Integer end;
     CheckContentThread: TObject;
     Ftotal, Fequal, Fnoneq, FuniqueL, FuniqueR: Integer;
@@ -200,6 +203,7 @@ type
     procedure SetSyncRecState(AState: TSyncRecState);
     procedure DeleteFiles(ALeft, ARight: Boolean);
     function DeleteFiles(FileSource: IFileSource; var Files: TFiles): Boolean;
+    procedure SetPanelWatchers(AEnabled: Boolean);
     procedure UpdateList(ALeft, ARight: TFiles; ARemoveLeft, ARemoveRight: Boolean);
     procedure SetProgressBytes(AProgressBar: TKASProgressBar; CurrentBytes: Int64; TotalBytes: Int64);
     procedure SetProgressFiles(AProgressBar: TKASProgressBar; CurrentFiles: Int64; TotalFiles: Int64);
@@ -249,6 +253,7 @@ uses
   fMain, uDebug, fDiffer, fSyncDirsPerformDlg, uGlobs, LCLType, LazUTF8, LazFileUtils,
   uOSForms,
   uFileSystemFileSource, DCDateTimeUtils, SyncObjs,
+  fDeleteDlg, uTrash, uOperationsManager,
   uDCUtils, uFileSourceUtil, uFileSourceOperationTypes, uShowForm, uAdministrator,
   uOSUtils, uLng, uMasks, Math, uClipboard, IntegerList, fMaskInputDlg, uSearchTemplate,
   LCLVersion, SysConst, DCStrUtils, DCOSUtils, uTypes, uFileSystemDeleteOperation,
@@ -888,6 +893,8 @@ begin
       pnlCopyProgress.Visible:= CopyLeft or CopyRight;
       pnlDeleteProgress.Visible:= DeleteLeft or DeleteRight;
 
+      SetPanelWatchers(False);
+      try
       i := 0;
       while i < FVisibleItems.Count do
       begin
@@ -938,6 +945,9 @@ begin
         end
         else DeleteRightFiles.Free;
         if not pnlProgress.Visible then Break;
+      end;
+      finally
+        SetPanelWatchers(True);
       end;
       EnableControls(True);
       btnCompare.Click;
@@ -1963,6 +1973,16 @@ end;
   back afterwards. Reset them when a new run starts, so answers given in one
   run do not leak into the next. }
 
+procedure TfrmSyncDirsDlg.SetPanelWatchers(AEnabled: Boolean);
+begin
+  // Suspend the source panels' directory watchers while we copy/delete, so a
+  // large local operation does not trigger one full O(n) panel reload per ~100
+  // changes (which makes a big delete behave as O(n²), ~1 file/sec). Resuming
+  // does a single reconciling reload of each panel.
+  if Assigned(FFileView1) then FFileView1.SetWatcherEnabled(AEnabled);
+  if Assigned(FFileView2) then FFileView2.SetWatcherEnabled(AEnabled);
+end;
+
 procedure TfrmSyncDirsDlg.ResetDeleteOptions;
 begin
   FDeleteSkipErrors := gSkipFileOpError;
@@ -1992,6 +2012,11 @@ var
   Message: String;
   ALeftList: TFiles;
   ARightList: TFiles;
+  TrashAvailable: Boolean;
+  Confirmed: Boolean;
+  DeleteMode: TDeleteMode;
+  DlgSource: IFileSource;
+  QueueId: TOperationsManagerQueueIdentifier;
 begin
   ResetDeleteOptions;
   if not ALeft then
@@ -2030,13 +2055,48 @@ begin
       Message+= Format(rsVarRightPanel + ': ' + rsMsgDelFlDr, [ARightList.Count]) + LineEnding;
     end;
 
-    if MessageDlg(Message, mtWarning, [mbYes, mbNo], 0, mbYes) = mrYes then
+    // Per-operation trash override: when the involved local file source(s)
+    // support trash, offer Trash/Delete in the confirmation, defaulting to the
+    // global setting (FDeleteToTrash, just reset from gUseTrash). The user's
+    // choice here overrides the global preference for this delete only.
+    TrashAvailable:= True;
+    if ALeft then
+      TrashAvailable:= TrashAvailable and FCmpFileSourceL.IsClass(TFileSystemFileSource)
+        and mbCheckTrash(FCmpFilePathL);
+    if ARight then
+      TrashAvailable:= TrashAvailable and FCmpFileSourceR.IsClass(TFileSystemFileSource)
+        and mbCheckTrash(FCmpFilePathR);
+
+    if FDeleteToTrash and TrashAvailable then
+      DeleteMode:= dmTrash
+    else
+      DeleteMode:= dmDelete;
+
+    if TrashAvailable then
+    begin
+      if ALeft then DlgSource:= FCmpFileSourceL else DlgSource:= FCmpFileSourceR;
+      Confirmed:= ShowDeleteDialog(Self, Message, Message, EmptyStr,
+                    DlgSource, QueueId, True, False, DeleteMode);
+      FDeleteToTrash:= (DeleteMode = dmTrash);
+    end
+    else
+    begin
+      Confirmed:= MessageDlg(Message, mtWarning, [mbYes, mbNo], 0, mbYes) = mrYes;
+      FDeleteToTrash:= False;
+    end;
+
+    if Confirmed then
     begin
       EnableControls(False);
       pnlCopyProgress.Visible:= False;
       pnlDeleteProgress.Visible:= True;
-      if ALeft then DeleteFiles(FCmpFileSourceL, ALeftList);
-      if ARight then DeleteFiles(FCmpFileSourceR, ARightList);
+      SetPanelWatchers(False);
+      try
+        if ALeft then DeleteFiles(FCmpFileSourceL, ALeftList);
+        if ARight then DeleteFiles(FCmpFileSourceR, ARightList);
+      finally
+        SetPanelWatchers(True);
+      end;
       UpdateList(nil, nil, ALeft, ARight);
       EnableControls(True);
     end;
@@ -2203,6 +2263,8 @@ begin
   FFoundItems := TStringListEx.Create;
   FFoundItems.CaseSensitive := FileNameCaseSensitive;
   FFoundItems.Sorted := True;
+  FFileView1 := FileView1;
+  FFileView2 := FileView2;
   FFileSourceL := FileView1.FileSource;
   FFileSourceR := FileView2.FileSource;
   FAddressL := FileView1.CurrentAddress;
