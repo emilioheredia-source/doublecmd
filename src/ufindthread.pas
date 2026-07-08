@@ -118,9 +118,13 @@ type
     procedure WfxFillSingle;
     procedure WfxDownload;
     function WfxDownloadProgress(SourceName, TargetName: PAnsiChar; PercentDone: Integer): Integer;
+    procedure FillWfxRemoteInfo(const AFile: TFile);
     function WfxFindInFile(const AFile: TFile): Boolean;
+    function CanEnterWfxDirectory(const CurrentDir: String; const AFile: TFile): Boolean;
     procedure DoFileWfx(const AFile: TFile);
     procedure WalkWfx(const sNewDir: String);
+    procedure SearchWfxSelected(const Path: String);
+    procedure SearchWfx;
 
   protected
     procedure Execute; override;
@@ -326,29 +330,7 @@ begin
     end
     else if Assigned(FWfxFileSource) then
     begin
-      if not Assigned(FSelectedFiles) or (FSelectedFiles.Count = 0) then
-      begin
-        // Normal search (whole start directory).
-        WalkWfx(ExcludeBackPathDelimiter(FSearchTemplate.StartPath));
-      end
-      else begin
-        // Search only selected files/directories.
-        for I := 0 to FSelectedFiles.Count - 1 do
-        begin
-          if Terminated then Break;
-          FWfxListPath := ExcludeBackPathDelimiter(FSelectedFiles[I]);
-          Synchronize(@WfxFillSingle);
-          if Assigned(FWfxSingleFile) then
-          try
-            if FWfxSingleFile.IsDirectory or FWfxSingleFile.IsLinkToDirectory then
-              WalkWfx(FWfxSingleFile.FullPath)
-            else
-              DoFileWfx(FWfxSingleFile);
-          finally
-            FreeAndNil(FWfxSingleFile);
-          end;
-        end;
-      end;
+      SearchWfx;
     end
     else if not Assigned(FSelectedFiles) or (FSelectedFiles.Count = 0) then
     begin
@@ -841,17 +823,12 @@ begin
   end;
 end;
 
-function TFindThread.WfxFindInFile(const AFile: TFile): Boolean;
+// Describe the remote file for the plugin: TC plugins may dereference the
+// RemoteInfo parameter of FsGetFile, so it must always be filled.
+procedure TFindThread.FillWfxRemoteInfo(const AFile: TFile);
 var
   iTemp: TInt64Rec;
-  sTempName: String;
 begin
-  Result := False;
-  // Keep the original extension so extension-based checks (e.g. Office XML)
-  // still work on the temporary copy.
-  sTempName := GetTempName(GetTempFolder) + ExtractFileExt(AFile.Name);
-  FWfxRemoteName := AFile.FullPath;
-  FWfxLocalName := sTempName;
   with FWfxRemoteInfo do
   begin
     iTemp.Value := AFile.Size;
@@ -860,6 +837,21 @@ begin
     LastWriteTime := DateTimeToWfxFileTime(AFile.ModificationTime);
     Attr := LongInt(AFile.Attributes);
   end;
+end;
+
+// Search text inside one remote file: download it to a local temporary file,
+// scan the copy with the regular search engine, then delete the copy.
+function TFindThread.WfxFindInFile(const AFile: TFile): Boolean;
+var
+  sTempName: String;
+begin
+  Result := False;
+  // Keep the original extension so extension-based checks (e.g. Office XML)
+  // still work on the temporary copy.
+  sTempName := GetTempName(GetTempFolder) + ExtractFileExt(AFile.Name);
+  FWfxRemoteName := AFile.FullPath;
+  FWfxLocalName := sTempName;
+  FillWfxRemoteInfo(AFile);
   Synchronize(@WfxDownload);
   if not FWfxDownloadOK then Exit;
   try
@@ -870,34 +862,40 @@ begin
   end;
 end;
 
+// Check one remote file against the search template and report it if it matches.
 procedure TFindThread.DoFileWfx(const AFile: TFile);
 var
   Found: Boolean;
 begin
-  if uFindFiles.CheckFile(FSearchTemplate, FFileChecks, AFile) then
-  begin
-    if FSearchTemplate.IsFindText then
-    begin
-      if AFile.IsDirectory or AFile.IsLinkToDirectory or (AFile.Size = 0) then
-      begin
-        Inc(FFilesScanned);
-        Exit;
-      end;
-      Found := WfxFindInFile(AFile);
-      if FSearchTemplate.NotContainingText then Found := not Found;
-      if not Found then
-      begin
-        Inc(FFilesScanned);
-        Exit;
-      end;
-    end;
-    FFoundFile := AFile.FullPath;
-    Synchronize(@AddFile);
-    Inc(FFilesFound);
-  end;
   Inc(FFilesScanned);
+
+  if not uFindFiles.CheckFile(FSearchTemplate, FFileChecks, AFile) then
+    Exit;
+
+  if FSearchTemplate.IsFindText then
+  begin
+    // Only regular, non-empty files can contain the searched text.
+    if AFile.IsDirectory or AFile.IsLinkToDirectory or (AFile.Size = 0) then
+      Exit;
+    Found := WfxFindInFile(AFile);
+    if FSearchTemplate.NotContainingText then Found := not Found;
+    if not Found then Exit;
+  end;
+
+  FFoundFile := AFile.FullPath;
+  Synchronize(@AddFile);
+  Inc(FFilesFound);
 end;
 
+function TFindThread.CanEnterWfxDirectory(const CurrentDir: String; const AFile: TFile): Boolean;
+begin
+  // Symbolic links are not followed to avoid cycles on the remote side.
+  Result := AFile.IsDirectory and (not AFile.IsLinkToDirectory) and
+            (FCurrentDepth < FSearchTemplate.SearchDepth) and
+            CheckDirectory(CurrentDir, AFile.Name);
+end;
+
+// Recursively search one remote directory.
 procedure TFindThread.WalkWfx(const sNewDir: String);
 var
   I: Integer;
@@ -923,10 +921,7 @@ begin
       AFile := AFiles[I];
       if (AFile.Name = '.') or (AFile.Name = '..') then Continue;
       DoFileWfx(AFile);
-      // Search in subdirectories (do not follow symbolic links).
-      if AFile.IsDirectory and (not AFile.IsLinkToDirectory) and
-         (FCurrentDepth < FSearchTemplate.SearchDepth) and
-         CheckDirectory(sNewDir, AFile.Name) then
+      if CanEnterWfxDirectory(sNewDir, AFile) then
       begin
         WalkWfx(AFile.FullPath);
         FCurrentDir := sNewDir;
@@ -937,6 +932,41 @@ begin
   end;
 
   Dec(FCurrentDepth);
+end;
+
+// Search one entry from the selected files list (a file or a directory).
+procedure TFindThread.SearchWfxSelected(const Path: String);
+begin
+  FWfxListPath := Path;
+  Synchronize(@WfxFillSingle);
+  if not Assigned(FWfxSingleFile) then Exit;
+  try
+    if FWfxSingleFile.IsDirectory or FWfxSingleFile.IsLinkToDirectory then
+      WalkWfx(FWfxSingleFile.FullPath)
+    else
+      DoFileWfx(FWfxSingleFile);
+  finally
+    FreeAndNil(FWfxSingleFile);
+  end;
+end;
+
+// Entry point of the WFX plugin file source search mode.
+procedure TFindThread.SearchWfx;
+var
+  I: Integer;
+begin
+  if not Assigned(FSelectedFiles) or (FSelectedFiles.Count = 0) then
+  begin
+    // Normal search (whole start directory).
+    WalkWfx(ExcludeBackPathDelimiter(FSearchTemplate.StartPath));
+    Exit;
+  end;
+  // Search only selected files/directories.
+  for I := 0 to FSelectedFiles.Count - 1 do
+  begin
+    if Terminated then Break;
+    SearchWfxSelected(ExcludeBackPathDelimiter(FSelectedFiles[I]));
+  end;
 end;
 
 function TFindThread.CheckFileName(const FileName: String): Boolean;
