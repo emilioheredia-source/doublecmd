@@ -312,6 +312,8 @@ type
     procedure SetEncodings(const AEncodings: String; AList: TCustomComboBox);
 
     procedure FindInArchive(AFileView: TFileView);
+    procedure FindInFileSource;
+    function IsWfxSearch: Boolean;
     procedure FillFindOptions(out FindOptions: TSearchTemplateRec; SetStartPath: boolean);
     procedure FindOptionsToDSXSearchRec(const AFindOptions: TSearchTemplateRec;
                                         out SRec: TDsxSearchRecord);
@@ -408,7 +410,8 @@ uses
   DCOSUtils, uRegExprA, uRegExprW, uDebug, uShowMsg, uConvEncoding,
   uColumns, uFileFunctions, uFileSorting,
   DCConvertEncoding, WcxPlugin, fChooseEncoding, dmCommonData,
-  uLocalFileSource, uWcxArchiveFileSource, uSearchResultFileSource,
+  uLocalFileSource, uWcxArchiveFileSource, uWfxPluginFileSource,
+  uSearchResultFileSource,
   uFileSourceUtil, uArchiveFileSourceUtil, uDriveWatcher
 {$IFDEF DARkWIN}
   , uDarkStyle
@@ -1549,6 +1552,43 @@ begin
     cbFollowSymLinks.Checked:= False;
     cmbFindPathStart.Text:= aFileView.CurrentAddress;
   end;
+
+  FindInFileSource;
+end;
+
+{ TfrmFindDlg.IsWfxSearch }
+function TfrmFindDlg.IsWfxSearch: Boolean;
+begin
+  Result := Assigned(FFileSource) and FFileSource.IsClass(TWfxPluginFileSource);
+end;
+
+{ TfrmFindDlg.FindInFileSource }
+// Adjust controls when searching on a WFX plugin file source (SFTP, FTP, ...).
+// Must be called after FindInArchive, which (re)enables the shared controls.
+procedure TfrmFindDlg.FindInFileSource;
+var
+  AWfx: Boolean;
+begin
+  AWfx := IsWfxSearch;
+
+  if AWfx then
+  begin
+    cbFindInArchive.Checked := False;
+    cbReplaceText.Checked := False;
+    chkDuplicates.Checked := False;
+    cbFollowSymLinks.Checked := False;
+    cbOpenedTabs.Checked := False;
+  end;
+
+  cbFindInArchive.Enabled := cbFindInArchive.Enabled and (not AWfx);
+  cbReplaceText.Enabled := cbReplaceText.Enabled and (not AWfx) and cbFindText.Checked;
+  chkDuplicates.Enabled := chkDuplicates.Enabled and (not AWfx);
+  cbFollowSymLinks.Enabled := cbFollowSymLinks.Enabled and (not AWfx);
+  cbOpenedTabs.Visible := cbOpenedTabs.Visible and (not AWfx);
+  btnDrives.Enabled := btnDrives.Enabled and (not AWfx);
+  btnChooseFolder.Enabled := btnChooseFolder.Enabled and (not AWfx);
+  tsPlugins.TabVisible := tsPlugins.TabVisible and (not AWfx);
+  actPagePlugins.Enabled := actPagePlugins.Enabled and (not AWfx);
 end;
 
 procedure TfrmFindDlg.FoundedStringCopyAdded(Sender: TObject);
@@ -1756,6 +1796,9 @@ begin
     end;
   end;
 
+  if IsWfxSearch and (cmbFindPathStart.Text = '') then
+    cmbFindPathStart.Text := PathDelim;
+
   if (cbFindText.Checked and chkHex.Checked) then
   try
     HexToBin(cmbFindText.Text);
@@ -1856,6 +1899,8 @@ begin
       with FFindThread do
       begin
         Archive := FWcxModule;
+        if IsWfxSearch then
+          WfxFileSource := (FFileSource as IWfxPluginFileSource);
         Items := FoundedStringCopy;
         OnTerminate := @ThreadTerminate; // will update the buttons after search is finished
       end;
@@ -1946,7 +1991,7 @@ begin
   if pgcSearch.ActivePage = tsResults then
     if lsFoundedFiles.ItemIndex <> -1 then
     begin
-      if (ObjectType(lsFoundedFiles.ItemIndex) = cbChecked) then
+      if (ObjectType(lsFoundedFiles.ItemIndex) = cbChecked) or IsWfxSearch then
         msgError(rsMsgErrNotSupported)
       else
         ShowViewerByGlob(lsFoundedFiles.Items[lsFoundedFiles.ItemIndex]);
@@ -1961,7 +2006,7 @@ begin
   if pgcSearch.ActivePage = tsResults then
     if lsFoundedFiles.ItemIndex <> -1 then
     begin
-      if (ObjectType(lsFoundedFiles.ItemIndex) = cbChecked) then
+      if (ObjectType(lsFoundedFiles.ItemIndex) = cbChecked) or IsWfxSearch then
         msgError(rsMsgErrNotSupported)
       else begin
         FileName:= lsFoundedFiles.Items[lsFoundedFiles.ItemIndex];
@@ -2000,6 +2045,15 @@ begin
           frmMain.ActiveFrame.AddFileSource(FileSource, ExtractFilePath(TargetFile));
           frmMain.ActiveFrame.SetActiveFile(ExtractFileName(TargetFile));
         end;
+      end
+      else if IsWfxSearch then
+      begin
+        if frmMain.ActiveFrame.FileSource.Equals(FFileSource) then
+          frmMain.ActiveFrame.CurrentPath := ExtractFilePath(TargetFile)
+        else begin
+          frmMain.ActiveFrame.AddFileSource(FFileSource, ExtractFilePath(TargetFile));
+        end;
+        frmMain.ActiveFrame.SetActiveFile(ExtractFileName(TargetFile));
       end
       else
       begin
@@ -2044,6 +2098,18 @@ begin
     begin
       AHeader:= TWCXHeader(lsFoundedFiles.Items.Objects[I]);
       aFile := TWcxArchiveFileSource.CreateFile(ExtractFilePath(AHeader.FileName), AHeader);
+      FileList.AddSubNode(aFile);
+    end
+    else if IsWfxSearch then
+    begin
+      sFileName := lsFoundedFiles.Items[I];
+      // Retrieve real attributes from the plugin; fall back to a plain
+      // path-only file object if the file cannot be queried anymore.
+      if not (FFileSource as IWfxPluginFileSource).FillSingleFile(sFileName, aFile) then
+      begin
+        aFile := TWfxPluginFileSource.CreateFile(ExtractFilePath(sFileName));
+        aFile.Name := ExtractFileName(sFileName);
+      end;
       FileList.AddSubNode(aFile);
     end
     else try
@@ -2703,6 +2769,12 @@ var
   NewPage: TFileViewPage;
 
 begin
+  if IsWfxSearch then
+  begin
+    msgError(rsMsgErrNotSupported);
+    Exit;
+  end;
+
   Notebook := frmMain.ActiveNotebook;
 
   i := 0;
@@ -2749,6 +2821,11 @@ end;
 { TfrmFindDlg.miShowInEditorClick }
 procedure TfrmFindDlg.miShowInEditorClick(Sender: TObject);
 begin
+  if IsWfxSearch then
+  begin
+    msgError(rsMsgErrNotSupported);
+    Exit;
+  end;
   if lsFoundedFiles.ItemIndex >= 0 then
     ShowEditorByGlob(lsFoundedFiles.Items[lsFoundedFiles.ItemIndex]);
 end;
@@ -2760,6 +2837,12 @@ var
   i: integer;
 begin
   if lsFoundedFiles.ItemIndex = -1 then Exit;
+
+  if IsWfxSearch then
+  begin
+    msgError(rsMsgErrNotSupported);
+    Exit;
+  end;
 
   sl := TStringList.Create;
   try

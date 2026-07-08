@@ -635,7 +635,7 @@ end;
 
 function TWfxPluginFileSource.GetProperties: TFileSourceProperties;
 begin
-  Result := [fspUsesConnections, fspListOnMainThread];
+  Result := [fspUsesConnections, fspListOnMainThread, fspSearchable];
   with FWfxModule do
   begin
     if Assigned(FsLinksToLocalFiles) and FsLinksToLocalFiles() then
