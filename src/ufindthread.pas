@@ -30,7 +30,7 @@ interface
 uses
   Classes, SysUtils, Contnrs, DCStringHashListUtf8, uFindFiles, uFindEx,
   uFindByrMr, uMasks, uRegExpr, uRegExprW, uWcxModule, uFile, WfxPlugin,
-  uWfxPluginFileSource;
+  uWfxPluginFileSource, uWFXModule;
 
 type
 
@@ -113,8 +113,8 @@ type
     procedure FileReplaceString(const FileName: String; bCase, bRegExp: Boolean);
 
     // WFX file source search helpers.
-    // WfxListDir, WfxFillSingle and WfxDownload run on the main thread (Synchronize).
-    procedure WfxListDir;
+    // WfxEnumDir, WfxFillSingle and WfxDownload run on the main thread (Synchronize).
+    procedure WfxEnumDir;
     procedure WfxFillSingle;
     procedure WfxDownload;
     function WfxDownloadProgress(SourceName, TargetName: PAnsiChar; PercentDone: Integer): Integer;
@@ -761,14 +761,49 @@ end;
 
 { WFX file source search --------------------------------------------------- }
 
-// Runs on the main thread (Synchronize): list one remote directory.
-procedure TFindThread.WfxListDir;
+// Runs on the main thread (Synchronize): list one remote directory into
+// FWfxFiles by calling the plugin's find API directly.
+//
+// This is a lighter alternative to FileSource.GetFiles: it skips the list
+// operation object, its progress logging and the synthetic '..' entry, and
+// - the important part for a name search - it does not build a full TFile for
+// every remote entry. A file is materialized only when its name matches the
+// search mask; the many non-matching files cost just a name comparison.
+// Directories are always kept so the search can recurse and match folder names.
+procedure TFindThread.WfxEnumDir;
+var
+  aFile: TFile;
+  AHandle: THandle;
+  IsDir: Boolean;
+  RemotePath: String;
+  FindData: TWfxFindData;
 begin
-  FWfxFiles := nil;
-  try
-    FWfxFiles := FWfxFileSource.GetFiles(FWfxListPath);
-  except
-    FWfxFiles := nil;
+  FWfxFiles := TFiles.Create(FWfxListPath);
+  RemotePath := ExcludeBackPathDelimiter(FWfxListPath);
+  with FWfxFileSource.WfxModule do
+  begin
+    // Bracket the listing exactly as the list operation does, so plugins that
+    // set up state on FS_STATUS_OP_LIST keep working (a no-op for FTP/SFTP).
+    WfxStatusInfo(RemotePath, FS_STATUS_START, FS_STATUS_OP_LIST);
+    try
+      AHandle := WfxFindFirst(RemotePath, FindData);
+      if AHandle = wfxInvalidHandle then Exit;
+      try
+        repeat
+          if (FindData.FileName = '.') or (FindData.FileName = '..') then Continue;
+          IsDir := (FindData.FileAttributes and FILE_ATTRIBUTE_DIRECTORY) <> 0;
+          if IsDir or CheckFileName(FindData.FileName) then
+          begin
+            aFile := TWfxPluginFileSource.CreateFile(FWfxListPath, FindData);
+            FWfxFiles.Add(aFile);
+          end;
+        until (not WfxFindNext(AHandle, FindData));
+      finally
+        FsFindClose(AHandle);
+      end;
+    finally
+      WfxStatusInfo(RemotePath, FS_STATUS_END, FS_STATUS_OP_LIST);
+    end;
   end;
 end;
 
@@ -909,7 +944,7 @@ begin
   FCurrentDir := sNewDir;
 
   FWfxListPath := IncludeTrailingPathDelimiter(sNewDir);
-  Synchronize(@WfxListDir);
+  Synchronize(@WfxEnumDir);
   AFiles := FWfxFiles;
   FWfxFiles := nil;
 
