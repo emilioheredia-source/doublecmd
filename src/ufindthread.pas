@@ -29,7 +29,8 @@ interface
 
 uses
   Classes, SysUtils, Contnrs, DCStringHashListUtf8, uFindFiles, uFindEx,
-  uFindByrMr, uMasks, uRegExpr, uRegExprW, uWcxModule;
+  uFindByrMr, uMasks, uRegExpr, uRegExprW, uWcxModule, uFile, WfxPlugin,
+  uWfxPluginFileSource;
 
 type
 
@@ -80,6 +81,18 @@ type
     FArchive: TWcxModule;
     FHeader: TWcxHeader;
 
+    // Search on a WFX plugin file source (SFTP, FTP, ...).
+    // All plugin calls are synchronized to the main thread because
+    // WFX file sources declare fspListOnMainThread.
+    FWfxFileSource: IWfxPluginFileSource;
+    FWfxListPath: String;
+    FWfxFiles: TFiles;
+    FWfxSingleFile: TFile;
+    FWfxRemoteName: String;
+    FWfxLocalName: String;
+    FWfxRemoteInfo: TRemoteInfo;
+    FWfxDownloadOK: Boolean;
+
     FTimeSearchStart:TTime;
     FTimeSearchEnd:TTime;
     FTimeOfScan:TTime;
@@ -99,6 +112,16 @@ type
     function FindInFile(const sFileName: String; bCase, bRegExp: Boolean): Boolean;
     procedure FileReplaceString(const FileName: String; bCase, bRegExp: Boolean);
 
+    // WFX file source search helpers.
+    // WfxListDir, WfxFillSingle and WfxDownload run on the main thread (Synchronize).
+    procedure WfxListDir;
+    procedure WfxFillSingle;
+    procedure WfxDownload;
+    function WfxDownloadProgress(SourceName, TargetName: PAnsiChar; PercentDone: Integer): Integer;
+    function WfxFindInFile(const AFile: TFile): Boolean;
+    procedure DoFileWfx(const AFile: TFile);
+    procedure WalkWfx(const sNewDir: String);
+
   protected
     procedure Execute; override;
   public
@@ -116,6 +139,7 @@ type
     property CurrentDir: String read FCurrentDir;
     property TimeOfScan:TTime read GetTimeOfScan;
     property Archive: TWcxModule write FArchive;
+    property WfxFileSource: IWfxPluginFileSource write FWfxFileSource;
 
     property Items:TStrings write FItems;
   end;
@@ -123,9 +147,10 @@ type
 implementation
 
 uses
-  LCLProc, LazUtf8, StrUtils, LConvEncoding, DCStrUtils, DCConvertEncoding,
+  Forms, LCLProc, LazUtf8, StrUtils, LConvEncoding, DCStrUtils, DCConvertEncoding,
   uLng, DCClassesUtf8, uFindMmap, uGlobs, uShowMsg, DCOSUtils, uOSUtils, uHash,
-  uLog, WcxPlugin, Math, uDCUtils, uConvEncoding, DCDateTimeUtils, uOfficeXML;
+  uLog, WcxPlugin, Math, uDCUtils, uConvEncoding, DCDateTimeUtils, uOfficeXML,
+  uWfxPluginUtil;
 
 function ProcessDataProcAG(FileName: PAnsiChar; Size: LongInt): LongInt; dcpcall;
 begin
@@ -298,6 +323,32 @@ begin
     if Assigned(FArchive) then
     begin
       FindInArchive(FSearchTemplate.StartPath);
+    end
+    else if Assigned(FWfxFileSource) then
+    begin
+      if not Assigned(FSelectedFiles) or (FSelectedFiles.Count = 0) then
+      begin
+        // Normal search (whole start directory).
+        WalkWfx(ExcludeBackPathDelimiter(FSearchTemplate.StartPath));
+      end
+      else begin
+        // Search only selected files/directories.
+        for I := 0 to FSelectedFiles.Count - 1 do
+        begin
+          if Terminated then Break;
+          FWfxListPath := ExcludeBackPathDelimiter(FSelectedFiles[I]);
+          Synchronize(@WfxFillSingle);
+          if Assigned(FWfxSingleFile) then
+          try
+            if FWfxSingleFile.IsDirectory or FWfxSingleFile.IsLinkToDirectory then
+              WalkWfx(FWfxSingleFile.FullPath)
+            else
+              DoFileWfx(FWfxSingleFile);
+          finally
+            FreeAndNil(FWfxSingleFile);
+          end;
+        end;
+      end;
     end
     else if not Assigned(FSelectedFiles) or (FSelectedFiles.Count = 0) then
     begin
@@ -724,6 +775,168 @@ begin
       WcxModule.CloseArchive(ArcHandle);
     end;
   end;
+end;
+
+{ WFX file source search --------------------------------------------------- }
+
+// Runs on the main thread (Synchronize): list one remote directory.
+procedure TFindThread.WfxListDir;
+begin
+  FWfxFiles := nil;
+  try
+    FWfxFiles := FWfxFileSource.GetFiles(FWfxListPath);
+  except
+    FWfxFiles := nil;
+  end;
+end;
+
+// Runs on the main thread (Synchronize): retrieve a single remote file.
+procedure TFindThread.WfxFillSingle;
+begin
+  FWfxSingleFile := nil;
+  try
+    if not FWfxFileSource.FillSingleFile(FWfxListPath, FWfxSingleFile) then
+      FreeAndNil(FWfxSingleFile);
+  except
+    FreeAndNil(FWfxSingleFile);
+  end;
+end;
+
+// Called by the plugin during WfxGetFile (on the main thread). Keeps the UI
+// responsive and allows aborting a long download with the Stop button.
+function TFindThread.WfxDownloadProgress(SourceName, TargetName: PAnsiChar; PercentDone: Integer): Integer;
+begin
+  Application.ProcessMessages;
+  if Terminated then
+    Result := 1
+  else
+    Result := 0;
+end;
+
+// Runs on the main thread (Synchronize): download one remote file to a local
+// temporary file so its content can be searched.
+procedure TFindThread.WfxDownload;
+var
+  CallbackData: TCallbackDataClass;
+  OldProgress: TUpdateProgress = nil;
+begin
+  FWfxDownloadOK := False;
+  CallbackData := TCallbackDataClass(WfxOperationList.Objects[FWfxFileSource.PluginNumber]);
+  with FWfxFileSource.WfxModule do
+  begin
+    WfxStatusInfo(ExtractFilePath(FWfxRemoteName), FS_STATUS_START, FS_STATUS_OP_GET_SINGLE);
+    if Assigned(CallbackData) then
+    begin
+      OldProgress := CallbackData.UpdateProgressFunction;
+      CallbackData.UpdateProgressFunction := @WfxDownloadProgress;
+    end;
+    try
+      FWfxDownloadOK := WfxGetFile(FWfxRemoteName, FWfxLocalName,
+                                   FS_COPYFLAGS_OVERWRITE, @FWfxRemoteInfo) = FS_FILE_OK;
+    finally
+      if Assigned(CallbackData) then
+        CallbackData.UpdateProgressFunction := OldProgress;
+      WfxStatusInfo(ExtractFilePath(FWfxRemoteName), FS_STATUS_END, FS_STATUS_OP_GET_SINGLE);
+    end;
+  end;
+end;
+
+function TFindThread.WfxFindInFile(const AFile: TFile): Boolean;
+var
+  iTemp: TInt64Rec;
+  sTempName: String;
+begin
+  Result := False;
+  // Keep the original extension so extension-based checks (e.g. Office XML)
+  // still work on the temporary copy.
+  sTempName := GetTempName(GetTempFolder) + ExtractFileExt(AFile.Name);
+  FWfxRemoteName := AFile.FullPath;
+  FWfxLocalName := sTempName;
+  with FWfxRemoteInfo do
+  begin
+    iTemp.Value := AFile.Size;
+    SizeLow := LongInt(iTemp.Low);
+    SizeHigh := LongInt(iTemp.High);
+    LastWriteTime := DateTimeToWfxFileTime(AFile.ModificationTime);
+    Attr := LongInt(AFile.Attributes);
+  end;
+  Synchronize(@WfxDownload);
+  if not FWfxDownloadOK then Exit;
+  try
+    Result := FindInFile(sTempName, FSearchTemplate.CaseSensitive, FSearchTemplate.TextRegExp);
+  finally
+    mbFileSetReadOnly(sTempName, False);
+    mbDeleteFile(sTempName);
+  end;
+end;
+
+procedure TFindThread.DoFileWfx(const AFile: TFile);
+var
+  Found: Boolean;
+begin
+  if uFindFiles.CheckFile(FSearchTemplate, FFileChecks, AFile) then
+  begin
+    if FSearchTemplate.IsFindText then
+    begin
+      if AFile.IsDirectory or AFile.IsLinkToDirectory or (AFile.Size = 0) then
+      begin
+        Inc(FFilesScanned);
+        Exit;
+      end;
+      Found := WfxFindInFile(AFile);
+      if FSearchTemplate.NotContainingText then Found := not Found;
+      if not Found then
+      begin
+        Inc(FFilesScanned);
+        Exit;
+      end;
+    end;
+    FFoundFile := AFile.FullPath;
+    Synchronize(@AddFile);
+    Inc(FFilesFound);
+  end;
+  Inc(FFilesScanned);
+end;
+
+procedure TFindThread.WalkWfx(const sNewDir: String);
+var
+  I: Integer;
+  AFile: TFile;
+  AFiles: TFiles;
+begin
+  if Terminated then
+    Exit;
+
+  Inc(FCurrentDepth);
+  FCurrentDir := sNewDir;
+
+  FWfxListPath := IncludeTrailingPathDelimiter(sNewDir);
+  Synchronize(@WfxListDir);
+  AFiles := FWfxFiles;
+  FWfxFiles := nil;
+
+  if Assigned(AFiles) then
+  try
+    for I := 0 to AFiles.Count - 1 do
+    begin
+      if Terminated then Break;
+      AFile := AFiles[I];
+      if (AFile.Name = '.') or (AFile.Name = '..') then Continue;
+      DoFileWfx(AFile);
+      // Search in subdirectories (do not follow symbolic links).
+      if AFile.IsDirectory and (not AFile.IsLinkToDirectory) and
+         (FCurrentDepth < FSearchTemplate.SearchDepth) and
+         CheckDirectory(sNewDir, AFile.Name) then
+      begin
+        WalkWfx(AFile.FullPath);
+        FCurrentDir := sNewDir;
+      end;
+    end;
+  finally
+    AFiles.Free;
+  end;
+
+  Dec(FCurrentDepth);
 end;
 
 function TFindThread.CheckFileName(const FileName: String): Boolean;
