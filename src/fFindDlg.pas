@@ -314,6 +314,11 @@ type
     procedure FindInArchive(AFileView: TFileView);
     procedure FindInFileSource;
     function IsWfxSearch: Boolean;
+    // Download a remote (WFX) result file to a unique local temp file so it can
+    // be viewed/edited. Returns the local path. Flat by basename, which avoids
+    // reproducing the remote path (e.g. a remote "D:\..." that is not a valid
+    // local path) under the temp folder.
+    function WfxDownloadForTool(const RemotePath: String; out LocalPath: String): Boolean;
     procedure FillFindOptions(out FindOptions: TSearchTemplateRec; SetStartPath: boolean);
     procedure FindOptionsToDSXSearchRec(const AFindOptions: TSearchTemplateRec;
                                         out SRec: TDsxSearchRecord);
@@ -411,6 +416,7 @@ uses
   uColumns, uFileFunctions, uFileSorting,
   DCConvertEncoding, WcxPlugin, fChooseEncoding, dmCommonData,
   uLocalFileSource, uWcxArchiveFileSource, uWfxPluginFileSource,
+  uWFXModule, uWfxPluginUtil, WfxPlugin,
   uSearchResultFileSource,
   uFileSourceUtil, uArchiveFileSourceUtil, uDriveWatcher
 {$IFDEF DARkWIN}
@@ -1985,14 +1991,59 @@ begin
   end;
 end;
 
+{ TfrmFindDlg.WfxDownloadForTool }
+function TfrmFindDlg.WfxDownloadForTool(const RemotePath: String; out LocalPath: String): Boolean;
+var
+  WfxFS: IWfxPluginFileSource;
+  aFile: TFile = nil;
+  iTemp: TInt64Rec;
+  TempDir: String;
+  RemoteInfo: TRemoteInfo;
+begin
+  Result := False;
+  LocalPath := EmptyStr;
+  WfxFS := FFileSource as IWfxPluginFileSource;
+
+  // Unique temp directory: different results may share a basename.
+  // GetTempFolderDeletableAtTheEnd already exists, so one level is enough.
+  TempDir := GetTempName(GetTempFolderDeletableAtTheEnd, EmptyStr);
+  if not mbCreateDir(TempDir) then Exit;
+  LocalPath := IncludeTrailingPathDelimiter(TempDir) + ExtractFileName(RemotePath);
+
+  FillChar(RemoteInfo, SizeOf(RemoteInfo), 0);
+  if WfxFS.FillSingleFile(RemotePath, aFile) then
+  try
+    iTemp.Value := aFile.Size;
+    RemoteInfo.SizeLow := LongInt(iTemp.Low);
+    RemoteInfo.SizeHigh := LongInt(iTemp.High);
+    RemoteInfo.LastWriteTime := DateTimeToWfxFileTime(aFile.ModificationTime);
+    RemoteInfo.Attr := LongInt(aFile.Attributes);
+  finally
+    FreeAndNil(aFile);
+  end;
+
+  Result := WfxFS.WfxModule.WfxGetFile(RemotePath, LocalPath,
+                                       FS_COPYFLAGS_OVERWRITE, @RemoteInfo) = FS_FILE_OK;
+end;
+
 { TfrmFindDlg.cm_View }
 procedure TfrmFindDlg.cm_View(const Params: array of string);
+var
+  LocalPath: String;
 begin
   if pgcSearch.ActivePage = tsResults then
     if lsFoundedFiles.ItemIndex <> -1 then
     begin
-      if (ObjectType(lsFoundedFiles.ItemIndex) = cbChecked) or IsWfxSearch then
+      if (ObjectType(lsFoundedFiles.ItemIndex) = cbChecked) then
         msgError(rsMsgErrNotSupported)
+      else if IsWfxSearch then
+      begin
+        // Remote file: fetch a local copy first, then view it.
+        if WfxDownloadForTool(lsFoundedFiles.Items[lsFoundedFiles.ItemIndex], LocalPath) then
+          ShowViewerByGlob(LocalPath)
+        else
+          msgError(Format(rsMsgFileNotFound, [lsFoundedFiles.Items[lsFoundedFiles.ItemIndex]]));
+      end
       else
         ShowViewerByGlob(lsFoundedFiles.Items[lsFoundedFiles.ItemIndex]);
     end;
@@ -2835,12 +2886,17 @@ procedure TfrmFindDlg.miShowInViewerClick(Sender: TObject);
 var
   sl: TStringList;
   i: integer;
+  LocalPath: String;
 begin
   if lsFoundedFiles.ItemIndex = -1 then Exit;
 
   if IsWfxSearch then
   begin
-    msgError(rsMsgErrNotSupported);
+    // Remote file: fetch a local copy first, then view it.
+    if WfxDownloadForTool(lsFoundedFiles.Items[lsFoundedFiles.ItemIndex], LocalPath) then
+      ShowViewerByGlob(LocalPath)
+    else
+      msgError(Format(rsMsgFileNotFound, [lsFoundedFiles.Items[lsFoundedFiles.ItemIndex]]));
     Exit;
   end;
 
