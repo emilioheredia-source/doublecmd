@@ -421,6 +421,22 @@ uses fOptionsPluginsBase, fOptionsPluginsDSX, fOptionsPluginsWCX,
 
 resourcestring
   rsFavoriteTabs_SetupNotExist = 'No setup named "%s"';
+  rsMsgToolNotForPluginResults =
+    'View and Edit are not available for search results on a plugin file system (e.g. FTP/SFTP).' + LineEnding +
+    'Open the file directly with View/Edit on the file panel, or copy it out first.';
+
+// A "feed to listbox" results panel whose files come from a Wfx plugin file
+// system (FTP/SFTP): View/Edit cannot operate on those files in place. Show a
+// short note pointing at the working alternatives. Archive (Wcx) results are
+// excluded - their copy-out-and-view path works - via fspListOnMainThread,
+// which only Wfx file sources set.
+function IsPluginSearchResult(FileSource: IFileSource): Boolean;
+begin
+  Result := Assigned(FileSource) and
+            Supports(FileSource, IMultiListFileSource) and
+            (fspListOnMainThread in FileSource.Properties) and
+            ([fspDirectAccess, fspLinksToLocalFiles] * FileSource.Properties = []);
+end;
 
 procedure ReadCopyRenameParams(
   const Params: array of string;
@@ -2093,6 +2109,12 @@ var
 begin
   with frmMain do
   try
+    if IsPluginSearchResult(ActiveFrame.FileSource) then
+    begin
+      msgWarning(rsMsgToolNotForPluginResults);
+      Exit;
+    end;
+
     ActiveFile := ActiveFrame.CloneActiveFile;
 
     if (Length(Params) > 0) then
@@ -2418,6 +2440,12 @@ var
 begin
   with frmMain do
   try
+    if IsPluginSearchResult(ActiveFrame.FileSource) then
+    begin
+      msgWarning(rsMsgToolNotForPluginResults);
+      Exit;
+    end;
+
     if (Length(Params) > 0) then
     begin
       if GetParamValue(Params, 'cursor', AValue) then
