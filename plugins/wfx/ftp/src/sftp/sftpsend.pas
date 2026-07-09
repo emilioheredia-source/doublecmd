@@ -461,8 +461,17 @@ begin
     New(FindRec);
     FindRec.Path:= Path;
     FindRec.Handle:= Result;
-    FsFindNextW(FindRec, FindData);
-    Result:= FindRec;
+    // Prime the first entry. If the directory has none (some servers, e.g. the
+    // Windows OpenSSH SFTP server, do not return '.'/'..' for an empty folder),
+    // FindData is left unset; return an invalid handle so the caller does not
+    // present that unfilled entry as a phantom file.
+    if FsFindNextW(FindRec, FindData) then
+      Result:= FindRec
+    else begin
+      libssh2_sftp_closedir(FindRec.Handle);
+      Dispose(FindRec);
+      Result:= nil;
+    end;
   end;
 end;
 
