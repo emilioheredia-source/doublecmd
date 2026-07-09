@@ -774,7 +774,6 @@ procedure TFindThread.WfxEnumDir;
 var
   aFile: TFile;
   AHandle: THandle;
-  IsDir: Boolean;
   RemotePath: String;
   FindData: TWfxFindData;
 begin
@@ -791,12 +790,17 @@ begin
       try
         repeat
           if (FindData.FileName = '.') or (FindData.FileName = '..') then Continue;
-          IsDir := (FindData.FileAttributes and FILE_ATTRIBUTE_DIRECTORY) <> 0;
-          if IsDir or CheckFileName(FindData.FileName) then
-          begin
-            aFile := TWfxPluginFileSource.CreateFile(FWfxListPath, FindData);
-            FWfxFiles.Add(aFile);
-          end;
+          // Build the file to detect directories reliably. Plugins vary in how
+          // they flag a directory (the Windows attribute bit vs Unix mode
+          // bits); TFile.IsDirectory understands both, a raw attribute test
+          // does not. Keep directories (for recursion and folder-name matches)
+          // and files whose name matches the mask; drop the rest so a name
+          // search does not accumulate every remote file.
+          aFile := TWfxPluginFileSource.CreateFile(FWfxListPath, FindData);
+          if aFile.IsDirectory or aFile.IsLinkToDirectory or CheckFileName(aFile.Name) then
+            FWfxFiles.Add(aFile)
+          else
+            aFile.Free;
         until (not WfxFindNext(AHandle, FindData));
       finally
         FsFindClose(AHandle);
