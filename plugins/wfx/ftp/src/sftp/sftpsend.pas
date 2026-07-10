@@ -90,8 +90,15 @@ begin
   if Assigned(Handle) then
   repeat
     FLastError:= libssh2_sftp_close(Handle);
-    DoProgress(100);
-    FSock.CanRead(10);
+    // Only wait on the socket when the close has not finished yet
+    // (EAGAIN). Waiting after a successful close blocks for the full
+    // CanRead timeout with nothing to read, adding a fixed ~10 ms stall
+    // to every single file - crippling for many-small-files transfers.
+    if (FLastError = LIBSSH2_ERROR_EAGAIN) then
+    begin
+      DoProgress(100);
+      FSock.CanRead(10);
+    end;
   until FLastError <> LIBSSH2_ERROR_EAGAIN;
   Result:= (FLastError = 0);
 end;
@@ -347,10 +354,16 @@ begin
         UploadAttrs.permissions:= LocalStat.st_mode;
         UploadAttrs.flags:= LIBSSH2_SFTP_ATTR_PERMISSIONS;
         libssh2_sftp_setstat(FSFTPSession, PAnsiChar(FileName), @UploadAttrs);
-        UploadAttrs.uid:= LocalStat.st_uid;
-        UploadAttrs.gid:= LocalStat.st_gid;
-        UploadAttrs.flags:= LIBSSH2_SFTP_ATTR_UIDGID;
-        libssh2_sftp_setstat(FSFTPSession, PAnsiChar(FileName), @UploadAttrs);
+        // Only try to restore ownership when we are root; for a normal user
+        // this setstat always fails on the server, wasting a network
+        // round-trip on every uploaded file.
+        if fpGetEUID = 0 then
+        begin
+          UploadAttrs.uid:= LocalStat.st_uid;
+          UploadAttrs.gid:= LocalStat.st_gid;
+          UploadAttrs.flags:= LIBSSH2_SFTP_ATTR_UIDGID;
+          libssh2_sftp_setstat(FSFTPSession, PAnsiChar(FileName), @UploadAttrs);
+        end;
       end;
     end;
 {$ENDIF}
