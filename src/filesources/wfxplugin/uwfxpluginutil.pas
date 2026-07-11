@@ -114,6 +114,11 @@ type
   function WfxFileTimeToDateTime(FileTime : TWfxFileTime) : TDateTime; inline;
   function DateTimeToWfxFileTime(DateTime : TDateTime) : TWfxFileTime; inline;
 
+  // Describe a remote file for the plugin (size, time, attributes). Plugins may
+  // dereference the RemoteInfo passed to FsGetFile/FsRenMovFile, so it is always
+  // filled from the file being transferred.
+  procedure WfxFillRemoteInfo(out RemoteInfo: TRemoteInfo; const aFile: TFile);
+
   function RepairPluginName(const AName: String): String;
 
 implementation
@@ -139,6 +144,17 @@ begin
     end;
     Result := (WfxCopyMove(aFile.Path + aFile.Name, aFile.Path + NewFileName, FS_COPYFLAGS_MOVE, @RemoteInfo, True, True) = FS_FILE_OK);
   end;
+end;
+
+procedure WfxFillRemoteInfo(out RemoteInfo: TRemoteInfo; const aFile: TFile);
+var
+  ASize: TInt64Rec;
+begin
+  ASize.Value := aFile.Size;
+  RemoteInfo.SizeLow := LongInt(ASize.Low);
+  RemoteInfo.SizeHigh := LongInt(ASize.High);
+  RemoteInfo.LastWriteTime := DateTimeToWfxFileTime(aFile.ModificationTime);
+  RemoteInfo.Attr := LongInt(aFile.Attributes);
 end;
 
 function WfxFileTimeToDateTime(FileTime: TWfxFileTime): TDateTime;
