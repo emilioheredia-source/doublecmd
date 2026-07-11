@@ -1996,7 +1996,6 @@ function TfrmFindDlg.WfxDownloadForTool(const RemotePath: String; out LocalPath:
 var
   WfxFS: IWfxPluginFileSource;
   aFile: TFile = nil;
-  iTemp: TInt64Rec;
   TempDir: String;
   RemoteInfo: TRemoteInfo;
 begin
@@ -2013,11 +2012,7 @@ begin
   FillChar(RemoteInfo, SizeOf(RemoteInfo), 0);
   if WfxFS.FillSingleFile(RemotePath, aFile) then
   try
-    iTemp.Value := aFile.Size;
-    RemoteInfo.SizeLow := LongInt(iTemp.Low);
-    RemoteInfo.SizeHigh := LongInt(iTemp.High);
-    RemoteInfo.LastWriteTime := DateTimeToWfxFileTime(aFile.ModificationTime);
-    RemoteInfo.Attr := LongInt(aFile.Attributes);
+    WfxFillRemoteInfo(RemoteInfo, aFile);
   finally
     FreeAndNil(aFile);
   end;
@@ -2029,24 +2024,26 @@ end;
 { TfrmFindDlg.cm_View }
 procedure TfrmFindDlg.cm_View(const Params: array of string);
 var
+  AItem: String;
   LocalPath: String;
 begin
-  if pgcSearch.ActivePage = tsResults then
-    if lsFoundedFiles.ItemIndex <> -1 then
-    begin
-      if (ObjectType(lsFoundedFiles.ItemIndex) = cbChecked) then
-        msgError(rsMsgErrNotSupported)
-      else if IsWfxSearch then
-      begin
-        // Remote file: fetch a local copy first, then view it.
-        if WfxDownloadForTool(lsFoundedFiles.Items[lsFoundedFiles.ItemIndex], LocalPath) then
-          ShowViewerByGlob(LocalPath)
-        else
-          msgError(Format(rsMsgFileNotFound, [lsFoundedFiles.Items[lsFoundedFiles.ItemIndex]]));
-      end
-      else
-        ShowViewerByGlob(lsFoundedFiles.Items[lsFoundedFiles.ItemIndex]);
-    end;
+  if (pgcSearch.ActivePage <> tsResults) or (lsFoundedFiles.ItemIndex = -1) then Exit;
+
+  if (ObjectType(lsFoundedFiles.ItemIndex) = cbChecked) then
+  begin
+    msgError(rsMsgErrNotSupported);
+    Exit;
+  end;
+
+  AItem := lsFoundedFiles.Items[lsFoundedFiles.ItemIndex];
+
+  if not IsWfxSearch then
+    ShowViewerByGlob(AItem)
+  // Remote file: fetch a local copy first, then view it.
+  else if WfxDownloadForTool(AItem, LocalPath) then
+    ShowViewerByGlob(LocalPath)
+  else
+    msgError(Format(rsMsgFileNotFound, [AItem]));
 end;
 
 { TfrmFindDlg.cm_Edit }
