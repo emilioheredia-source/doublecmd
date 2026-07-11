@@ -118,7 +118,6 @@ type
     procedure WfxFillSingle;
     procedure WfxDownload;
     function WfxDownloadProgress(SourceName, TargetName: PAnsiChar; PercentDone: Integer): Integer;
-    procedure FillWfxRemoteInfo(const AFile: TFile);
     function WfxFindInFile(const AFile: TFile): Boolean;
     function CanEnterWfxDirectory(const CurrentDir: String; const AFile: TFile): Boolean;
     procedure DoFileWfx(const AFile: TFile);
@@ -862,22 +861,6 @@ begin
   end;
 end;
 
-// Describe the remote file for the plugin: TC plugins may dereference the
-// RemoteInfo parameter of FsGetFile, so it must always be filled.
-procedure TFindThread.FillWfxRemoteInfo(const AFile: TFile);
-var
-  iTemp: TInt64Rec;
-begin
-  with FWfxRemoteInfo do
-  begin
-    iTemp.Value := AFile.Size;
-    SizeLow := LongInt(iTemp.Low);
-    SizeHigh := LongInt(iTemp.High);
-    LastWriteTime := DateTimeToWfxFileTime(AFile.ModificationTime);
-    Attr := LongInt(AFile.Attributes);
-  end;
-end;
-
 // Search text inside one remote file: download it to a local temporary file,
 // scan the copy with the regular search engine, then delete the copy.
 function TFindThread.WfxFindInFile(const AFile: TFile): Boolean;
@@ -890,7 +873,7 @@ begin
   sTempName := GetTempName(GetTempFolder) + ExtractFileExt(AFile.Name);
   FWfxRemoteName := AFile.FullPath;
   FWfxLocalName := sTempName;
-  FillWfxRemoteInfo(AFile);
+  WfxFillRemoteInfo(FWfxRemoteInfo, AFile);
   Synchronize(@WfxDownload);
   if not FWfxDownloadOK then Exit;
   try
