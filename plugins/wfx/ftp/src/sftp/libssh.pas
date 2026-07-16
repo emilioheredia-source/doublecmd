@@ -87,6 +87,10 @@ const
   LIBSSH2_ERROR_BAD_SOCKET = -(45);
   LIBSSH2_ERROR_KNOWN_HOSTS = -(46);
 
+  // Directions a non-blocking session is waiting on (libssh2_session_block_directions)
+  LIBSSH2_SESSION_BLOCK_INBOUND  = $0001;
+  LIBSSH2_SESSION_BLOCK_OUTBOUND = $0002;
+
   //* Channel API */
   LIBSSH2_CHANNEL_WINDOW_DEFAULT = (2*1024*1024);
   LIBSSH2_CHANNEL_PACKET_DEFAULT = 32768;
@@ -230,6 +234,7 @@ var
                                           const lang: PAnsiChar): cint; cdecl;
   libssh2_session_free: function(session: PLIBSSH2_SESSION): cint; cdecl;
   libssh2_session_set_blocking: procedure(session: PLIBSSH2_SESSION; blocking: cint); cdecl;
+  libssh2_session_block_directions: function(session: PLIBSSH2_SESSION): cint; cdecl;
   libssh2_session_last_errno: function(session: PLIBSSH2_SESSION): cint; cdecl;
   libssh2_session_set_timeout: procedure(session: PLIBSSH2_SESSION; timeout: clong); cdecl;
   libssh2_session_last_error: function(session: PLIBSSH2_SESSION; errmsg: PPAnsiChar;
@@ -557,6 +562,7 @@ begin
     libssh2_session_disconnect_ex:= SafeGetProcAddress(libssh2, 'libssh2_session_disconnect_ex');
     libssh2_session_free:= SafeGetProcAddress(libssh2, 'libssh2_session_free');
     libssh2_session_set_blocking:= SafeGetProcAddress(libssh2, 'libssh2_session_set_blocking');
+    libssh2_session_block_directions:= SafeGetProcAddress(libssh2, 'libssh2_session_block_directions');
     libssh2_session_last_errno:= SafeGetProcAddress(libssh2, 'libssh2_session_last_errno');
     libssh2_session_last_error:= SafeGetProcAddress(libssh2, 'libssh2_session_last_error');
     libssh2_session_set_timeout:= SafeGetProcAddress(libssh2, 'libssh2_session_set_timeout');
