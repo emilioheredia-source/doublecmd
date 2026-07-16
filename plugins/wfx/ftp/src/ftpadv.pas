@@ -93,6 +93,7 @@ type
     FUseAllocate: Boolean;
     FTcpKeepAlive: Boolean;
     FKeepAliveTransfer: Boolean;
+    FFreshDirs: TStringList;
     procedure SetEncoding(AValue: String);
   protected
     ConvertToUtf8: TConvertEncodingFunction;
@@ -118,6 +119,12 @@ type
     function FsSetTime(const FileName: String; LastAccessTime, LastWriteTime: PWfxFileTime): BOOL; virtual;
   public
     constructor Create(const Encoding: String); virtual; reintroduce;
+    destructor Destroy; override;
+    // Track directories we created empty during the current copy/move operation
+    // so the per-file existence stat can be skipped for files put into them.
+    procedure MarkDirFresh(const Directory: String);
+    function IsDirFresh(const Directory: String): Boolean;
+    procedure ClearFreshDirs;
     function Login: Boolean; override;
     function Clone: TFTPSendEx; virtual;
     function GetCurrentDir: String; override;
@@ -463,6 +470,14 @@ var
   KeepCnt: Integer = 3;
 {$ENDIF}
 begin
+  // Disable Nagle's algorithm. DC's FTP/SFTP traffic is request/response with
+  // many small packets; with Nagle on, the kernel holds a small segment waiting
+  // for the peer's (delayed) ACK, adding up to ~40 ms to every round-trip and
+  // crippling many-small-files transfers. OpenSSH sets TCP_NODELAY for exactly
+  // this reason. Applied unconditionally (independent of the keep-alive option)
+  // on every connection - FTP control channel and SSH transport alike.
+  SetSockOpt(FSock.Socket, IPPROTO_TCP, TCP_NODELAY, @Option, SizeOf(Option));
+
   if not FTcpKeepAlive then Exit;
   if SetSockOpt(FSock.Socket, SOL_SOCKET, SO_KEEPALIVE, @Option, SizeOf(Option)) <> 0 then
   begin
@@ -735,6 +750,11 @@ begin
   FTimeout:= 15000;
   FDirectFile:= True;
 
+  FFreshDirs:= TStringList.Create;
+  FFreshDirs.Sorted:= True;
+  FFreshDirs.Duplicates:= dupIgnore;
+  FFreshDirs.CaseSensitive:= True;
+
   ConvertToUtf8:= @CeSysToUtf8;
   ConvertFromUtf8:= @Utf8ToSys;
 
@@ -753,6 +773,35 @@ begin
   // Windows CE 5.1 (insert before BullGCOS7)
   FFtpList.Masks.Insert(35, 'MM DD YY  hh mm !S* n*');
   FFtpList.Masks.Insert(36, 'MM DD YY  hh mm $ d!n*');
+end;
+
+destructor TFTPSendEx.Destroy;
+begin
+  FFreshDirs.Free;
+  inherited Destroy;
+end;
+
+// A server path with any single trailing slash removed (but never the root).
+function NoTrailingSlash(const Path: String): String;
+begin
+  Result:= Path;
+  if (Length(Result) > 1) and (Result[Length(Result)] = '/') then
+    SetLength(Result, Length(Result) - 1);
+end;
+
+procedure TFTPSendEx.MarkDirFresh(const Directory: String);
+begin
+  FFreshDirs.Add(NoTrailingSlash(Directory));
+end;
+
+function TFTPSendEx.IsDirFresh(const Directory: String): Boolean;
+begin
+  Result:= FFreshDirs.IndexOf(NoTrailingSlash(Directory)) >= 0;
+end;
+
+procedure TFTPSendEx.ClearFreshDirs;
+begin
+  FFreshDirs.Clear;
 end;
 
 function TFTPSendEx.Login: Boolean;

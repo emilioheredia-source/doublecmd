@@ -37,6 +37,8 @@ type
   TSftpSend = class(TScpSend)
   private
     function FileClose(Handle: Pointer): Boolean;
+    // Block until the socket is ready in the direction libssh2 is waiting on.
+    procedure WaitSocket;
   protected
     FCopySCP: Boolean;
     FSFTPSession: PLIBSSH2_SFTP;
@@ -83,6 +85,18 @@ type
   end;
 
 { TSftpSend }
+
+procedure TSftpSend.WaitSocket;
+begin
+  // On EAGAIN, wait on the direction libssh2 actually needs. During an upload a
+  // full send buffer blocks OUTBOUND: waiting on CanRead (as the read path does)
+  // would then stall the whole CanRead timeout every packet - throttling upload
+  // throughput to a crawl. Ask libssh2 which way it is blocked and wait on that.
+  if (libssh2_session_block_directions(FSession) and LIBSSH2_SESSION_BLOCK_OUTBOUND) <> 0 then
+    FSock.CanWrite(10)
+  else
+    FSock.CanRead(10);
+end;
 
 function TSftpSend.FileClose(Handle: Pointer): Boolean;
 begin
@@ -184,7 +198,12 @@ begin
                               LIBSSH2_SFTP_S_IRWXU or
                               LIBSSH2_SFTP_S_IRGRP or LIBSSH2_SFTP_S_IXGRP or
                               LIBSSH2_SFTP_S_IROTH or LIBSSH2_SFTP_S_IXOTH);
-  if (Return <> 0) then begin
+  if (Return = 0) then
+    // We just created this directory, so it is known-empty: files copied into
+    // it during this operation cannot pre-exist, letting FsPutFile skip the
+    // per-file existence stat (see MarkDirFresh / IsDirFresh).
+    MarkDirFresh(Directory)
+  else begin
     Return:= libssh2_sftp_stat(FSFTPSession, PAnsiChar(Directory), @Attributes);
   end;
   Result:= (Return = 0);
@@ -235,6 +254,7 @@ var
   TotalBytesToWrite: Int64 = 0;
   TargetHandle: PLIBSSH2_SFTP_HANDLE = nil;
   Flags: cint = LIBSSH2_FXF_CREAT or LIBSSH2_FXF_WRITE;
+  OpenMode: clong = $1A0;
 {$IFDEF UNIX}
   LocalStat: BaseUnix.TStat;
   UploadAttrs: LIBSSH2_SFTP_ATTRIBUTES;
@@ -298,11 +318,19 @@ begin
       Flags:= Flags or LIBSSH2_FXF_APPEND;
     end;
 
+{$IFDEF UNIX}
+    // Create the remote file directly with the local file's permission bits,
+    // so we don't need a separate setstat round-trip afterwards. Like any
+    // normal file creation this is subject to the server's umask.
+    if fpStat(FDirectFileName, LocalStat) = 0 then
+      OpenMode:= LocalStat.st_mode and $0FFF;
+{$ENDIF}
+
     // Open remote file
     repeat
       TargetHandle:= libssh2_sftp_open(FSFTPSession,
                                        PAnsiChar(FileName),
-                                       Flags, $1A0);
+                                       Flags, OpenMode);
       if (TargetHandle = nil) then
       begin
         FLastError:= libssh2_session_last_errno(FSession);
@@ -329,7 +357,7 @@ begin
           BytesWritten:= libssh2_sftp_write(TargetHandle, FBuffer + Index, BytesToWrite);
           if BytesWritten = LIBSSH2_ERROR_EAGAIN then begin
             DoProgress((FileSize - TotalBytesToWrite) * 100 div FileSize);
-            FSock.CanRead(10);
+            WaitSocket;
           end;
         until BytesWritten <> LIBSSH2_ERROR_EAGAIN;
         if (BytesWritten < 0) then Exit(False);
@@ -346,24 +374,18 @@ begin
     Result:= FileClose(TargetHandle) and Result;
     libssh2_session_set_blocking(FSession, 1);
 {$IFDEF UNIX}
-    if Result then
+    // Permissions were already applied at create time (see OpenMode above).
+    // Only restore ownership, and only when we are root: for a normal user this
+    // setstat always fails on the server, wasting a round-trip on every file.
+    if Result and (fpGetEUID = 0) then
     begin
       if FpStat(FDirectFileName, LocalStat) = 0 then
       begin
         FillChar(UploadAttrs, SizeOf(UploadAttrs), 0);
-        UploadAttrs.permissions:= LocalStat.st_mode;
-        UploadAttrs.flags:= LIBSSH2_SFTP_ATTR_PERMISSIONS;
+        UploadAttrs.uid:= LocalStat.st_uid;
+        UploadAttrs.gid:= LocalStat.st_gid;
+        UploadAttrs.flags:= LIBSSH2_SFTP_ATTR_UIDGID;
         libssh2_sftp_setstat(FSFTPSession, PAnsiChar(FileName), @UploadAttrs);
-        // Only try to restore ownership when we are root; for a normal user
-        // this setstat always fails on the server, wasting a network
-        // round-trip on every uploaded file.
-        if fpGetEUID = 0 then
-        begin
-          UploadAttrs.uid:= LocalStat.st_uid;
-          UploadAttrs.gid:= LocalStat.st_gid;
-          UploadAttrs.flags:= LIBSSH2_SFTP_ATTR_UIDGID;
-          libssh2_sftp_setstat(FSFTPSession, PAnsiChar(FileName), @UploadAttrs);
-        end;
       end;
     end;
 {$ENDIF}

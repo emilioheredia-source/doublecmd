@@ -893,6 +893,18 @@ begin
     end;
 end;
 
+// Directory portion of a server-side path (remote paths always use '/').
+function ExtractRemoteDir(const Path: AnsiString): AnsiString;
+var
+  I: Integer;
+begin
+  I:= LastDelimiter('/', Path);
+  if (I > 1) then
+    Result:= Copy(Path, 1, I - 1)
+  else
+    Result:= '/';
+end;
+
 function FsGetFileW(RemoteName, LocalName: PWideChar; CopyFlags: Integer;
   RemoteInfo: pRemoteInfo): Integer; dcpcall; export;
 var
@@ -937,7 +949,11 @@ begin
   if GetConnectionByPath(RemoteName, FtpSend, sFileName) then
   try
     FileName:= UTF16ToUTF8(UnicodeString(LocalName));
-    if (CopyFlags and FS_COPYFLAGS_FORCE = 0) and (FtpSend.FileExists(sFileName)) then
+    // Skip the per-file existence probe when the target directory is one we
+    // just created this operation (known-empty): the file cannot pre-exist.
+    if (CopyFlags and FS_COPYFLAGS_FORCE = 0) and
+       (not FtpSend.IsDirFresh(ExtractRemoteDir(sFileName))) and
+       (FtpSend.FileExists(sFileName)) then
     begin
       if not FtpSend.CanResume then Exit(FS_FILE_EXISTS);
       Exit(FS_FILE_EXISTSRESUMEALLOWED);
@@ -1061,6 +1077,18 @@ var
   FtpSend: TFtpSendEx;
   RemotePath: AnsiString;
 begin
+  // Reset the "freshly-created empty directory" tracking at the start of every
+  // upload/move operation, so FsPutFile's existence-check skip can never act on
+  // stale knowledge left over from a previous operation on this connection.
+  if (InfoStartEnd = FS_STATUS_START) and
+     (InfoOperation in [FS_STATUS_OP_PUT_SINGLE, FS_STATUS_OP_PUT_MULTI,
+                        FS_STATUS_OP_PUT_MULTI_THREAD,
+                        FS_STATUS_OP_RENMOV_SINGLE, FS_STATUS_OP_RENMOV_MULTI]) then
+  begin
+    if GetConnectionByPath(RemoteDir, FtpSend, RemotePath) then
+      FtpSend.ClearFreshDirs;
+  end;
+
   if (InfoOperation in [FS_STATUS_OP_GET_MULTI_THREAD, FS_STATUS_OP_PUT_MULTI_THREAD]) then
   begin
     if InfoStartEnd = FS_STATUS_START then
