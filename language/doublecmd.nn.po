@@ -15050,3 +15050,7 @@ msgstr "Ingen utbytting er utført."
 msgid "No setup named \"%s\""
 msgstr ""
 
+
+#: tfrmsyncdirsdlg.chkemptydirs.caption
+msgid "empty folders"
+msgstr "Tomme mapper"

@@ -14497,3 +14497,7 @@ msgstr "Nem történt csere."
 msgid "No setup named \"%s\""
 msgstr "Nincs \"%s\" nevű beállítás"
 
+
+#: tfrmsyncdirsdlg.chkemptydirs.caption
+msgid "empty folders"
+msgstr "Üres könyvtárak"

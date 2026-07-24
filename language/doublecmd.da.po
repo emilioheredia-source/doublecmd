@@ -15744,3 +15744,7 @@ msgstr "Ingen erstatning fandt sted."
 msgid "No setup named \"%s\""
 msgstr ""
 
+
+#: tfrmsyncdirsdlg.chkemptydirs.caption
+msgid "empty folders"
+msgstr "Tomme mapper"

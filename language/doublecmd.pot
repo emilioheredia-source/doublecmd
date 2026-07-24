@@ -9012,6 +9012,14 @@ msgstr ""
 msgid "by content"
 msgstr ""
 
+#: tfrmsyncdirsdlg.chkemptydirs.caption
+msgid "empty folders"
+msgstr ""
+
+#: tfrmsyncdirsdlg.chkemptydirs.hint
+msgid "Mirror empty folders too: create source-only empty folders on the other side (needs Subdirs)."
+msgstr ""
+
 #: tfrmsyncdirsdlg.chkignoredate.caption
 msgid "ignore date"
 msgstr ""

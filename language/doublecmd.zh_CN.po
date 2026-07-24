@@ -14518,3 +14518,7 @@ msgstr "没有发生替换。"
 msgid "No setup named \"%s\""
 msgstr "没有名为 \"%s\" 的安装程序"
 
+
+#: tfrmsyncdirsdlg.chkemptydirs.caption
+msgid "empty folders"
+msgstr "空文件夹"

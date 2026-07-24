@@ -14894,3 +14894,7 @@ msgstr "Заміна не відбулася."
 msgid "No setup named \"%s\""
 msgstr ""
 
+
+#: tfrmsyncdirsdlg.chkemptydirs.caption
+msgid "empty folders"
+msgstr "Порожні теки"

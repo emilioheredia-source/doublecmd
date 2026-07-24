@@ -14513,3 +14513,7 @@ msgstr "Zamenjava ni bila izvršena."
 msgid "No setup named \"%s\""
 msgstr "Ni nastavitve z imenom »%s«"
 
+
+#: tfrmsyncdirsdlg.chkemptydirs.caption
+msgid "empty folders"
+msgstr "Prazne mape"

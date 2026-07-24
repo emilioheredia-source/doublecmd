@@ -14775,3 +14775,7 @@ msgstr "Није било замене."
 msgid "No setup named \"%s\""
 msgstr "Нисам нашао поставку названу „%s“"
 
+
+#: tfrmsyncdirsdlg.chkemptydirs.caption
+msgid "empty folders"
+msgstr "Празне фасцикле"

@@ -14761,3 +14761,7 @@ msgstr "Não houve substituição."
 msgid "No setup named \"%s\""
 msgstr "Nenhuma configuração chamada \"%s\""
 
+
+#: tfrmsyncdirsdlg.chkemptydirs.caption
+msgid "empty folders"
+msgstr "Pastas vazias"

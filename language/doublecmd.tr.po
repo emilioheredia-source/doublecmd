@@ -15177,3 +15177,7 @@ msgstr ""
 msgid "No setup named \"%s\""
 msgstr ""
 
+
+#: tfrmsyncdirsdlg.chkemptydirs.caption
+msgid "empty folders"
+msgstr "Boş klasörler"

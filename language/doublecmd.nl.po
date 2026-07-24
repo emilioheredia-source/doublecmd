@@ -14543,3 +14543,7 @@ msgstr "Er vond geen vervanging plaats."
 msgid "No setup named \"%s\""
 msgstr ""
 
+
+#: tfrmsyncdirsdlg.chkemptydirs.caption
+msgid "empty folders"
+msgstr "Lege mappen"
