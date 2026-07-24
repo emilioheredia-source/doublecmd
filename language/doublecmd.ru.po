@@ -14787,3 +14787,7 @@ msgstr "Замена не состоялась."
 msgid "No setup named \"%s\""
 msgstr "Набор \"%s\" не существует"
 
+
+#: tfrmsyncdirsdlg.chkemptydirs.caption
+msgid "empty folders"
+msgstr "Пустые каталоги"

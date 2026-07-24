@@ -14471,3 +14471,7 @@ msgstr "Nie było zamian."
 msgid "No setup named \"%s\""
 msgstr "Brak konfiguracji o nazwie \"%s\""
 
+
+#: tfrmsyncdirsdlg.chkemptydirs.caption
+msgid "empty folders"
+msgstr "Puste katalogi"

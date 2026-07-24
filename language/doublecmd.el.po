@@ -14744,3 +14744,7 @@ msgstr "Δεν πραγματοποιήθηκε καμία αντικατάστ�
 msgid "No setup named \"%s\""
 msgstr "Δεν υπάρχει διαμόρφωση με το όνομα \"%s\""
 
+
+#: tfrmsyncdirsdlg.chkemptydirs.caption
+msgid "empty folders"
+msgstr "Κενοί κατάλογοι"

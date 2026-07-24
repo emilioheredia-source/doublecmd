@@ -14799,3 +14799,7 @@ msgstr "置換は起こりませんでした."
 msgid "No setup named \"%s\""
 msgstr ""
 
+
+#: tfrmsyncdirsdlg.chkemptydirs.caption
+msgid "empty folders"
+msgstr "空のディレクトリ"

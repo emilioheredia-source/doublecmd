@@ -14501,3 +14501,7 @@ msgstr "Eine Ersetzung hat nicht stattgefunden."
 msgid "No setup named \"%s\""
 msgstr "Keine Einstellung namens »%s«"
 
+
+#: tfrmsyncdirsdlg.chkemptydirs.caption
+msgid "empty folders"
+msgstr "Leere Verzeichnisse"

@@ -14547,3 +14547,7 @@ msgstr "Žádné nahrazení se nekonalo."
 msgid "No setup named \"%s\""
 msgstr ""
 
+
+#: tfrmsyncdirsdlg.chkemptydirs.caption
+msgid "empty folders"
+msgstr "Prázdné složky"

@@ -15234,3 +15234,7 @@ msgstr "Nije bilo zamjene"
 msgid "No setup named \"%s\""
 msgstr ""
 
+
+#: tfrmsyncdirsdlg.chkemptydirs.caption
+msgid "empty folders"
+msgstr "Prazne mape"
