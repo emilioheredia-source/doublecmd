@@ -69,6 +69,7 @@ type
     btnClose: TButton;
     chkAsymmetric: TCheckBox;
     chkSubDirs: TCheckBox;
+    chkEmptyDirs: TCheckBox;
     chkByContent: TCheckBox;
     chkIgnoreDate: TCheckBox;
     chkOnlySelected: TCheckBox;
@@ -125,6 +126,7 @@ type
     procedure btnSearchTemplateClick(Sender: TObject);
     procedure btnCompareClick(Sender: TObject);
     procedure btnSynchronizeClick(Sender: TObject);
+    procedure chkSubDirsClick(Sender: TObject);
     procedure edPath1AcceptDirectory(Sender: TObject; var Value: String);
     procedure RestoreProperties(Sender: TObject);
     procedure FormClose(Sender: TObject; var CloseAction: TCloseAction);
@@ -204,6 +206,7 @@ type
     procedure DeleteFiles(ALeft, ARight: Boolean);
     function DeleteFiles(FileSource: IFileSource; var Files: TFiles): Boolean;
     procedure SetPanelWatchers(AEnabled: Boolean);
+    procedure ForceRemoteDir(FileSource: IFileSource; const ABasePath, ARelativeDir: String);
     procedure UpdateList(ALeft, ARight: TFiles; ARemoveLeft, ARemoveRight: Boolean);
     procedure SetProgressBytes(AProgressBar: TKASProgressBar; CurrentBytes: Int64; TotalBytes: Int64);
     procedure SetProgressFiles(AProgressBar: TKASProgressBar; CurrentFiles: Int64; TotalFiles: Int64);
@@ -908,9 +911,25 @@ begin
             Dest := fsr.FRelPath;
             case fsr.FAction of
             srsCopyRight:
-              if CopyRight then CopyRightFiles.Add(fsr.FFileL.Clone);
+              if CopyRight then
+              begin
+                // An empty source folder has no file to carry it into being on
+                // the target, so recreate the directory tree directly. Routing
+                // it through the copy operation would also pull in files the
+                // mask excludes, so only real directories take this path.
+                if fsr.FFileL.IsDirectory then
+                  ForceRemoteDir(FCmpFileSourceR, FCmpFilePathR, fsr.FRelPath + fsr.FFileL.Name)
+                else
+                  CopyRightFiles.Add(fsr.FFileL.Clone);
+              end;
             srsCopyLeft:
-              if CopyLeft then CopyLeftFiles.Add(fsr.FFileR.Clone);
+              if CopyLeft then
+              begin
+                if fsr.FFileR.IsDirectory then
+                  ForceRemoteDir(FCmpFileSourceL, FCmpFilePathL, fsr.FRelPath + fsr.FFileR.Name)
+                else
+                  CopyLeftFiles.Add(fsr.FFileR.Clone);
+              end;
             srsDeleteRight:
               if DeleteRight then DeleteRightFiles.Add(fsr.FFileR.Clone);
             srsDeleteLeft:
@@ -957,6 +976,46 @@ begin
   end;
 end;
 
+procedure TfrmSyncDirsDlg.chkSubDirsClick(Sender: TObject);
+begin
+  // Mirroring empty folders only makes sense while subdirectories are scanned.
+  chkEmptyDirs.Enabled := chkSubDirs.Checked;
+end;
+
+procedure TfrmSyncDirsDlg.ForceRemoteDir(FileSource: IFileSource;
+  const ABasePath, ARelativeDir: String);
+// Create ARelativeDir (possibly several levels deep) under ABasePath on
+// FileSource, making each missing parent level first. DC's CreateDirectory
+// creates a single level and needs its parent to already exist, so the path is
+// built top-down. ABasePath is the sync root and already exists; attempts on
+// already-existing levels just return False and are ignored, matching how
+// CopyFiles calls CreateDirectory unconditionally before every copy batch.
+var
+  Rest, Segment, Current: String;
+  DelimPos: Integer;
+begin
+  Current := ExcludeTrailingPathDelimiter(ABasePath);
+  Rest := ARelativeDir;
+  while Rest <> '' do
+  begin
+    DelimPos := Pos(PathDelim, Rest);
+    if DelimPos = 0 then
+    begin
+      Segment := Rest;
+      Rest := '';
+    end
+    else begin
+      Segment := Copy(Rest, 1, DelimPos - 1);
+      Delete(Rest, 1, DelimPos);
+    end;
+    if Segment <> '' then
+    begin
+      Current := Current + PathDelim + Segment;
+      FileSource.CreateDirectory(Current);
+    end;
+  end;
+end;
+
 procedure TfrmSyncDirsDlg.edPath1AcceptDirectory(Sender: TObject;
   var Value: String);
 begin
@@ -993,7 +1052,8 @@ begin
   CloseAction := caFree;
   { settings }
   gSyncDirsSubdirs              := chkSubDirs.Checked;
-  gSyncDirsAsymmetric           := chkAsymmetric.Checked and gSyncDirsAsymmetricSave;
+  gSyncDirsEmptyDirs            := chkEmptyDirs.Checked;
+  gSyncDirsAsymmetric           := chkAsymmetric.Checked;
   gSyncDirsIgnoreDate           := chkIgnoreDate.Checked;
   gSyncDirsShowFilterCopyRight  := sbCopyRight.Down;
   gSyncDirsShowFilterEqual      := sbEqual.Down;
@@ -1059,6 +1119,8 @@ begin
   lblProgressDelete.Caption   := rsOperDeleting;
   { settings }
   chkSubDirs.Checked     := gSyncDirsSubdirs;
+  chkEmptyDirs.Checked   := gSyncDirsEmptyDirs;
+  chkEmptyDirs.Enabled   := gSyncDirsSubdirs;
   chkAsymmetric.Checked  := gSyncDirsAsymmetric;
   chkByContent.Checked   := gSyncDirsByContent and chkByContent.Enabled;
   chkIgnoreDate.Checked  := gSyncDirsIgnoreDate;
@@ -1500,7 +1562,7 @@ var
   LeftFirst: Boolean = True;
   RightFirst: Boolean = True;
   BaseDirL, BaseDirR: string;
-  ignoreDate, Subdirs, ByContent: Boolean;
+  ignoreDate, Subdirs, ByContent, EmptyDirs: Boolean;
   LastMessagesTime: QWord = 0;
   // Progress accounting over all directories discovered so far, so the
   // percentage advances smoothly instead of only per top-level directory.
@@ -1510,7 +1572,10 @@ var
   ScanTotal: Integer = 1;
   ScanShownPercent: Integer = 0;
 
-  procedure ScanDir(dir: string);
+  // Returns the number of sync records produced by this directory's whole
+  // subtree. A one-sided directory whose subtree count is zero is an empty
+  // folder (of matching files) and, when enabled, is mirrored as a unit.
+  function ScanDir(dir: string): Integer;
 
     procedure ProcessOneSide(it, dirs: TStringList; var ASide: Boolean; sideLeft: Boolean);
     var
@@ -1598,12 +1663,29 @@ var
       it.AddObject(NormalizeFileName(f.Name), r);
     end;
 
+    procedure AddEmptyDirRecord(it: TStringList; const dir: string; f: TFile; sideLeft: Boolean);
+    var
+      r: TFileSyncRec;
+    begin
+      // A one-sided directory whose whole subtree holds no matching files.
+      // Record the folder itself as a single sync unit so the mirror recreates
+      // it on the other side; without this an empty folder has no file to carry
+      // it and is silently dropped. UpdateState turns a left-only record into
+      // srsCopyRight and a right-only one into srsCopyLeft. Takes ownership of f.
+      r := TFileSyncRec.Create(Self, dir);
+      if sideLeft then r.FFileL := f else r.FFileR := f;
+      r.UpdateState(ignoreDate);
+      it.AddObject(NormalizeFileName(f.Name), r);
+    end;
+
   var
     i, j: Integer;
     it: TStringList;
     dirsLeft, dirsRight: TStringListEx;
     d: string;
+    itBase, sumChildren, childCount: Integer;
   begin
+    Result := 0;
     i := FFoundItems.IndexOf(dir);
     if i < 0 then
     begin
@@ -1636,11 +1718,19 @@ var
         Application.ProcessMessages;
       end;
       if FCancel then Exit;
+      // Records added below belong to this directory; remember the baseline so
+      // the subtree count excludes anything already present on a revisit.
+      itBase := it.Count;
+      sumChildren := 0;
       ProcessOneSide(it, dirsLeft, LeftFirst, True);
       ProcessOneSide(it, dirsRight, RightFirst, False);
       SortFoundItems(it);
       Inc(ScanDone);
-      if not Subdirs then Exit;
+      if not Subdirs then
+      begin
+        Result := it.Count - itBase;
+        Exit;
+      end;
       // Directories present on both sides are recursed into to compare their
       // contents (unchanged). A directory present on the right side only is, in
       // asymmetric (mirror) mode, deleted as a whole: record it as one unit and
@@ -1660,8 +1750,16 @@ var
           dirsRight.Objects[j] := nil;
         end;
         Inc(ScanTotal);
-        ScanDir(dir + d);
+        childCount := ScanDir(dir + d);
         if FCancel then Exit;
+        Inc(sumChildren, childCount);
+        // A left-only directory with an empty subtree: mirror it to the right.
+        if EmptyDirs and (j < 0) and (childCount = 0)
+           and TFile(dirsLeft.Objects[i]).IsDirectory then
+        begin
+          AddEmptyDirRecord(it, dir, TFile(dirsLeft.Objects[i]), True);
+          dirsLeft.Objects[i] := nil; // ownership handed to the record
+        end;
       end;
       for i := 0 to dirsRight.Count - 1 do
       begin
@@ -1677,10 +1775,19 @@ var
         begin
           d := dirsRight[i];
           Inc(ScanTotal);
-          ScanDir(dir + d);
+          childCount := ScanDir(dir + d);
           if FCancel then Exit;
+          Inc(sumChildren, childCount);
+          // A right-only directory with an empty subtree: mirror it to the left.
+          if EmptyDirs and (childCount = 0)
+             and TFile(dirsRight.Objects[i]).IsDirectory then
+          begin
+            AddEmptyDirRecord(it, dir, TFile(dirsRight.Objects[i]), False);
+            dirsRight.Objects[i] := nil; // ownership handed to the record
+          end;
         end;
       end;
+      Result := (it.Count - itBase) + sumChildren;
     finally
       // Free any directory clones we did not hand off to a sync record.
       for i := 0 to dirsLeft.Count - 1 do
@@ -1718,6 +1825,10 @@ begin
   ignoreDate := chkIgnoreDate.Checked;
   Subdirs := chkSubDirs.Checked;
   ByContent := chkByContent.Checked;
+  // Read live from the checkbox, like the options above: the global is only
+  // synced from the control when the dialog closes, so using it here would
+  // miss the box being ticked during the current session.
+  EmptyDirs := chkEmptyDirs.Checked;
   if chkAsymmetric.Checked then
     FFileExists:= srsDeleteRight
   else begin
