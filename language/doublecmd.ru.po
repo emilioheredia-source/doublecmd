@@ -2106,6 +2106,14 @@ msgstr "Краткий вид"
 msgid "Calculate &Occupied Space"
 msgstr "Подсчитать &занимаемое место..."
 
+#: tfrmmain.actcallplatformfunctions.caption
+msgid "Call platform functions"
+msgstr ""
+
+#: tfrmmain.actcallplatformfunctions.hint
+msgid "Call platform functions (the function to be called is specified by the parameter 'func')"
+msgstr ""
+
 #: tfrmmain.actchangedir.caption
 msgid "Change directory"
 msgstr "Сменить каталог"
@@ -2645,10 +2653,6 @@ msgstr "Открыть пап&ку в новой вкладке"
 #: tfrmmain.actopendrivebyindex.caption
 msgid "Open Drive by Index"
 msgstr "Открыть диск по индексу"
-
-#: tfrmmain.actopenstash.caption
-msgid "Open Stash"
-msgstr "Открыть временную панель"
 
 #: tfrmmain.actopenvirtualfilesystemlist.caption
 msgctxt "TFRMMAIN.ACTOPENVIRTUALFILESYSTEMLIST.CAPTION"
@@ -3254,6 +3258,11 @@ msgstr "&Выделение"
 msgctxt "TFRMMAIN.MNUNETWORK.CAPTION"
 msgid "&Network"
 msgstr "&Сеть"
+
+#: tfrmmain.mnuopenstash.caption
+msgctxt "tfrmmain.mnuopenstash.caption"
+msgid "Open Stash"
+msgstr "Открыть временную панель"
 
 #: tfrmmain.mnushow.caption
 msgctxt "tfrmmain.mnushow.caption"
@@ -6416,6 +6425,10 @@ msgctxt "TFRMOPTIONSFILESVIEWS.GBSORTING.CAPTION"
 msgid "Sorting"
 msgstr "Сортировка"
 
+#: tfrmoptionsfilesviews.lbl1k.caption
+msgid "1K ="
+msgstr ""
+
 #: tfrmoptionsfilesviews.lblbyte.caption
 msgid "&Byte:"
 msgstr "&Байт:"
@@ -6481,6 +6494,14 @@ msgstr "Тераба&йт:"
 #: tfrmoptionsfilesviews.lblupdatedfilesposition.caption
 msgid "&Move updated files:"
 msgstr "П&еремещать изменённые файлы:"
+
+#: tfrmoptionsfilesviews.rb1000.caption
+msgid "1000"
+msgstr ""
+
+#: tfrmoptionsfilesviews.rb1024.caption
+msgid "1024"
+msgstr ""
 
 #: tfrmoptionsfilesviewscomplement.btnaddattribute.caption
 msgctxt "tfrmoptionsfilesviewscomplement.btnaddattribute.caption"

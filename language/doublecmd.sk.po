@@ -2069,6 +2069,14 @@ msgstr "Jednoduché zobrazenie"
 msgid "Calculate &Occupied Space"
 msgstr "Vypočítať &obsadené miesto"
 
+#: tfrmmain.actcallplatformfunctions.caption
+msgid "Call platform functions"
+msgstr ""
+
+#: tfrmmain.actcallplatformfunctions.hint
+msgid "Call platform functions (the function to be called is specified by the parameter 'func')"
+msgstr ""
+
 #: tfrmmain.actchangedir.caption
 msgid "Change directory"
 msgstr "Zmeniť priečinok"
@@ -2601,10 +2609,6 @@ msgstr "Otvoriť priečinok v novej karte"
 #: tfrmmain.actopendrivebyindex.caption
 msgid "Open Drive by Index"
 msgstr "Otvoriť disk podľa indexu"
-
-#: tfrmmain.actopenstash.caption
-msgid "Open Stash"
-msgstr ""
 
 #: tfrmmain.actopenvirtualfilesystemlist.caption
 msgid "Open &VFS List"
@@ -3201,6 +3205,11 @@ msgstr "&Označiť"
 msgctxt "tfrmmain.mnunetwork.caption"
 msgid "&Network"
 msgstr "S&ieť"
+
+#: tfrmmain.mnuopenstash.caption
+msgctxt "tfrmmain.mnuopenstash.caption"
+msgid "Open Stash"
+msgstr ""
 
 #: tfrmmain.mnushow.caption
 msgctxt "tfrmmain.mnushow.caption"
@@ -6290,6 +6299,10 @@ msgstr "Použiť vlastné skratky:"
 msgid "Sorting"
 msgstr "Triedenie"
 
+#: tfrmoptionsfilesviews.lbl1k.caption
+msgid "1K ="
+msgstr ""
+
 #: tfrmoptionsfilesviews.lblbyte.caption
 msgid "&Byte:"
 msgstr "&Byte:"
@@ -6353,6 +6366,14 @@ msgstr "&Terabyte:"
 #: tfrmoptionsfilesviews.lblupdatedfilesposition.caption
 msgid "&Move updated files:"
 msgstr "Presunúť aktualizované súbory:"
+
+#: tfrmoptionsfilesviews.rb1000.caption
+msgid "1000"
+msgstr ""
+
+#: tfrmoptionsfilesviews.rb1024.caption
+msgid "1024"
+msgstr ""
 
 #: tfrmoptionsfilesviewscomplement.btnaddattribute.caption
 msgctxt "tfrmoptionsfilesviewscomplement.btnaddattribute.caption"
@@ -11093,12 +11114,12 @@ msgstr "Horizontálne rozdelenie"
 #: ulng.rsmfstbiiclouddrivetips
 msgctxt "ulng.rsmfstbiiclouddrivetips"
 msgid "iCloud Drive"
-msgstr "iCloud Disk"
+msgstr ""
 
 #: ulng.rsmfstbiiclouddrivetitle
 msgctxt "ulng.rsmfstbiiclouddrivetitle"
 msgid "iCloud Drive"
-msgstr "iCloud Disk"
+msgstr ""
 
 #: ulng.rsmfstbinetworktips
 msgctxt "ulng.rsmfstbinetworktips"

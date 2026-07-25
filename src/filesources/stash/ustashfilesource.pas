@@ -248,7 +248,7 @@ end;
 
 class function TStashFileSource.GetMainIcon(out Path: String): Boolean;
 begin
-  Path:= 'cm_openstash';
+  Path:= 'stash';
   Result:= True;
 end;
 
@@ -276,7 +276,7 @@ begin
   if fullpath = self.GetRootDir() then
     Result:= rsStashName
   else
-    Result:= ExtractFileName( ExcludeTrailingPathDelimiter(fullpath) );
+    Result:= _fileSystemFS.GetDisplayFileName(aFile);
 end;
 
 function TStashFileSource.needReload(

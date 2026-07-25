@@ -36,7 +36,7 @@ interface
   If this problem will be fixed then GTK2 specific code could be dropped.
 }
 {$IF DEFINED(LCLGTK2) AND DEFINED(UNIX) AND NOT (DEFINED(DARWIN) OR DEFINED(HAIKU))}
-  {$DEFINE GTK2_FIX}
+  {.$DEFINE GTK2_FIX}
 {$ENDIF}
 
 // Use freedesktop.org specifications
@@ -676,16 +676,23 @@ begin
         AFile := TFileSystemFileSource.CreateFileFromFile(sFileName);
         try
           iIndex := GetIconByFile(AFile, True, True, sim_all_and_exe);
-          bmStandartBitmap := GetBitmap(iIndex);
-          if fromWhatItWasLoaded<> nil then fromWhatItWasLoaded^ := fwbwlFileIconByExtension;
+          if (iIndex > -1) then
+          begin
+            bmStandartBitmap := GetBitmap(iIndex);
+            if Assigned(fromWhatItWasLoaded) then fromWhatItWasLoaded^ := fwbwlFileIconByExtension;
+          end;
         finally
           FreeAndNil(AFile);
         end;
-      end
-    else  // file not found
+      end;
+    if (bmStandartBitmap = nil) then
       begin
-        bmStandartBitmap := GetBitmap(FiDefaultIconID);
-        if fromWhatItWasLoaded<> nil then fromWhatItWasLoaded^ := fwbwlFiDefaultIconID;
+        if gIconsSize = iIconSize then
+          bmStandartBitmap := GetBitmap(FiDefaultIconID)
+        else begin
+          bmStandartBitmap := LoadIconThemeBitmap('unknown', iIconSize);
+        end;
+        if Assigned(fromWhatItWasLoaded) then fromWhatItWasLoaded^ := fwbwlFiDefaultIconID;
       end;
   end;
 
