@@ -622,7 +622,8 @@ uses
   uShellExecute, fMaskInputDlg, uMasks, DCOSUtils, uOSUtils, DCStrUtils,
   uDCUtils, uDebug, uLng, uShowMsg, uFileSystemFileSource, uFileSourceUtil,
   uFileViewNotebook, uSearchTemplate, uKeyboard, uFileFunctions,
-  fMain, uSearchResultFileSource, uFileSourceProperty, uVfsModule, uFileViewWithPanels;
+  fMain, uSearchResultFileSource, uFileSourceProperty, uVfsModule, uFileViewWithPanels,
+  LCLVersion;
 
 const
   MinimumReloadInterval  = 1000; // 1 second
@@ -1112,6 +1113,7 @@ begin
         end;
     end;
     ADisplayFile := TDisplayFile.Create(AFile);
+    ADisplayFile.DisplayName:= FileSource.GetDisplayFileName(AFile);
     FHashedFiles.Add(ADisplayFile, nil);
     FHashedNames.Add(AFileKey, ADisplayFile);
     InsertFile(ADisplayFile, FAllDisplayFiles, NewFilesPosition);
@@ -1167,6 +1169,7 @@ begin
       ADisplayFile.FSFile.Name := NewFileName;
       FHashedNames.Remove(OldFileKey);
       FHashedNames.Add(NewFileKey, ADisplayFile);
+      ADisplayFile.DisplayName:= FileSource.GetDisplayFileName(ADisplayFile.FSFile);
       ADisplayFile.Busy:= [];
       ADisplayFile.Icon:= nil;
       ADisplayFile.IconID := -1;
@@ -1323,6 +1326,7 @@ begin
           Exit;
         end;
     end;
+    ADisplayFile.DisplayName:= FileSource.GetDisplayFileName(AFile);
     ADisplayFile.TextColor := clNone;
     {$IFDEF DARWIN}
     // on macOS, Icon of file maybe changed after updated.
@@ -2775,6 +2779,9 @@ begin
     OpenDialog.DefaultExt := '.txt';
     OpenDialog.Filter     := '*.txt|*.txt';
     OpenDialog.FileName   := AFileName;
+{$if lcl_fullversion >= 4990000}
+    OpenDialog.OptionsEx:= [];
+{$endif}
     if ((AFileName <> EmptyStr) and mbFileExists(AFileName)) or OpenDialog.Execute then
       try
         FSavedSelection.LoadFromFile(OpenDialog.FileName);
