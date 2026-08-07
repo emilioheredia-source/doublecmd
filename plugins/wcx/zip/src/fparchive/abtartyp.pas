@@ -2417,8 +2417,10 @@ begin
   end;
   {$ENDIF MSWINDOWS}
 
+  {$IFDEF MSWINDOWS}
   { Should always trip drive info if on a Win/Dos system }
   StoreOptions := StoreOptions + [soStripDrive];
+  {$ENDIF MSWINDOWS}
 
   { strip drive stuff }
   if soStripDrive in StoreOptions then
