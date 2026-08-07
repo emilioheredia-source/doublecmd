@@ -206,7 +206,8 @@ const
      (Shift: ssCtrl;  Shortcut: scCtrl;  Text: mkcCtrl),
      (Shift: ssMeta;  Shortcut: scMeta;  Text: mkcMeta),
      (Shift: ssShift; Shortcut: scShift; Text: mkcShift),
-     (Shift: ssAlt;   Shortcut: scAlt;   Text: mkcAlt)
+     (Shift: ssAlt;   Shortcut: scAlt;   Text: mkcAlt),
+     (Shift: ssAltGr; Shortcut: scAltGr; Text: mkcAltGr)
      {$ENDIF}
    );
 
