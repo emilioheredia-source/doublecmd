@@ -998,7 +998,7 @@ begin
   if not AtFileList then
     Exit;
 
-{$IF DEFINED(LCLWIN32)}
+{$IF DEFINED(LCLWIN32) OR DEFINED(LCLGTK3) OR DEFINED(LCLQT5) OR DEFINED(LCLQT6)}
   FMouseFocus:= MainControl.Focused;
   SetFocus;
   // Touch/pen double-tap fix: LCL's CheckMouseButtonDownUp (controls.pp)
