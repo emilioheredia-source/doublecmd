@@ -40,6 +40,7 @@ const
   SmkcShift = 'Shift+';
   SmkcCtrl = 'Ctrl+';
   SmkcAlt = 'Alt+';
+  SmkcOption = 'Option+';
   SmkcCmd = 'Cmd+';
   SmkcWin = 'WinKey+';
   SmkcNumDivide = 'Num/';
@@ -49,12 +50,14 @@ const
   SmkcAtem = {$IF DEFINED(DARWIN)}SmkcWin{$ELSE}SmkcCmd{$ENDIF};
   SmkcMeta = {$IF DEFINED(DARWIN)}SmkcCmd{$ELSE}SmkcWin{$ENDIF};
   SmkcSuper = {$IF DEFINED(DARWIN)}SmkcCmd{$ELSE}SmkcCtrl{$ENDIF};
+  SmkcConverseAltOption = {$IF DEFINED(DARWIN)}SmkcAlt{$ELSE}SmkcOption{$ENDIF};
+  SmkcAltOption = {$IF DEFINED(DARWIN)}SmkcOption{$ELSE}SmkcAlt{$ENDIF};
   SmkcFn = 'Fn+';
 
   MenuKeyCaps: array[TMenuKeyCap] of string = (
     SmkcClear, SmkcBkSp, SmkcTab, SmkcEsc, SmkcEnter, SmkcSpace, SmkcPgUp,
     SmkcPgDn, SmkcEnd, SmkcHome, SmkcLeft, SmkcUp, SmkcRight, SmkcDown,
-    SmkcIns, SmkcDel, SmkcShift, SmkcCtrl, SmkcAlt, SmkcMeta,
+    SmkcIns, SmkcDel, SmkcShift, SmkcCtrl, SmkcAltOption, SmkcMeta,
     SmkcNumDivide, SmkcNumMultiply, SmkcNumAdd, SmkcNumSubstract, SmkcFn);
 
   // Modifiers that can be used for shortcuts (non-toggable).
@@ -192,12 +195,20 @@ type
 
 const
   ModifiersMap: array [0..4] of TModifiersMap =
-   ((Shift: ssCtrl;  Shortcut: scCtrl;  Text: mkcCtrl),
-    (Shift: ssShift; Shortcut: scShift; Text: mkcShift),
-    (Shift: ssAlt;   Shortcut: scAlt;   Text: mkcAlt),
-    (Shift: ssMeta;  Shortcut: scMeta;  Text: mkcMeta),
-    (Shift: ssAltGr; Shortcut: scAltGr; Text: mkcAltGr)
-    );
+   (
+     {$IFDEF DARWIN}
+     (Shift: ssAltGr; Shortcut: scAltGr; Text: mkcAltGr),
+     (Shift: ssCtrl;  Shortcut: scCtrl;  Text: mkcCtrl),
+     (Shift: ssAlt;   Shortcut: scAlt;   Text: mkcAlt),
+     (Shift: ssShift; Shortcut: scShift; Text: mkcShift),
+     (Shift: ssMeta;  Shortcut: scMeta;  Text: mkcMeta)
+     {$ELSE}
+     (Shift: ssCtrl;  Shortcut: scCtrl;  Text: mkcCtrl),
+     (Shift: ssMeta;  Shortcut: scMeta;  Text: mkcMeta),
+     (Shift: ssShift; Shortcut: scShift; Text: mkcShift),
+     (Shift: ssAlt;   Shortcut: scAlt;   Text: mkcAlt)
+     {$ENDIF}
+   );
 
 {$IF DEFINED(X11)}
 var
@@ -538,7 +549,12 @@ begin
       begin
         Result := Result or scMeta;
         Found := True;
-      end;
+      end
+      else if CompareFront(SmkcConverseAltOption) then
+      begin
+        Result := Result or scAlt;
+        Found := True;
+      end
     end;
   end;
   ModLength := StartPos - 1;
