@@ -701,7 +701,9 @@ end;
 function AbAddBackSlash(const DirName : string) : string;
 { Add a default slash to a directory name }
 const
-  AbDelimSet : set of AnsiChar = [AbPathDelim, ':', #0];
+  { ':' is a drive separator on Win/DOS only; on Unix it is a valid
+    filename character and must not suppress the trailing path delimiter. }
+  AbDelimSet : set of AnsiChar = [AbPathDelim, {$IFDEF MSWINDOWS} ':', {$ENDIF} #0];
 begin
   Result := DirName;
   if Length(DirName) = 0 then
@@ -817,15 +819,23 @@ procedure AbParseFileName( FileSpec : string;
                            out Drive : string;
                            out Path : string;
                            out FileName : string );
+{$IFDEF MSWINDOWS}
 var
   i : Integer;
   iColon : Integer;
   iStartSlash : Integer;
+{$ENDIF MSWINDOWS}
 begin
   if Pos( AB_ZIPPATHDELIM, FileSpec ) > 0 then
     AbUnfixName( FileSpec );
+  Drive := '';
   FileName := ExtractFileName( FileSpec );
   Path := ExtractFilePath( FileSpec );
+  { Drive letters and UNC shares only exist on Win/DOS.  On Unix a ':' is an
+    ordinary filename character, so parsing one as a drive separator would
+    silently truncate the path: 'logs/2024-03-04T11:20:11/run.log' would be
+    stored in the archive as '20:11/run.log'. }
+{$IFDEF MSWINDOWS}
   {see how much of the path currently exists}
   iColon := Pos( ':', Path );
   if Pos( '\\', Path ) > 0 then begin
@@ -839,9 +849,10 @@ begin
   else if iColon > 0 then begin
     Drive := Copy( Path, 1, iColon );
     Delete( Path, 1, iColon );
-    if Path[1] = AbPathDelim then
+    if (Length( Path ) > 0) and (Path[1] = AbPathDelim) then
       Delete( Path, 1, 1 );
   end;
+{$ENDIF MSWINDOWS}
 end;
 { -------------------------------------------------------------------------- }
 procedure AbParsePath( Path : string; SubPaths : TStrings );
