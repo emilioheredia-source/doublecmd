@@ -101,6 +101,7 @@ type
   protected
     FAuto: Boolean;
     FEncoding: String;
+    FSourceIsLink: Boolean;
     FPublicKey, FPrivateKey: String;
     function Connect: Boolean; override;
     function DataSocket: Boolean; override;
@@ -149,6 +150,9 @@ type
     property PrivateKey: String read FPrivateKey write FPrivateKey;
     property ShowHidden: Boolean read FShowHidden write FShowHidden;
     property KeepAliveTransfer: Boolean read FKeepAliveTransfer write FKeepAliveTransfer;
+    // Set before RetrieveFile: the entry being downloaded is a symbolic link
+    // that the caller did not resolve, so the link itself is what to reproduce.
+    property SourceIsLink: Boolean read FSourceIsLink write FSourceIsLink;
   end;
 
   { TFTPSendExClass }

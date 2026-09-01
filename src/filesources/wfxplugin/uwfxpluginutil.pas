@@ -148,13 +148,22 @@ end;
 
 procedure WfxFillRemoteInfo(out RemoteInfo: TRemoteInfo; const aFile: TFile);
 var
+  AAttr: TFileAttrs;
   ASize: TInt64Rec;
 begin
   ASize.Value := aFile.Size;
   RemoteInfo.SizeLow := LongInt(ASize.Low);
   RemoteInfo.SizeHigh := LongInt(ASize.High);
   RemoteInfo.LastWriteTime := DateTimeToWfxFileTime(aFile.ModificationTime);
-  RemoteInfo.Attr := LongInt(aFile.Attributes);
+  // Both callers download the file in order to read its content, i.e. they
+  // follow a link rather than reproduce it. Clear the link bit so the plugin
+  // transfers the target's data instead of recreating the link locally.
+  AAttr := aFile.Attributes;
+  if aFile.AttributesProperty is TNtfsFileAttributesProperty then
+    AAttr := AAttr and (not FILE_ATTRIBUTE_REPARSE_POINT)
+  else
+    AAttr := AAttr and (not S_IFLNK);
+  RemoteInfo.Attr := LongInt(AAttr);
 end;
 
 function WfxFileTimeToDateTime(FileTime: TWfxFileTime): TDateTime;

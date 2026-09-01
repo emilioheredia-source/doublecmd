@@ -39,6 +39,11 @@ type
     function FileClose(Handle: Pointer): Boolean;
     // Block until the socket is ready in the direction libssh2 is waiting on.
     procedure WaitSocket;
+{$IFDEF UNIX}
+    // Reproduce a remote symbolic link locally instead of downloading the
+    // content its target holds. False when the link cannot be read or created.
+    function RetrieveLink(const FileName: String): Boolean;
+{$ENDIF}
   protected
     FCopySCP: Boolean;
     FSFTPSession: PLIBSSH2_SFTP;
@@ -392,6 +397,31 @@ begin
   end;
 end;
 
+{$IFDEF UNIX}
+function TSftpSend.RetrieveLink(const FileName: String): Boolean;
+var
+  ALength: cint;
+  LinkTarget: String;
+  ATarget: array[0..1023] of AnsiChar;
+begin
+  repeat
+    ALength:= libssh2_sftp_readlink(FSFTPSession, PAnsiChar(FileName),
+                                    ATarget, SizeOf(ATarget));
+    if ALength = LIBSSH2_ERROR_EAGAIN then FSock.CanRead(10);
+  until ALength <> LIBSSH2_ERROR_EAGAIN;
+  // Not a link after all, unreadable, or a target longer than the buffer.
+  if (ALength <= 0) then Exit(False);
+
+  SetString(LinkTarget, ATarget, ALength);
+  LinkTarget:= CeUtf16ToUtf8(ServerToClient(LinkTarget));
+
+  // fpSymlink does not overwrite, and a dangling link left over from an earlier
+  // run is invisible to the caller's FileExists check, so always clear the way.
+  fpUnlink(FDirectFileName);
+  Result:= fpSymlink(PAnsiChar(LinkTarget), PAnsiChar(FDirectFileName)) = 0;
+end;
+{$ENDIF}
+
 function TSftpSend.RetrieveFile(const FileName: string; FileSize: Int64;
   Restore: Boolean): Boolean;
 var
@@ -408,6 +438,14 @@ begin
     Result:= inherited RetrieveFile(FileName, FileSize, Restore);
     Exit;
   end;
+
+{$IFDEF UNIX}
+  // The user chose not to follow this link, so copy the link itself. Without
+  // this the server resolves it on open and we store a full copy of the target
+  // (and for a link to a directory the download fails outright).
+  // On failure fall through to a normal content download.
+  if FSourceIsLink and RetrieveLink(FileName) then Exit(True);
+{$ENDIF}
 
   if Restore and mbFileExists(FDirectFileName) then
     RetrStream := TFileStreamEx.Create(FDirectFileName, fmOpenWrite or fmShareExclusive)
@@ -474,11 +512,11 @@ begin
       if libssh2_sftp_stat(FSFTPSession, PAnsiChar(FileName), @DownloadAttrs) = 0 then
       begin
         if (DownloadAttrs.flags and LIBSSH2_SFTP_ATTR_PERMISSIONS) <> 0 then
-        begin
           FpChmod(FDirectFileName, DownloadAttrs.permissions and $0FFF);
-          if (DownloadAttrs.flags and LIBSSH2_SFTP_ATTR_UIDGID) <> 0 then
-            FpChown(FDirectFileName, DownloadAttrs.uid, DownloadAttrs.gid);
-        end;
+        // Only root can restore ownership; for a normal user this always fails,
+        // so skip the syscall (mirrors what StoreFile does for uploads).
+        if (fpGetEUID = 0) and ((DownloadAttrs.flags and LIBSSH2_SFTP_ATTR_UIDGID) <> 0) then
+          FpChown(FDirectFileName, DownloadAttrs.uid, DownloadAttrs.gid);
       end;
     end;
 {$ENDIF}
