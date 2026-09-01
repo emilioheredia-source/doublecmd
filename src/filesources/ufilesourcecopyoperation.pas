@@ -53,6 +53,11 @@ type
     FSymLinkOption: TFileSourceOperationOptionSymLink;
     FFileExistsOption: TFileSourceOperationOptionFileExists;
     FDirExistsOption: TFileSourceOperationOptionDirectoryExists;
+    // "Skip all" answered in a file error dialog. Callers that split one user
+    // action across several operations (the sync dialog builds one per
+    // directory batch) read this back and apply it to the next operation, so
+    // the answer holds for the whole run instead of one batch.
+    FSkipAllErrors: Boolean;
 
   protected
     function GetID: TFileSourceOperationType; override;
@@ -96,6 +101,7 @@ type
     property FileExistsOption: TFileSourceOperationOptionFileExists read FFileExistsOption write FFileExistsOption;
     property CopyAttributesOptions: TCopyAttributesOptions read FCopyAttributesOptions write FCopyAttributesOptions;
     property DirExistsOption: TFileSourceOperationOptionDirectoryExists read FDirExistsOption write FDirExistsOption;
+    property SkipAllErrors: Boolean read FSkipAllErrors write FSkipAllErrors;
   end;
 
   {en
