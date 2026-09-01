@@ -695,6 +695,10 @@ var
   gSyncDirsShowFilterSingles: Boolean;
   gSyncDirsFileMask: string;
   gSyncDirsFileMaskSave: Boolean;
+  // Exclusions typed straight into the sync dialog, for the common case where
+  // creating a named search template just to skip a folder is too much.
+  gSyncDirsExcludeDirs: string;
+  gSyncDirsExcludeFiles: string;
   gDateTimeFormatSync : String;
 
   { Internal Associations}
@@ -983,6 +987,18 @@ var
     end;
   end;
 
+  // Give the exclusion dropdowns of the Find files and Synchronize dialogs
+  // something useful to pick from before any history exists. Only the history
+  // list is seeded - both dialogs leave their text fields empty, so nothing is
+  // actually excluded until the user chooses an entry.
+  procedure SeedHistory(HistoryList: TStrings; const Defaults: array of String);
+  var
+    S: String;
+  begin
+    if HistoryList.Count > 0 then Exit;
+    for S in Defaults do HistoryList.Add(S);
+  end;
+
 begin
   Result:= False;
   History:= TXmlConfig.Create(gpCfgDir + 'history.xml', True);
@@ -1006,6 +1022,18 @@ begin
       LoadHistory('SearchExcludeFiles', glsSearchExcludeFiles);
       LoadHistory('SearchExcludeDirectories', glsSearchExcludeDirectories);
     end;
+    // Folder patterns are matched against a bare directory name at any depth
+    // (CheckDirectoryName), so these carry no path separators.
+    SeedHistory(glsSearchExcludeDirectories,
+                ['.pixi;node_modules;__pycache__;.git',
+                 '.git;.svn;.hg',
+                 'node_modules',
+                 '__pycache__;.pytest_cache;.mypy_cache',
+                 '.pixi;.venv;venv']);
+    SeedHistory(glsSearchExcludeFiles,
+                ['*.pyc;*.pyo;*.o;*.ppu',
+                 '*.bak;*.tmp;*~',
+                 'Thumbs.db;.DS_Store;desktop.ini']);
     Result:= True;
   finally
     History.Free;
@@ -2297,6 +2325,8 @@ begin
   gSyncDirsShowFilterSingles := True;
   gSyncDirsFileMask := '*';
   gSyncDirsFileMaskSave := True;
+  gSyncDirsExcludeDirs := '';
+  gSyncDirsExcludeFiles := '';
   gDateTimeFormatSync := DefaultDateTimeFormatSync;
 
   { Internal Associations}
@@ -3386,6 +3416,8 @@ begin
       gSyncDirsShowFilterSingles := GetValue(Node, 'FilterSingles', gSyncDirsShowFilterSingles);
       gSyncDirsFileMask := GetValue(Node, 'FileMask', gSyncDirsFileMask);
       gSyncDirsFileMaskSave := GetAttr(Node, 'FileMask/Save', gSyncDirsFileMaskSave);
+      gSyncDirsExcludeDirs := GetValue(Node, 'ExcludeDirectories', gSyncDirsExcludeDirs);
+      gSyncDirsExcludeFiles := GetValue(Node, 'ExcludeFiles', gSyncDirsExcludeFiles);
       gDateTimeFormatSync := GetValidDateTimeFormat(GetValue(Node, 'DateTimeFormat', gDateTimeFormatSync), DefaultDateTimeFormatSync);
     end;
 
@@ -3974,6 +4006,8 @@ begin
     SetValue(Node, 'FilterSingles', gSyncDirsShowFilterSingles);
     SetValue(Node, 'FileMask', gSyncDirsFileMask);
     SetAttr(Node, 'FileMask/Save', gSyncDirsFileMaskSave);
+    SetValue(Node, 'ExcludeDirectories', gSyncDirsExcludeDirs);
+    SetValue(Node, 'ExcludeFiles', gSyncDirsExcludeFiles);
     SetValue(Node, 'DateTimeFormat', gDateTimeFormatSync);
 
     { Internal Associations}

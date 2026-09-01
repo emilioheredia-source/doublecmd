@@ -38,6 +38,8 @@ type
   protected
     FFileExistsOption: TFileSourceOperationOptionFileExists;
     FDirExistsOption: TFileSourceOperationOptionDirectoryExists;
+    // See TFileSourceCopyOperation.SkipAllErrors - same "Skip all" carry-over.
+    FSkipAllErrors: Boolean;
 
   protected
     function GetID: TFileSourceOperationType; override;
@@ -76,6 +78,7 @@ type
     property RenameMask: String read FRenameMask write FRenameMask;
     property FileExistsOption: TFileSourceOperationOptionFileExists read FFileExistsOption write FFileExistsOption;
     property DirExistsOption: TFileSourceOperationOptionDirectoryExists read FDirExistsOption write FDirExistsOption;
+    property SkipAllErrors: Boolean read FSkipAllErrors write FSkipAllErrors;
   end;
 
 implementation
