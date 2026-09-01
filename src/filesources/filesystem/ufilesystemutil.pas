@@ -108,6 +108,7 @@ type
     FSkipReadError: Boolean;
     FSkipWriteError: Boolean;
     FSkipCopyError: Boolean;
+    FSkipAllErrors: Boolean;
     FAutoRenameItSelf: Boolean;
     FCorrectSymLinks: Boolean;
     FCopyAttributesOptions: TCopyAttributesOptions;
@@ -201,6 +202,7 @@ type
     property CorrectSymLinks: Boolean read FCorrectSymLinks write FCorrectSymLinks;
     property RenameMask: String read FRenameMask write FRenameMask;
     property SkipFlags: TFileSystemOperationHelperSkipFlags read GetSkipFlags write SetSkipFlags;
+    property SkipAllErrors: Boolean read FSkipAllErrors write FSkipAllErrors;
   end;
 
 implementation
@@ -2122,17 +2124,26 @@ end;
 
 procedure TFileSystemOperationHelper.ShowError(sMessage: String);
 begin
-  if gSkipFileOpError then
+  // FSkipAllErrors is the answer given in a previous dialog of this run;
+  // gSkipFileOpError is the persistent preference that suppresses them all.
+  if gSkipFileOpError or FSkipAllErrors then
   begin
     if log_errors in gLogOptions then
       logWrite(FOperationThread, sMessage, lmtError, True);
   end
   else
   begin
-    if AskQuestion(sMessage, '', [fsourSkip, fsourAbort],
-                   fsourSkip, fsourAbort) <> fsourSkip then
-    begin
-      AbortOperation;
+    case AskQuestion(sMessage, '', [fsourSkip, fsourSkipAll, fsourAbort],
+                     fsourSkip, fsourAbort) of
+      fsourSkip: ; // Do nothing
+      fsourSkipAll:
+        begin
+          FSkipAllErrors := True;
+          if log_errors in gLogOptions then
+            logWrite(FOperationThread, sMessage, lmtError, True);
+        end;
+      else
+        AbortOperation;
     end;
   end;
 end;

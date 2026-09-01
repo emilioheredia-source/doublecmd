@@ -151,6 +151,7 @@ begin
 
   FOperationHelper.RenameMask := RenameMask;
   FOperationHelper.FileExistsOption := FileExistsOption;
+  FOperationHelper.SkipAllErrors := SkipAllErrors;
   FOperationHelper.CopyAttributesOptions := CopyAttributesOptions;
 
   FOperationHelper.Initialize;
@@ -170,6 +171,7 @@ begin
     UpdateProgressFunction:= nil;
   end;
   FileExistsOption := FOperationHelper.FileExistsOption;
+  SkipAllErrors := FOperationHelper.SkipAllErrors;
   FOperationHelper.Free;
 end;
 
