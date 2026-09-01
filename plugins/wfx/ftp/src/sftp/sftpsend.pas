@@ -427,6 +427,7 @@ function TSftpSend.RetrieveFile(const FileName: string; FileSize: Int64;
 var
   FBuffer: PByte;
   BytesRead: PtrInt;
+  BytesToRead: csize_t;
   RetrStream: TFileStreamEx;
   TotalBytesToRead: Int64 = 0;
   SourceHandle: PLIBSSH2_SFTP_HANDLE;
@@ -479,11 +480,18 @@ begin
 
     FBuffer:= GetMem(READ_BUFFER_SIZE);
     TotalBytesToRead:= FileSize - TotalBytesToRead;
+    BytesToRead:= READ_BUFFER_SIZE;
     try
       while TotalBytesToRead > 0 do
       begin
+        // Never ask for more than the caller said is left. The stream and
+        // FileSize can disagree - a symlink reports its own size while the
+        // server opens the target - and reading a whole buffer regardless used
+        // to drive the counter negative, ending the loop with a truncated file
+        // written and success reported.
+        if (TotalBytesToRead < BytesToRead) then BytesToRead:= TotalBytesToRead;
         repeat
-          BytesRead := libssh2_sftp_read(SourceHandle, PAnsiChar(FBuffer), READ_BUFFER_SIZE);
+          BytesRead := libssh2_sftp_read(SourceHandle, PAnsiChar(FBuffer), BytesToRead);
           if BytesRead = LIBSSH2_ERROR_EAGAIN then begin
             DoProgress((FileSize - TotalBytesToRead) * 100 div FileSize);
             FSock.CanRead(10);
@@ -491,6 +499,10 @@ begin
         until BytesRead <> LIBSSH2_ERROR_EAGAIN;
 
         if (BytesRead < 0) then Exit(False);
+        // End of file before FileSize bytes arrived. Fail rather than leave a
+        // short file behind and call it a success; without this the loop would
+        // also spin forever, since the counter never reaches zero.
+        if (BytesRead = 0) then Exit(False);
 
         if RetrStream.Write(FBuffer^, BytesRead) <> BytesRead then
           Exit(False);
