@@ -924,6 +924,9 @@ begin
     end;
     FtpSend.DataStream.Clear;
     FtpSend.DirectFileName := FileName;
+    // A link the caller chose not to follow still has its S_IFLNK bit set here;
+    // when links are followed the caller strips it and we transfer the content.
+    FtpSend.SourceIsLink := (RemoteInfo^.Attr and S_IFMT) = S_IFLNK;
     Int64Rec(FileSize).Lo := RemoteInfo^.SizeLow;
     Int64Rec(FileSize).Hi := RemoteInfo^.SizeHigh;
     ProgressProc(PluginNumber, RemoteName, LocalName, 0);
@@ -935,7 +938,15 @@ begin
   except
     on EUserAbort do Result := FS_FILE_USERABORT;
     on EFOpenError do Result := FS_FILE_READERROR;
-    else Result := FS_FILE_WRITEERROR;
+    // Anything else is reported as a write error, so name the real exception in
+    // the log: the dialog text alone is not enough to tell the causes apart.
+    on E: Exception do
+    begin
+      LogProc(PluginNumber, MSGTYPE_IMPORTANTERROR,
+              PWideChar(CeUtf8ToUtf16('Download ' + FileName + ' - ' +
+                                      E.ClassName + ': ' + E.Message)));
+      Result := FS_FILE_WRITEERROR;
+    end;
   end;
 end;
 
@@ -969,7 +980,13 @@ begin
   except
     on EReadError do Result := FS_FILE_READERROR;
     on EUserAbort do Result := FS_FILE_USERABORT;
-    else Result := FS_FILE_WRITEERROR;
+    on E: Exception do
+    begin
+      LogProc(PluginNumber, MSGTYPE_IMPORTANTERROR,
+              PWideChar(CeUtf8ToUtf16('Upload ' + FileName + ' - ' +
+                                      E.ClassName + ': ' + E.Message)));
+      Result := FS_FILE_WRITEERROR;
+    end;
   end;
 end;
 
