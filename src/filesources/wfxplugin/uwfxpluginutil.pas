@@ -130,7 +130,7 @@ implementation
 
 uses
   uDCUtils, uFileProcs, StrUtils, DCStrUtils, uLng, uFileSystemUtil, uFileProperty,
-  DCDateTimeUtils, DCBasicTypes, DCFileAttributes;
+  DCDateTimeUtils, DCBasicTypes, DCFileAttributes{$IF DEFINED(UNIX)}, DCUnix{$ENDIF};
 
 function WfxRenameFile(aFileSource: IWfxPluginFileSource; const aFile: TFile; const NewFileName: String): Boolean;
 var
@@ -570,7 +570,22 @@ begin
     if (FMode = wpohmCopyOut) then
     begin
       if SourceFile.ModificationTimeProperty.IsValid then
-        mbFileSetTime(TargetFileName, DateTimeToFileTime(SourceFile.ModificationTime));
+      begin
+{$IF DEFINED(UNIX)}
+        // mbFileSetTime uses utimes, which follows the link: on a symlink we
+        // just recreated that would stamp the file it points at and leave the
+        // link itself at "now". lutimes sets the link's own time, matching
+        // what FileCopyAttr does for a local copy.
+        if SourceFile.AttributesProperty.IsLink then
+        begin
+          DC_SymLinkSetTime(TargetFileName,
+                            DateTimeToFileTimeEx(SourceFile.ModificationTime),
+                            DateTimeToFileTimeEx(SourceFile.LastAccessTime));
+        end
+        else
+{$ENDIF}
+          mbFileSetTime(TargetFileName, DateTimeToFileTime(SourceFile.ModificationTime));
+      end;
     end
     else begin
       WfxFileTime := DateTimeToWfxFileTime(SourceFile.ModificationTime);
