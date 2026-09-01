@@ -197,6 +197,7 @@ begin
   FOperationHelper.CheckFreeSpace := CheckFreeSpace;
   FOperationHelper.CopyAttributesOptions := CopyAttributesOptions;
   FOperationHelper.SkipFlags := FSkipFlags;
+  FOperationHelper.SkipAllErrors := SkipAllErrors;
   FOperationHelper.AutoRenameItSelf := AutoRenameItSelf;
   FOperationHelper.CorrectSymLinks := CorrectSymLinks;
   FOperationHelper.FileExistsOption := FileExistsOption;
@@ -226,6 +227,7 @@ begin
   DirExistsOption := FOperationHelper.DirExistsOption;
   SetPropertyError := FOperationHelper.SetPropertyError;
   FSkipFlags := FOperationHelper.SkipFlags;
+  SkipAllErrors := FOperationHelper.SkipAllErrors;
   FreeAndNil(FOperationHelper);
 end;
 

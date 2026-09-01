@@ -136,7 +136,13 @@ begin
     TreeBuilder := TWfxTreeBuilder.Create(@AskQuestion, @CheckOperationState);
     try
       TreeBuilder.WfxModule:= WfxModule;
-      TreeBuilder.SymLinkOption:= fsooslFollow;
+      // Copy links as links, like copy-in and move already do. Following them
+      // here made the plugin asymmetric - uploads preserved a symlink, the
+      // download turned it back into a file - so a round trip did not round
+      // trip. Note this only reaches symlinks to files in the sync path: the
+      // sync scanner treats a link to a directory as a directory and descends
+      // into it, so those never arrive here as links.
+      TreeBuilder.SymLinkOption:= fsooslDontFollow;
       TreeBuilder.BuildFromFiles(SourceFiles);
       FSourceFilesTree := TreeBuilder.ReleaseTree;
       FStatistics.TotalFiles := TreeBuilder.FilesCount;
@@ -163,6 +169,7 @@ begin
 
   FOperationHelper.RenameMask := RenameMask;
   FOperationHelper.FileExistsOption := FileExistsOption;
+  FOperationHelper.SkipAllErrors := SkipAllErrors;
   FOperationHelper.CopyAttributesOptions := CopyAttributesOptions;
 
   FOperationHelper.Initialize;
@@ -182,6 +189,7 @@ begin
     UpdateProgressFunction:= nil;
   end;
   FileExistsOption := FOperationHelper.FileExistsOption;
+  SkipAllErrors := FOperationHelper.SkipAllErrors;
   FOperationHelper.Free;
 end;
 

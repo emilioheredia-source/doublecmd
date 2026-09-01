@@ -141,10 +141,23 @@ implementation
 
 uses
   LCLIntf, SysUtils, StdCtrls, Graphics, Math, typinfo, Menus,
-  fMsg, uLng, Buttons, Controls, uLog, uGlobs, uDebug, fMain;
+  fMsg, uLng, Buttons, Controls, uLog, uGlobs, uDebug, fMain, DCStrUtils;
 
 const
   cMsgName = 'Double Commander';
+  {en
+     Message boxes are auto-sized, so before this the form was as wide as the
+     longest line of text. A message carrying a full path made it very wide,
+     and since the button panel spreads its children over the available width,
+     the buttons landed somewhere different for every file - painful when
+     answering the same question repeatedly during an operation.
+
+     Wrapping the text to a fixed column count bounds the width, and using the
+     same figure as a minimum makes every message box that width, so the
+     buttons stay put. Drop the MinWidth assignment to let short messages
+     shrink again, at the cost of the buttons moving between dialogs.
+  }
+  cMsgWrapCols = 76;
 
 var
   cLngButton: array[TMyMsgButton] of String;
@@ -269,7 +282,13 @@ begin
   frmMsg.BorderIcons:= [biSystemMenu];
 
   frmMsg.Caption:= cMsgName;
-  frmMsg.lblMsg.Caption:= sMsg;
+  frmMsg.lblMsg.Caption:= WrapTextSimple(sMsg, cMsgWrapCols);
+  // '0' is a reasonable stand-in for average character width in the dialog
+  // font; the wrapped text cannot exceed cMsgWrapCols characters on a line.
+  frmMsg.Constraints.MinWidth:= frmMsg.Canvas.TextWidth(StringOfChar('0', cMsgWrapCols));
+  // Let the buttons keep their natural size instead of being stretched to fill
+  // whatever width the message forced, which moved them around.
+  frmMsg.pnlButtons.ChildSizing.EnlargeHorizontal:= crsAnchorAligning;
 
   // Get default button width
   with TButton.Create(nil) do
