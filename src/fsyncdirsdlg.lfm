@@ -400,6 +400,7 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
       Top = 1
       Width = 239
       Anchors = [akTop, akLeft, akRight]
+      AutoSize = True
       BevelOuter = bvNone
       BorderSpacing.Left = 5
       BorderSpacing.Top = 4
