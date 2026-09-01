@@ -56,6 +56,10 @@ type
     FStatistics: PFileSourceCopyOperationStatistics;
     FCopyAttributesOptions: TCopyAttributesOptions;
     FFileExistsOption: TFileSourceOperationOptionFileExists;
+    // "Skip all" answered in an earlier error dialog. The sync dialog creates a
+    // fresh operation per directory batch, so it reads this back and applies it
+    // to the next one to make the answer hold for the whole run.
+    FSkipAllErrors: Boolean;
 
     FCurrentFile: TFile;
     FCurrentTargetFile: TFile;
@@ -105,6 +109,7 @@ type
     procedure ProcessTree(aFileTree: TFileTree; var Statistics: TFileSourceCopyOperationStatistics);
 
     property FileExistsOption: TFileSourceOperationOptionFileExists read FFileExistsOption write FFileExistsOption;
+    property SkipAllErrors: Boolean read FSkipAllErrors write FSkipAllErrors;
     property CopyAttributesOptions: TCopyAttributesOptions read FCopyAttributesOptions write FCopyAttributesOptions;
     property RenameMask: String read FRenameMask write FRenameMask;
   end;
@@ -125,7 +130,7 @@ implementation
 
 uses
   uDCUtils, uFileProcs, StrUtils, DCStrUtils, uLng, uFileSystemUtil, uFileProperty,
-  DCDateTimeUtils, DCBasicTypes, DCFileAttributes;
+  DCDateTimeUtils, DCBasicTypes, DCFileAttributes{$IF DEFINED(UNIX)}, DCUnix{$ENDIF};
 
 function WfxRenameFile(aFileSource: IWfxPluginFileSource; const aFile: TFile; const NewFileName: String): Boolean;
 var
@@ -148,13 +153,22 @@ end;
 
 procedure WfxFillRemoteInfo(out RemoteInfo: TRemoteInfo; const aFile: TFile);
 var
+  AAttr: TFileAttrs;
   ASize: TInt64Rec;
 begin
   ASize.Value := aFile.Size;
   RemoteInfo.SizeLow := LongInt(ASize.Low);
   RemoteInfo.SizeHigh := LongInt(ASize.High);
   RemoteInfo.LastWriteTime := DateTimeToWfxFileTime(aFile.ModificationTime);
-  RemoteInfo.Attr := LongInt(aFile.Attributes);
+  // Both callers download the file in order to read its content, i.e. they
+  // follow a link rather than reproduce it. Clear the link bit so the plugin
+  // transfers the target's data instead of recreating the link locally.
+  AAttr := aFile.Attributes;
+  if aFile.AttributesProperty is TNtfsFileAttributesProperty then
+    AAttr := AAttr and (not FILE_ATTRIBUTE_REPARSE_POINT)
+  else
+    AAttr := AAttr and (not S_IFLNK);
+  RemoteInfo.Attr := LongInt(AAttr);
 end;
 
 function WfxFileTimeToDateTime(FileTime: TWfxFileTime): TDateTime;
@@ -240,17 +254,26 @@ end;
 
 procedure TWfxPluginOperationHelper.ShowError(sMessage: String);
 begin
-  if gSkipFileOpError then
+  // FSkipAllErrors is the answer given in a previous dialog of this run;
+  // gSkipFileOpError is the persistent preference that suppresses them all.
+  if gSkipFileOpError or FSkipAllErrors then
   begin
     if log_errors in gLogOptions then
       logWrite(FOperationThread, sMessage, lmtError, True);
   end
   else
   begin
-    if AskQuestion(sMessage, '', [fsourSkip, fsourAbort],
-                   fsourSkip, fsourAbort) = fsourAbort then
-    begin
-      AbortOperation;
+    case AskQuestion(sMessage, '', [fsourSkip, fsourSkipAll, fsourAbort],
+                     fsourSkip, fsourAbort) of
+      fsourSkip: ; // Do nothing
+      fsourSkipAll:
+        begin
+          FSkipAllErrors := True;
+          if log_errors in gLogOptions then
+            logWrite(FOperationThread, sMessage, lmtError, True);
+        end;
+      else
+        AbortOperation;
     end;
   end;
 end;
@@ -547,7 +570,22 @@ begin
     if (FMode = wpohmCopyOut) then
     begin
       if SourceFile.ModificationTimeProperty.IsValid then
-        mbFileSetTime(TargetFileName, DateTimeToFileTime(SourceFile.ModificationTime));
+      begin
+{$IF DEFINED(UNIX)}
+        // mbFileSetTime uses utimes, which follows the link: on a symlink we
+        // just recreated that would stamp the file it points at and leave the
+        // link itself at "now". lutimes sets the link's own time, matching
+        // what FileCopyAttr does for a local copy.
+        if SourceFile.AttributesProperty.IsLink then
+        begin
+          DC_SymLinkSetTime(TargetFileName,
+                            DateTimeToFileTimeEx(SourceFile.ModificationTime),
+                            DateTimeToFileTimeEx(SourceFile.LastAccessTime));
+        end
+        else
+{$ENDIF}
+          mbFileSetTime(TargetFileName, DateTimeToFileTime(SourceFile.ModificationTime));
+      end;
     end
     else begin
       WfxFileTime := DateTimeToWfxFileTime(SourceFile.ModificationTime);
