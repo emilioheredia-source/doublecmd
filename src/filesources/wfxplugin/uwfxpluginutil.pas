@@ -56,6 +56,10 @@ type
     FStatistics: PFileSourceCopyOperationStatistics;
     FCopyAttributesOptions: TCopyAttributesOptions;
     FFileExistsOption: TFileSourceOperationOptionFileExists;
+    // "Skip all" answered in an earlier error dialog. The sync dialog creates a
+    // fresh operation per directory batch, so it reads this back and applies it
+    // to the next one to make the answer hold for the whole run.
+    FSkipAllErrors: Boolean;
 
     FCurrentFile: TFile;
     FCurrentTargetFile: TFile;
@@ -105,6 +109,7 @@ type
     procedure ProcessTree(aFileTree: TFileTree; var Statistics: TFileSourceCopyOperationStatistics);
 
     property FileExistsOption: TFileSourceOperationOptionFileExists read FFileExistsOption write FFileExistsOption;
+    property SkipAllErrors: Boolean read FSkipAllErrors write FSkipAllErrors;
     property CopyAttributesOptions: TCopyAttributesOptions read FCopyAttributesOptions write FCopyAttributesOptions;
     property RenameMask: String read FRenameMask write FRenameMask;
   end;
@@ -249,17 +254,26 @@ end;
 
 procedure TWfxPluginOperationHelper.ShowError(sMessage: String);
 begin
-  if gSkipFileOpError then
+  // FSkipAllErrors is the answer given in a previous dialog of this run;
+  // gSkipFileOpError is the persistent preference that suppresses them all.
+  if gSkipFileOpError or FSkipAllErrors then
   begin
     if log_errors in gLogOptions then
       logWrite(FOperationThread, sMessage, lmtError, True);
   end
   else
   begin
-    if AskQuestion(sMessage, '', [fsourSkip, fsourAbort],
-                   fsourSkip, fsourAbort) = fsourAbort then
-    begin
-      AbortOperation;
+    case AskQuestion(sMessage, '', [fsourSkip, fsourSkipAll, fsourAbort],
+                     fsourSkip, fsourAbort) of
+      fsourSkip: ; // Do nothing
+      fsourSkipAll:
+        begin
+          FSkipAllErrors := True;
+          if log_errors in gLogOptions then
+            logWrite(FOperationThread, sMessage, lmtError, True);
+        end;
+      else
+        AbortOperation;
     end;
   end;
 end;
