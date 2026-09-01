@@ -59,6 +59,7 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
       Items.Strings = (
         '*'
       )
+      OnChange = cbExtFilterChange
       ParentFont = False
       TabOrder = 0
       Text = '*'
@@ -387,6 +388,82 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
         GroupIndex = 7
         OnClick = FilterSpeedButtonClick
         ParentFont = False
+      end
+    end
+    object pnlExclude: TPanel
+      AnchorSideLeft.Control = GroupBox1
+      AnchorSideLeft.Side = asrBottom
+      AnchorSideTop.Control = TopPanel
+      AnchorSideRight.Control = btnSynchronize
+      Left = 421
+      Height = 56
+      Top = 1
+      Width = 239
+      Anchors = [akTop, akLeft, akRight]
+      BevelOuter = bvNone
+      BorderSpacing.Left = 5
+      BorderSpacing.Top = 4
+      ClientHeight = 56
+      ClientWidth = 239
+      ParentFont = False
+      TabOrder = 5
+      object lblExcludeDirs: TLabel
+        AnchorSideLeft.Control = pnlExclude
+        AnchorSideTop.Control = cbExcludeDirs
+        AnchorSideTop.Side = asrCenter
+        Left = 0
+        Height = 15
+        Top = 4
+        Width = 68
+        Caption = 'Skip folders:'
+        ParentColor = False
+        ParentFont = False
+      end
+      object cbExcludeDirs: TComboBox
+        AnchorSideTop.Control = pnlExclude
+        AnchorSideRight.Control = pnlExclude
+        AnchorSideRight.Side = asrBottom
+        Left = 76
+        Height = 23
+        Top = 0
+        Width = 163
+        Anchors = [akTop, akLeft, akRight]
+        Hint = 'Folders to skip on both sides, separated by ";". Example: .pixi;node_modules;__pycache__'
+        ItemHeight = 15
+        ParentFont = False
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 0
+      end
+      object lblExcludeFiles: TLabel
+        AnchorSideLeft.Control = pnlExclude
+        AnchorSideTop.Control = cbExcludeFiles
+        AnchorSideTop.Side = asrCenter
+        Left = 0
+        Height = 15
+        Top = 31
+        Width = 51
+        Caption = 'Skip files:'
+        ParentColor = False
+        ParentFont = False
+      end
+      object cbExcludeFiles: TComboBox
+        AnchorSideTop.Control = cbExcludeDirs
+        AnchorSideTop.Side = asrBottom
+        AnchorSideRight.Control = pnlExclude
+        AnchorSideRight.Side = asrBottom
+        Left = 76
+        Height = 23
+        Top = 27
+        Width = 163
+        Anchors = [akTop, akLeft, akRight]
+        BorderSpacing.Top = 4
+        Hint = 'File masks to skip on both sides, separated by ";". Example: *.pyc;*.o'
+        ItemHeight = 15
+        ParentFont = False
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 1
       end
     end
     object btnSynchronize: TButton

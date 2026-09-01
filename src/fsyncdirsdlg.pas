@@ -74,6 +74,11 @@ type
     chkIgnoreDate: TCheckBox;
     chkOnlySelected: TCheckBox;
     cbExtFilter: TComboBox;
+    cbExcludeDirs: TComboBox;
+    cbExcludeFiles: TComboBox;
+    lblExcludeDirs: TLabel;
+    lblExcludeFiles: TLabel;
+    pnlExclude: TPanel;
     edPath1: TDirectoryEdit;
     edPath2: TDirectoryEdit;
     HeaderDG: TDrawGrid;
@@ -124,6 +129,7 @@ type
     procedure btnAbortClick(Sender: TObject);
     procedure btnCloseClick(Sender: TObject);
     procedure btnSearchTemplateClick(Sender: TObject);
+    procedure cbExtFilterChange(Sender: TObject);
     procedure btnCompareClick(Sender: TObject);
     procedure btnSynchronizeClick(Sender: TObject);
     procedure chkSubDirsClick(Sender: TObject);
@@ -195,6 +201,7 @@ type
     procedure InitVisibleItems;
     procedure RecalcHeaderCols;
     procedure ScanDirs;
+    procedure UpdateExcludeFieldsState;
     procedure SetSortIndex(AValue: Integer);
     procedure SortFoundItems;
     procedure SortFoundItems(sl: TStringList);
@@ -660,6 +667,24 @@ begin
   Close
 end;
 
+// A named search template carries its own exclusions, so the inline fields
+// would be silently ignored. Grey them out rather than let them look active.
+procedure TfrmSyncDirsDlg.UpdateExcludeFieldsState;
+var
+  bTemplate: Boolean;
+begin
+  bTemplate:= IsMaskSearchTemplate(cbExtFilter.Text);
+  cbExcludeDirs.Enabled:= not bTemplate;
+  cbExcludeFiles.Enabled:= not bTemplate;
+  lblExcludeDirs.Enabled:= not bTemplate;
+  lblExcludeFiles.Enabled:= not bTemplate;
+end;
+
+procedure TfrmSyncDirsDlg.cbExtFilterChange(Sender: TObject);
+begin
+  UpdateExcludeFieldsState;
+end;
+
 procedure TfrmSyncDirsDlg.btnSearchTemplateClick(Sender: TObject);
 var
   sMask: String;
@@ -671,6 +696,7 @@ begin
     bTemplate:= IsMaskSearchTemplate(sMask);
     cbExtFilter.Enabled:= not bTemplate;
     cbExtFilter.Text:= sMask;
+    UpdateExcludeFieldsState;
   end;
 end;
 
@@ -689,6 +715,10 @@ procedure TfrmSyncDirsDlg.btnCompareClick(Sender: TObject);
 begin
   if not IsMaskSearchTemplate(cbExtFilter.Text) then
     InsertFirstItem(Trim(cbExtFilter.Text), cbExtFilter);
+  if Trim(cbExcludeDirs.Text) <> EmptyStr then
+    InsertFirstItem(Trim(cbExcludeDirs.Text), cbExcludeDirs);
+  if Trim(cbExcludeFiles.Text) <> EmptyStr then
+    InsertFirstItem(Trim(cbExcludeFiles.Text), cbExcludeFiles);
   StatusBar1.Panels[0].Text := Format(rsComparingPercent, [0]);
   StopCheckContentThread;
   Compare;
@@ -699,6 +729,7 @@ var
   OperationType: TFileSourceOperationType;
   FileExistsOption: TFileSourceOperationOptionFileExists;
   SymLinkOption: TFileSourceOperationOptionSymLink = fsooslNone;
+  SkipAllErrors: Boolean = False;
   DirExistsOption: TFileSourceOperationOptionDirectoryExists;
   SetPropertyError: TFileSourceOperationOptionSetPropertyError;
   SkipFlags: TFileSystemOperationHelperSkipFlags;
@@ -712,6 +743,7 @@ var
     AOperation.SymLinkOption := SymLinkOption;
     AOperation.FileExistsOption := FileExistsOption;
     AOperation.DirExistsOption := DirExistsOption;
+    AOperation.SkipAllErrors := SkipAllErrors;
     if AOperation is TFileSystemCopyOperation then
     begin
       TFileSystemCopyOperation(AOperation).SetPropertyError := SetPropertyError;
@@ -724,6 +756,7 @@ var
     SymLinkOption := AOperation.SymLinkOption;
     FileExistsOption := AOperation.FileExistsOption;
     DirExistsOption := AOperation.DirExistsOption;
+    SkipAllErrors := AOperation.SkipAllErrors;
     if AOperation is TFileSystemCopyOperation then
     begin
       SetPropertyError := TFileSystemCopyOperation(AOperation).SetPropertyError;
@@ -1069,7 +1102,13 @@ begin
   end;
   if chkByContent.Enabled then
     gSyncDirsByContent          := chkByContent.Checked;
+  gSyncDirsExcludeDirs          := Trim(cbExcludeDirs.Text);
+  gSyncDirsExcludeFiles         := Trim(cbExcludeFiles.Text);
   glsSyncMaskHistory.Assign(cbExtFilter.Items);
+  // Exclusion history is shared with the Find files dialog: the same folder
+  // and file patterns get skipped in both places.
+  glsSearchExcludeDirectories.Assign(cbExcludeDirs.Items);
+  glsSearchExcludeFiles.Assign(cbExcludeFiles.Items);
 
   with HeaderDG.Columns do
   begin
@@ -1141,6 +1180,11 @@ begin
   end;
   cbExtFilter.Items.Assign(glsSyncMaskHistory);
   cbExtFilter.Text       := gSyncDirsFileMask;
+  cbExcludeDirs.Items.Assign(glsSearchExcludeDirectories);
+  cbExcludeDirs.Text     := gSyncDirsExcludeDirs;
+  cbExcludeFiles.Items.Assign(glsSearchExcludeFiles);
+  cbExcludeFiles.Text    := gSyncDirsExcludeFiles;
+  UpdateExcludeFieldsState;
 
   HMSync := HotMan.Register(Self, HotkeysCategory);
   HMSync.RegisterActionList(ActionList);
@@ -1559,6 +1603,10 @@ procedure TfrmSyncDirsDlg.ScanDirs;
 var
   MaskList: TMaskList;
   Template: TSearchTemplate;
+  // Non-nil only when Template was built here from the dialog's exclude fields;
+  // a template taken from gSearchTemplateList belongs to the list, not to us.
+  OwnTemplate: TSearchTemplate = nil;
+  SearchRec: TSearchTemplateRec;
   LeftFirst: Boolean = True;
   RightFirst: Boolean = True;
   BaseDirL, BaseDirR: string;
@@ -1817,6 +1865,21 @@ begin
       MaskList := TMaskList.Create(cbExtFilter.Text)
     else
       MaskList := TMaskList.Create( '*' );
+    // Exclusions typed straight into the dialog. Wrap them in a throwaway
+    // template so they run through the same FileChecks path a named template
+    // uses - ScanDir already consults Template for both files and folders.
+    // FilesMasks must be '*': an empty mask matches nothing, which would
+    // reject every file. The real mask stays with MaskList above.
+    if (Trim(cbExcludeDirs.Text) <> EmptyStr) or (Trim(cbExcludeFiles.Text) <> EmptyStr) then
+    begin
+      OwnTemplate := TSearchTemplate.Create;
+      SearchRec := OwnTemplate.SearchRecord;
+      SearchRec.FilesMasks := '*';
+      SearchRec.ExcludeDirectories := Trim(cbExcludeDirs.Text);
+      SearchRec.ExcludeFiles := Trim(cbExcludeFiles.Text);
+      OwnTemplate.SearchRecord := SearchRec;
+      Template := OwnTemplate;
+    end;
   end;
   if (FAddressL <> '') and (Copy(BaseDirL, 1, Length(FAddressL)) = FAddressL) then
     Delete(BaseDirL, 1, Length(FAddressL));
@@ -1839,6 +1902,7 @@ begin
   end;
   ScanDir('');
   MaskList.Free;
+  OwnTemplate.Free;
   FillFoundItemsDG;
   if FCancel then Exit;
   if (FFoundItems.Count > 0) and chkByContent.Checked then
