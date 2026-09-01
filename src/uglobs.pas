@@ -987,6 +987,18 @@ var
     end;
   end;
 
+  // Give the exclusion dropdowns of the Find files and Synchronize dialogs
+  // something useful to pick from before any history exists. Only the history
+  // list is seeded - both dialogs leave their text fields empty, so nothing is
+  // actually excluded until the user chooses an entry.
+  procedure SeedHistory(HistoryList: TStrings; const Defaults: array of String);
+  var
+    S: String;
+  begin
+    if HistoryList.Count > 0 then Exit;
+    for S in Defaults do HistoryList.Add(S);
+  end;
+
 begin
   Result:= False;
   History:= TXmlConfig.Create(gpCfgDir + 'history.xml', True);
@@ -1010,6 +1022,18 @@ begin
       LoadHistory('SearchExcludeFiles', glsSearchExcludeFiles);
       LoadHistory('SearchExcludeDirectories', glsSearchExcludeDirectories);
     end;
+    // Folder patterns are matched against a bare directory name at any depth
+    // (CheckDirectoryName), so these carry no path separators.
+    SeedHistory(glsSearchExcludeDirectories,
+                ['.pixi;node_modules;__pycache__;.git',
+                 '.git;.svn;.hg',
+                 'node_modules',
+                 '__pycache__;.pytest_cache;.mypy_cache',
+                 '.pixi;.venv;venv']);
+    SeedHistory(glsSearchExcludeFiles,
+                ['*.pyc;*.pyo;*.o;*.ppu',
+                 '*.bak;*.tmp;*~',
+                 'Thumbs.db;.DS_Store;desktop.ini']);
     Result:= True;
   finally
     History.Free;
