@@ -695,6 +695,10 @@ var
   gSyncDirsShowFilterSingles: Boolean;
   gSyncDirsFileMask: string;
   gSyncDirsFileMaskSave: Boolean;
+  // Exclusions typed straight into the sync dialog, for the common case where
+  // creating a named search template just to skip a folder is too much.
+  gSyncDirsExcludeDirs: string;
+  gSyncDirsExcludeFiles: string;
   gDateTimeFormatSync : String;
 
   { Internal Associations}
@@ -2297,6 +2301,8 @@ begin
   gSyncDirsShowFilterSingles := True;
   gSyncDirsFileMask := '*';
   gSyncDirsFileMaskSave := True;
+  gSyncDirsExcludeDirs := '';
+  gSyncDirsExcludeFiles := '';
   gDateTimeFormatSync := DefaultDateTimeFormatSync;
 
   { Internal Associations}
@@ -3386,6 +3392,8 @@ begin
       gSyncDirsShowFilterSingles := GetValue(Node, 'FilterSingles', gSyncDirsShowFilterSingles);
       gSyncDirsFileMask := GetValue(Node, 'FileMask', gSyncDirsFileMask);
       gSyncDirsFileMaskSave := GetAttr(Node, 'FileMask/Save', gSyncDirsFileMaskSave);
+      gSyncDirsExcludeDirs := GetValue(Node, 'ExcludeDirectories', gSyncDirsExcludeDirs);
+      gSyncDirsExcludeFiles := GetValue(Node, 'ExcludeFiles', gSyncDirsExcludeFiles);
       gDateTimeFormatSync := GetValidDateTimeFormat(GetValue(Node, 'DateTimeFormat', gDateTimeFormatSync), DefaultDateTimeFormatSync);
     end;
 
@@ -3974,6 +3982,8 @@ begin
     SetValue(Node, 'FilterSingles', gSyncDirsShowFilterSingles);
     SetValue(Node, 'FileMask', gSyncDirsFileMask);
     SetAttr(Node, 'FileMask/Save', gSyncDirsFileMaskSave);
+    SetValue(Node, 'ExcludeDirectories', gSyncDirsExcludeDirs);
+    SetValue(Node, 'ExcludeFiles', gSyncDirsExcludeFiles);
     SetValue(Node, 'DateTimeFormat', gDateTimeFormatSync);
 
     { Internal Associations}
