@@ -764,8 +764,12 @@ var
     end;
   end;
 
-  function CopyFiles(src, dst: IFileSource; fs: TFiles; Dest: string): Boolean;
+  function CopyFiles(src, dst: IFileSource; fs: TFiles;
+    const ABasePath, ARelPath: string): Boolean;
+  var
+    Dest: string;
   begin
+    Dest := ABasePath + ARelPath;
     if not GetCopyOperationType(Src, Dst, OperationType) then
     begin
       MessageDlg(rsMsgErrNotSupported, mtError, [mbOK], 0);
@@ -773,8 +777,12 @@ var
     end
     else begin
       Fs.Path:= fs[0].Path;
-      // Create destination directory
-      Dst.CreateDirectory(ExcludeBackPathDelimiter(Dest));
+      // Create the destination directory, including any missing parent levels.
+      // A new subtree several levels deep carries no sync record of its own
+      // (only empty directories get one), so the levels above this batch may
+      // not exist yet. A single-level CreateDirectory fails there, and every
+      // file in the batch then fails to open its target.
+      ForceRemoteDir(Dst, ABasePath, ARelPath);
       // Determine operation type
       case OperationType of
         fsoCopy:
@@ -979,12 +987,12 @@ begin
         if CopyLeftFiles.Count > 0 then
         begin
           if not CopyFiles(FCmpFileSourceR, FCmpFileSourceL, CopyLeftFiles,
-            FCmpFilePathL + Dest) then Break;
+            FCmpFilePathL, Dest) then Break;
         end else CopyLeftFiles.Free;
         if CopyRightFiles.Count > 0 then
         begin
           if not CopyFiles(FCmpFileSourceL, FCmpFileSourceR, CopyRightFiles,
-            FCmpFilePathR + Dest) then Break;
+            FCmpFilePathR, Dest) then Break;
         end else CopyRightFiles.Free;
         if DeleteLeftFiles.Count > 0 then
         begin
@@ -1021,8 +1029,8 @@ procedure TfrmSyncDirsDlg.ForceRemoteDir(FileSource: IFileSource;
 // FileSource, making each missing parent level first. DC's CreateDirectory
 // creates a single level and needs its parent to already exist, so the path is
 // built top-down. ABasePath is the sync root and already exists; attempts on
-// already-existing levels just return False and are ignored, matching how
-// CopyFiles calls CreateDirectory unconditionally before every copy batch.
+// already-existing levels just return False and are ignored, so the call is
+// safe to make unconditionally before every copy batch.
 var
   Rest, Segment, Current: String;
   DelimPos: Integer;
