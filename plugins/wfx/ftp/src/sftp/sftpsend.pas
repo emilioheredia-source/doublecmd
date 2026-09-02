@@ -187,8 +187,16 @@ begin
   repeat
     FLastError:= libssh2_sftp_stat(FSFTPSession, PAnsiChar(FileName), @Attributes);
     if (FLastError = 0) then Exit(Attributes.filesize);
-    FSock.CanRead(10);
-    DoProgress(0);
+    // Only wait on the socket when the stat has not finished yet (EAGAIN).
+    // Waiting after a definitive answer -- and "no such file" is the common
+    // answer when uploading -- blocks for the full CanRead timeout with
+    // nothing to read, adding a fixed ~10 ms stall to every file. Same guard
+    // FileClose already uses.
+    if (FLastError = LIBSSH2_ERROR_EAGAIN) then
+    begin
+      FSock.CanRead(10);
+      DoProgress(0);
+    end;
   until FLastError <> LIBSSH2_ERROR_EAGAIN;
   Result:= -1;
 end;
