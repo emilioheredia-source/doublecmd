@@ -23,6 +23,7 @@ exports
   FsFindFirstW,
   FsFindNextW,
   FsFindClose,
+  FsFindFirstError,
   FsExecuteFileW,
   FsRenMovFileW,
   FsGetFileW,
