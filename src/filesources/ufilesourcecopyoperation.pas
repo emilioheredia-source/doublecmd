@@ -58,6 +58,9 @@ type
     // directory batch) read this back and apply it to the next operation, so
     // the answer holds for the whole run instead of one batch.
     FSkipAllErrors: Boolean;
+    // Whether an existing read-only target may be made writable so it can be
+    // overwritten. True by default, which is how file system copies behave.
+    FOverwriteReadOnly: Boolean;
 
   protected
     function GetID: TFileSourceOperationType; override;
@@ -102,6 +105,7 @@ type
     property CopyAttributesOptions: TCopyAttributesOptions read FCopyAttributesOptions write FCopyAttributesOptions;
     property DirExistsOption: TFileSourceOperationOptionDirectoryExists read FDirExistsOption write FDirExistsOption;
     property SkipAllErrors: Boolean read FSkipAllErrors write FSkipAllErrors;
+    property OverwriteReadOnly: Boolean read FOverwriteReadOnly write FOverwriteReadOnly;
   end;
 
   {en
@@ -172,6 +176,7 @@ begin
   end;
 
   FStatisticsLock := TCriticalSection.Create;
+  FOverwriteReadOnly := True;
 
   case GetID of
     fsoCopy,
