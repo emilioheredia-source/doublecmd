@@ -60,6 +60,9 @@ type
     // fresh operation per directory batch, so it reads this back and applies it
     // to the next one to make the answer hold for the whole run.
     FSkipAllErrors: Boolean;
+    // Sent to the plugin as FS_COPYFLAGS_OVERWRITE_READONLY with every
+    // overwrite or resume, so it may make a read-only target writable first.
+    FOverwriteReadOnly: Boolean;
 
     FCurrentFile: TFile;
     FCurrentTargetFile: TFile;
@@ -110,6 +113,7 @@ type
 
     property FileExistsOption: TFileSourceOperationOptionFileExists read FFileExistsOption write FFileExistsOption;
     property SkipAllErrors: Boolean read FSkipAllErrors write FSkipAllErrors;
+    property OverwriteReadOnly: Boolean read FOverwriteReadOnly write FOverwriteReadOnly;
     property CopyAttributesOptions: TCopyAttributesOptions read FCopyAttributesOptions write FCopyAttributesOptions;
     property RenameMask: String read FRenameMask write FRenameMask;
   end;
@@ -423,6 +427,15 @@ var
   bCopyMoveIn: Boolean;
   aFile: TFile;
   OldDoneBytes: Int64; // for if there was an error
+
+  // Only ever sent along with an overwrite or resume of an existing target
+  function WithReadOnlyFlag(Flags: Integer): Integer;
+  begin
+    Result:= Flags;
+    if FOverwriteReadOnly and (Flags and (FS_COPYFLAGS_OVERWRITE or FS_COPYFLAGS_RESUME) <> 0) then
+      Result:= Result or FS_COPYFLAGS_OVERWRITE_READONLY;
+  end;
+
 begin
   // If there will be an error the DoneBytes value
   // will be inconsistent, so remember it here.
@@ -446,7 +459,7 @@ begin
         iFlags:= iFlags + FS_COPYFLAGS_OVERWRITE;
       bCopyMoveIn:= (FMode = wpohmCopyIn);
 
-      Result := WfxCopyMove(aFile.Path + aFile.Name, AbsoluteTargetFileName, iFlags, @RemoteInfo, FInternal, bCopyMoveIn);
+      Result := WfxCopyMove(aFile.Path + aFile.Name, AbsoluteTargetFileName, WithReadOnlyFlag(iFlags), @RemoteInfo, FInternal, bCopyMoveIn);
 
       case Result of
       FS_FILE_EXISTS, // The file already exists, and resume isn't supported
@@ -462,7 +475,7 @@ begin
           else
             raise Exception.Create('Invalid file exists option');
           end;
-          Result := WfxCopyMove(aFile.Path + aFile.Name, AbsoluteTargetFileName, iFlags, @RemoteInfo, FInternal, bCopyMoveIn);
+          Result := WfxCopyMove(aFile.Path + aFile.Name, AbsoluteTargetFileName, WithReadOnlyFlag(iFlags), @RemoteInfo, FInternal, bCopyMoveIn);
         end;
       end;
    end;
@@ -659,6 +672,7 @@ begin
   FInternal:= (FMode in [wpohmCopy, wpohmMove]);
 
   FFileExistsOption := fsoofeNone;
+  FOverwriteReadOnly := True;
   FRootTargetPath := TargetPath;
   FRenameMask := '';
   FRenamingFiles := False;

@@ -730,6 +730,7 @@ var
   FileExistsOption: TFileSourceOperationOptionFileExists;
   SymLinkOption: TFileSourceOperationOptionSymLink = fsooslNone;
   SkipAllErrors: Boolean = False;
+  OverwriteReadOnly: Boolean;
   DirExistsOption: TFileSourceOperationOptionDirectoryExists;
   SetPropertyError: TFileSourceOperationOptionSetPropertyError;
   SkipFlags: TFileSystemOperationHelperSkipFlags;
@@ -744,6 +745,7 @@ var
     AOperation.FileExistsOption := FileExistsOption;
     AOperation.DirExistsOption := DirExistsOption;
     AOperation.SkipAllErrors := SkipAllErrors;
+    AOperation.OverwriteReadOnly := OverwriteReadOnly;
     if AOperation is TFileSystemCopyOperation then
     begin
       TFileSystemCopyOperation(AOperation).SetPropertyError := SetPropertyError;
@@ -904,6 +906,7 @@ begin
     chkDeleteRight.Checked := chkDeleteRight.Enabled;
     chkDeleteLeft.Caption := Format(rsDeleteLeft, [DeleteLeftCount]);
     chkDeleteRight.Caption := Format(rsDeleteRight, [DeleteRightCount]);
+    chkOverwriteReadOnly.Checked := gSyncDirsOverwriteReadOnly;
     chkDeleteToTrash.Checked := gUseTrash;
     chkDeleteToTrash.Enabled := chkDeleteLeft.Enabled or chkDeleteRight.Enabled;
     chkLeftToRight.Caption :=
@@ -920,6 +923,8 @@ begin
       else begin
         FileExistsOption := fsoofeOverwrite;
       end;
+      OverwriteReadOnly := chkOverwriteReadOnly.Checked;
+      gSyncDirsOverwriteReadOnly := OverwriteReadOnly;
       DirExistsOption := gOperationOptionDirectoryExists;
       SetPropertyError := gOperationOptionSetPropertyError;
       SkipFlags := Default(TFileSystemOperationHelperSkipFlags);

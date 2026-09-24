@@ -102,6 +102,7 @@ type
     FAuto: Boolean;
     FEncoding: String;
     FSourceIsLink: Boolean;
+    FOverwriteReadOnly: Boolean;
     FPublicKey, FPrivateKey: String;
     function Connect: Boolean; override;
     function DataSocket: Boolean; override;
@@ -153,6 +154,9 @@ type
     // Set before RetrieveFile: the entry being downloaded is a symbolic link
     // that the caller did not resolve, so the link itself is what to reproduce.
     property SourceIsLink: Boolean read FSourceIsLink write FSourceIsLink;
+    // Set before StoreFile: a read-only target that already exists may be made
+    // writable so it can be overwritten (FS_COPYFLAGS_OVERWRITE_READONLY).
+    property OverwriteReadOnly: Boolean read FOverwriteReadOnly write FOverwriteReadOnly;
   end;
 
   { TFTPSendExClass }

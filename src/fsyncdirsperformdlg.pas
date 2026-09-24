@@ -18,6 +18,7 @@ type
     chkDeleteLeft: TCheckBox;
     chkDeleteRight: TCheckBox;
     chkConfirmOverwrites: TCheckBox;
+    chkOverwriteReadOnly: TCheckBox;
     chkDeleteToTrash: TCheckBox;
     chkLeftToRight: TCheckBox;
     chkRightToLeft: TCheckBox;
