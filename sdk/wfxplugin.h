@@ -22,6 +22,10 @@
 #define FS_COPYFLAGS_MOVE 4
 #define FS_COPYFLAGS_EXISTS_SAMECASE 8
 #define FS_COPYFLAGS_EXISTS_DIFFERENTCASE 16
+// Double Commander extension: sent together with FS_COPYFLAGS_OVERWRITE
+// or FS_COPYFLAGS_RESUME,
+// the target may be made writable first if it is read-only
+#define FS_COPYFLAGS_OVERWRITE_READONLY 0x100
 
 // flags for tRequestProc
 #define RT_Other 0
@@ -159,6 +163,11 @@ HANDLE DCPCALL FsFindFirstW(WCHAR* Path,WIN32_FIND_DATAW *FindData);
 BOOL DCPCALL FsFindNext(HANDLE Hdl,WIN32_FIND_DATAA *FindData);
 BOOL DCPCALL FsFindNextW(HANDLE Hdl,WIN32_FIND_DATAW *FindData);
 int DCPCALL FsFindClose(HANDLE Hdl);
+// Double Commander extension, optional. Called on the same thread right after
+// FsFindFirst/FsFindFirstW returned INVALID_HANDLE_VALUE. Return
+// ERROR_NO_MORE_FILES (18) if the directory is simply empty, any other value
+// if it could not be listed. Without it an invalid handle means "empty".
+int DCPCALL FsFindFirstError(void);
 BOOL DCPCALL FsMkDir(char* Path);
 BOOL DCPCALL FsMkDirW(WCHAR* Path);
 int DCPCALL FsExecuteFile(HWND MainWin,char* RemoteName,char* Verb);
