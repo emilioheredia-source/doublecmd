@@ -163,6 +163,11 @@ HANDLE DCPCALL FsFindFirstW(WCHAR* Path,WIN32_FIND_DATAW *FindData);
 BOOL DCPCALL FsFindNext(HANDLE Hdl,WIN32_FIND_DATAA *FindData);
 BOOL DCPCALL FsFindNextW(HANDLE Hdl,WIN32_FIND_DATAW *FindData);
 int DCPCALL FsFindClose(HANDLE Hdl);
+// Double Commander extension, optional. Called on the same thread right after
+// FsFindFirst/FsFindFirstW returned INVALID_HANDLE_VALUE. Return
+// ERROR_NO_MORE_FILES (18) if the directory is simply empty, any other value
+// if it could not be listed. Without it an invalid handle means "empty".
+int DCPCALL FsFindFirstError(void);
 BOOL DCPCALL FsMkDir(char* Path);
 BOOL DCPCALL FsMkDirW(WCHAR* Path);
 int DCPCALL FsExecuteFile(HWND MainWin,char* RemoteName,char* Verb);

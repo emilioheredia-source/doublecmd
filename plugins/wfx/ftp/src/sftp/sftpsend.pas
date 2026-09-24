@@ -591,6 +591,7 @@ var
   FindRec: PFindRec;
 begin
   Result := libssh2_sftp_opendir(FSFTPSession, PAnsiChar(Path));
+  FFindFailed:= (Result = nil);
   if (Result = nil) then
     PrintLastError
   else begin

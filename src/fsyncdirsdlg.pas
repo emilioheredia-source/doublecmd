@@ -169,6 +169,8 @@ type
     FSortDesc: Boolean;
     FNtfsShift: Boolean;
     FFileExists: TSyncRecState;
+    // Folders the last compare could not read (skipped, left untouched)
+    FUnreadableCount: Integer;
     FSelectedItems: TStringListEx;
     FFileSourceL, FFileSourceR: IFileSource;
     FCmpFileSourceL, FCmpFileSourceR: IFileSource;
@@ -254,6 +256,12 @@ resourcestring
   rsDeleteRight = 'Right: Delete %d file(s)';
   rsFilesFound = 'Files found: %d  (Identical: %d, Different: %d, '
     + 'Unique left: %d, Unique right: %d)';
+  rsSyncCannotRead = 'Cannot read folder "%s".'
+    + ' Skipping it leaves the folder untouched on both sides.';
+  rsSyncUnreadable = '<could not be read>';
+  rsSyncFoldersUnreadable = '%d folder(s) could not be read';
+  rsSyncUnreadableWarning = '%d folder(s) could not be read. They are left'
+    + ' untouched on both sides and will not be synchronized. Continue?';
 
 procedure ShowSyncDirsDlg(FileView1, FileView2: TFileView);
 
@@ -267,7 +275,8 @@ uses
   uDCUtils, uFileSourceUtil, uFileSourceOperationTypes, uShowForm, uAdministrator,
   uOSUtils, uLng, uMasks, Math, uClipboard, IntegerList, fMaskInputDlg, uSearchTemplate,
   LCLVersion, SysConst, DCStrUtils, DCOSUtils, uTypes, uFileSystemDeleteOperation,
-  uFileSystemCopyOperation, uFileSystemUtil, uFindFiles;
+  uFileSystemCopyOperation, uFileSystemUtil, uFindFiles, uFileSourceListOperation,
+  uShowMsg;
 
 {$R *.lfm}
 
@@ -285,10 +294,14 @@ type
     FAction: TSyncRecState;
     FFileR, FFileL: TFile;
     FForm: TfrmSyncDirsDlg;
+    // A folder whose listing failed on that side. The record has no files and
+    // its action is fixed at "do nothing", so nothing inside it is touched.
+    FUnreadableL, FUnreadableR: Boolean;
   public
     constructor Create(AForm: TfrmSyncDirsDlg; RelPath: string);
     destructor Destroy; override;
     procedure UpdateState(ignoreDate: Boolean);
+    function Unreadable: Boolean; inline;
   end;
 
   { TCheckContentThread }
@@ -573,6 +586,11 @@ constructor TFileSyncRec.Create(AForm: TfrmSyncDirsDlg; RelPath: string);
 begin
   FForm:= AForm;
   FRelPath := RelPath;
+end;
+
+function TFileSyncRec.Unreadable: Boolean;
+begin
+  Result := FUnreadableL or FUnreadableR;
 end;
 
 destructor TFileSyncRec.Destroy;
@@ -881,6 +899,11 @@ begin
   FDeleteStatistics.DoneFiles:= 0;
   FCopyStatistics.TotalBytes:= CopyLeftSize + CopyRightSize;
   FDeleteStatistics.TotalFiles:= DeleteLeftCount + DeleteRightCount;
+
+  if (FUnreadableCount > 0) and
+     (MessageDlg(Format(rsSyncUnreadableWarning, [FUnreadableCount]),
+                 mtWarning, [mbYes, mbNo], 0, mbNo) <> mrYes) then
+    Exit;
 
   with TfrmSyncDirsPerformDlg.Create(Self) do
   try
@@ -1251,6 +1274,21 @@ begin
       with hCols[0] do
         TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
           Left + 2, aRect.Top + 2, FVisibleItems[aRow]);
+    end else if r.Unreadable then
+    begin
+      Font.Color := clRed;
+      with hCols[0] do
+        TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
+          Left + 2, aRect.Top + 2, FVisibleItems[aRow]);
+      TextOut(hCols[6].Left + 2, aRect.Top + 2, FVisibleItems[aRow]);
+      if r.FUnreadableL then
+        with hCols[1] do
+          TextRect(Rect(Left, aRect.Top, hCols[2].Left + hCols[2].Width, aRect.Bottom),
+            Left + 2, aRect.Top + 2, rsSyncUnreadable);
+      if r.FUnreadableR then
+        with hCols[4] do
+          TextRect(Rect(Left, aRect.Top, hCols[5].Left + hCols[5].Width, aRect.Bottom),
+            Left + 2, aRect.Top + 2, rsSyncUnreadable);
     end else begin
       with gColors.SyncDirs^ do
       begin
@@ -1509,7 +1547,8 @@ procedure TfrmSyncDirsDlg.FillFoundItemsDG;
     for i := 0 to FVisibleItems.Count - 1 do
     begin
       r := TFileSyncRec(FVisibleItems.Objects[i]);
-      if Assigned(r) then
+      // Unreadable folders are reported separately, see UpdateStatusBar
+      if Assigned(r) and not r.Unreadable then
       begin
         Inc(Ftotal);
         if Assigned(r.FFileL) and not Assigned(r.FFileR) then Inc(FuniqueL) else
@@ -1576,7 +1615,9 @@ begin
       begin
         { check filter }
         r := TFileSyncRec(Objects[j]);
-        if ((Assigned(r.FFileL) <> Assigned(r.FFileR)) and AFilter.single or
+        // Unreadable folders are always shown: they are why the result is partial
+        if r.Unreadable or
+           (((Assigned(r.FFileL) <> Assigned(r.FFileR)) and AFilter.single or
            (Assigned(r.FFileL) = Assigned(r.FFileR)) and AFilter.dup)
            and
            ((r.FState = srsCopyLeft) and AFilter.copyLeft or
@@ -1585,7 +1626,7 @@ begin
             (r.FState = srsDeleteRight) and AFilter.copyLeft or
             (r.FState = srsEqual) and AFilter.eq or
             (r.FState = srsNotEq) and AFilter.neq or
-            (r.FState = srsUnknown) and AFilter.unkn)
+            (r.FState = srsUnknown) and AFilter.unkn))
         then
           FVisibleItems.AddObject(Strings[j], Objects[j]);
       end;
@@ -1632,25 +1673,111 @@ var
   ScanDone: Integer = 0;
   ScanTotal: Integer = 1;
   ScanShownPercent: Integer = 0;
+  // "Skip all" answered for a folder that could not be read
+  SkipAllUnreadable: Boolean = False;
+  // Which side failed, for the ScanDir that just returned -1
+  UnreadableL, UnreadableR: Boolean;
+
+  // Lists one side of a directory. A failed listing - as opposed to an empty
+  // folder - is retried once on its own, which also re-establishes a dropped
+  // connection, and then the user decides. Listing failures used to come back
+  // as an empty folder, so everything on the other side looked unique and was
+  // marked to be copied or even deleted. False: skip this folder (with FCancel
+  // set: abort the compare).
+  function ListSide(sideLeft: Boolean; const dir: String; out fs: TFiles): Boolean;
+  var
+    FileSource: IFileSource;
+    Operation: TFileSourceOperation;
+    Path, Address: String;
+    Retried: Boolean = False;
+  begin
+    fs := nil;
+    if sideLeft then
+    begin
+      FileSource := FFileSourceL;
+      Path := BaseDirL + dir;
+      Address := FAddressL;
+    end
+    else begin
+      FileSource := FFileSourceR;
+      Path := BaseDirR + dir;
+      Address := FAddressR;
+    end;
+    repeat
+      Operation := FileSource.CreateListOperation(Path);
+      if not Assigned(Operation) then
+      begin
+        fs := TFiles.Create(Path);
+        Exit(True);
+      end;
+      try
+        Operation.Execute;
+        if not TFileSourceListOperation(Operation).ListFailed then
+        begin
+          fs := TFileSourceListOperation(Operation).ReleaseFiles;
+          Exit(True);
+        end;
+      finally
+        Operation.Free;
+      end;
+      if not Retried then
+      begin
+        Retried := True;
+        Continue;
+      end;
+      if SkipAllUnreadable then Exit(False);
+      case MsgBox(Format(rsSyncCannotRead, [Address + Path]),
+                  [msmbRetry, msmbSkip, msmbSkipAll, msmbAbort],
+                  msmbRetry, msmbAbort) of
+        mmrRetry:
+          ;
+        mmrSkipAll:
+          begin
+            SkipAllUnreadable := True;
+            Exit(False);
+          end;
+        mmrAbort:
+          begin
+            FCancel := True;
+            Exit(False);
+          end;
+        else
+          Exit(False);
+      end;
+    until False;
+  end;
+
+  // A folder skipped because it could not be read: one row with no files and
+  // no action, so neither side of it is copied or deleted.
+  procedure AddUnreadableRecord(it: TStringList; const dir, name: string);
+  var
+    r: TFileSyncRec;
+  begin
+    r := TFileSyncRec.Create(Self, dir);
+    r.FUnreadableL := UnreadableL;
+    r.FUnreadableR := UnreadableR;
+    r.FState := srsDoNothing;
+    r.FAction := srsDoNothing;
+    it.AddObject(name, r);
+    Inc(FUnreadableCount);
+  end;
 
   // Returns the number of sync records produced by this directory's whole
-  // subtree. A one-sided directory whose subtree count is zero is an empty
-  // folder (of matching files) and, when enabled, is mirrored as a unit.
-  function ScanDir(dir: string): Integer;
+  // subtree, or -1 when the directory could not be read and was skipped
+  // (UnreadableL/R tell which side). A one-sided directory whose subtree
+  // count is zero is an empty folder (of matching files) and, when enabled,
+  // is mirrored as a unit. HasLeft/HasRight say on which sides the directory
+  // exists; the other side is not listed, since that listing would fail.
+  function ScanDir(dir: string; HasLeft: Boolean = True; HasRight: Boolean = True): Integer;
 
-    procedure ProcessOneSide(it, dirs: TStringList; var ASide: Boolean; sideLeft: Boolean);
+    procedure ProcessOneSide(it, dirs: TStringList; var ASide: Boolean; sideLeft: Boolean;
+      fs: TFiles);
     var
-      fs: TFiles;
       i, j: Integer;
       f: TFile;
       r: TFileSyncRec;
       fn: String;
     begin
-      if sideLeft then
-        fs := FFileSourceL.GetFiles(BaseDirL + dir)
-      else begin
-        fs := FFileSourceR.GetFiles(BaseDirR + dir);
-      end;
       if chkOnlySelected.Checked and ASide then
       begin
         ASide:= False;
@@ -1745,6 +1872,9 @@ var
     dirsLeft, dirsRight: TStringListEx;
     d: string;
     itBase, sumChildren, childCount: Integer;
+    fsL: TFiles = nil;
+    fsR: TFiles = nil;
+    okL, okR: Boolean;
   begin
     Result := 0;
     i := FFoundItems.IndexOf(dir);
@@ -1783,8 +1913,23 @@ var
       // the subtree count excludes anything already present on a revisit.
       itBase := it.Count;
       sumChildren := 0;
-      ProcessOneSide(it, dirsLeft, LeftFirst, True);
-      ProcessOneSide(it, dirsRight, RightFirst, False);
+      // List both sides before comparing anything: a folder is either
+      // compared as a whole or, if a side cannot be read, skipped as a whole.
+      okL := not HasLeft or ListSide(True, dir, fsL);
+      okR := okL and not FCancel and (not HasRight or ListSide(False, dir, fsR));
+      if FCancel or not okR then
+      begin
+        fsL.Free;
+        fsR.Free;
+        UnreadableL := not okL;
+        UnreadableR := okL and not okR;
+        if not FCancel then Result := -1;
+        Exit;
+      end;
+      if fsL = nil then fsL := TFiles.Create(BaseDirL + dir);
+      if fsR = nil then fsR := TFiles.Create(BaseDirR + dir);
+      ProcessOneSide(it, dirsLeft, LeftFirst, True, fsL);
+      ProcessOneSide(it, dirsRight, RightFirst, False, fsR);
       SortFoundItems(it);
       Inc(ScanDone);
       if not Subdirs then
@@ -1811,8 +1956,15 @@ var
           dirsRight.Objects[j] := nil;
         end;
         Inc(ScanTotal);
-        childCount := ScanDir(dir + d);
+        childCount := ScanDir(dir + d, True, j >= 0);
         if FCancel then Exit;
+        if childCount < 0 then
+        begin
+          // Unreadable: keeps the parent from counting as an empty folder
+          AddUnreadableRecord(it, dir, d);
+          Inc(sumChildren);
+          Continue;
+        end;
         Inc(sumChildren, childCount);
         // A left-only directory with an empty subtree: mirror it to the right.
         if EmptyDirs and (j < 0) and (childCount = 0)
@@ -1836,8 +1988,14 @@ var
         begin
           d := dirsRight[i];
           Inc(ScanTotal);
-          childCount := ScanDir(dir + d);
+          childCount := ScanDir(dir + d, False, True);
           if FCancel then Exit;
+          if childCount < 0 then
+          begin
+            AddUnreadableRecord(it, dir, d);
+            Inc(sumChildren);
+            Continue;
+          end;
           Inc(sumChildren, childCount);
           // A right-only directory with an empty subtree: mirror it to the left.
           if EmptyDirs and (childCount = 0)
@@ -1913,7 +2071,9 @@ begin
   else begin
     FFileExists:= srsCopyLeft;
   end;
-  ScanDir('');
+  FUnreadableCount := 0;
+  if ScanDir('') < 0 then
+    AddUnreadableRecord(TStringList(FFoundItems.Objects[FFoundItems.IndexOf('')]), '', '.');
   MaskList.Free;
   OwnTemplate.Free;
   FillFoundItemsDG;
@@ -2047,6 +2207,8 @@ procedure TfrmSyncDirsDlg.UpdateStatusBar;
 var s: string;
 begin
   s := Format(rsFilesFound, [Ftotal, Fequal, Fnoneq, FuniqueL, FuniqueR]);
+  if FUnreadableCount > 0 then
+    s := s + '  ' + Format(rsSyncFoldersUnreadable, [FUnreadableCount]);
   if Assigned(CheckContentThread)
   and not TCheckContentThread(CheckContentThread).Done then
     s := s + ' ...';
@@ -2072,7 +2234,7 @@ var
   ca: TSyncRecState;
 begin
   sr := TFileSyncRec(FVisibleItems.Objects[r]);
-  if not Assigned(sr) or (sr.FState = srsEqual) then Exit;
+  if not Assigned(sr) or (sr.FState = srsEqual) or sr.Unreadable then Exit;
   ca := sr.FAction;
   case ca of
   srsNotEq:
@@ -2126,6 +2288,7 @@ var
 
   procedure UpdateAction(NewAction: TSyncRecState);
   begin
+    if SyncRec.Unreadable then Exit;
     case NewAction of
       srsUnknown:
         NewAction:= SyncRec.FState;
@@ -2380,6 +2543,7 @@ var
 
   procedure AddRemoveItem;
   begin
+    if SyncRec.Unreadable then Exit;
     if Assigned(ALeft) and Assigned(SyncRec.FFileL) then
       ALeft.Add(SyncRec.FFileL.Clone);
 

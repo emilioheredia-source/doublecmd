@@ -103,6 +103,7 @@ type
     FEncoding: String;
     FSourceIsLink: Boolean;
     FOverwriteReadOnly: Boolean;
+    FFindFailed: Boolean;
     FPublicKey, FPrivateKey: String;
     function Connect: Boolean; override;
     function DataSocket: Boolean; override;
@@ -157,6 +158,9 @@ type
     // Set before StoreFile: a read-only target that already exists may be made
     // writable so it can be overwritten (FS_COPYFLAGS_OVERWRITE_READONLY).
     property OverwriteReadOnly: Boolean read FOverwriteReadOnly write FOverwriteReadOnly;
+    // After FsFindFirstW returned nil: True if the directory could not be
+    // listed, False if it is merely empty.
+    property FindFailed: Boolean read FFindFailed;
   end;
 
   { TFTPSendExClass }
@@ -705,7 +709,8 @@ function TFTPSendEx.FsFindFirstW(const Path: String; var FindData: TWin32FindDat
 begin
   Result:= nil;
   // Get directory listing
-  if List(Path, False) then
+  FFindFailed:= not List(Path, False);
+  if not FFindFailed then
   begin
     if FtpList.Count > 0 then
     begin

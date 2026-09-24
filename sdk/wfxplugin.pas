@@ -366,6 +366,12 @@ function FsFindNextW(Hdl:thandle;var FindDataW:tWIN32FINDDATAW):bool; {$IFDEF MS
 
 function FsFindClose(Hdl:thandle):integer; {$IFDEF MSWINDOWS}stdcall{$ELSE}cdecl{$ENDIF};
 
+{ Double Commander extension, optional. Called on the same thread right after
+  FsFindFirst/FsFindFirstW returned INVALID_HANDLE_VALUE. Return
+  ERROR_NO_MORE_FILES (18) if the directory is simply empty, any other value
+  if it could not be listed. Without it an invalid handle means "empty". }
+function FsFindFirstError:integer; {$IFDEF MSWINDOWS}stdcall{$ELSE}cdecl{$ENDIF};
+
 function FsMkDir(RemoteDir:pchar):bool; {$IFDEF MSWINDOWS}stdcall{$ELSE}cdecl{$ENDIF};
 
 function FsMkDirW(RemoteDir:pwidechar):bool; {$IFDEF MSWINDOWS}stdcall{$ELSE}cdecl{$ENDIF};

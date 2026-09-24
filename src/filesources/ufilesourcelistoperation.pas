@@ -24,6 +24,7 @@ type
   protected
     FFiles: TFiles;
     FFlatView: Boolean;
+    FListFailed: Boolean;
 
     function GetFiles: TFiles;
     function GetID: TFileSourceOperationType; override;
@@ -45,6 +46,12 @@ type
     property Files: TFiles read GetFiles;
     property Path: String read FPath;
     property FlatView: Boolean write FFlatView;
+    {en
+       True when the directory could not be read, as opposed to being empty.
+       Files then holds nothing meaningful (at most the '..' entry). A file
+       source that cannot tell the two apart always leaves this False.
+    }
+    property ListFailed: Boolean read FListFailed;
 
   end;
 

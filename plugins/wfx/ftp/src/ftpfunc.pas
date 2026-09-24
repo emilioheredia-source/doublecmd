@@ -69,6 +69,7 @@ function FsInitW(PluginNr: Integer; pProgressProc: TProgressProcW;
 function FsFindFirstW(Path: PWideChar; var FindData: TWin32FindDataW): THandle; dcpcall; export;
 function FsFindNextW(Hdl: THandle; var FindData: TWin32FindDataW): BOOL; dcpcall; export;
 function FsFindClose(Hdl: THandle): Integer; dcpcall; export;
+function FsFindFirstError: Integer; dcpcall; export;
 
 function FsExecuteFileW(MainWin: THandle; RemoteName, Verb: PWideChar): Integer; dcpcall; export;
 function FsRenMovFileW(OldName, NewName: PWideChar; Move, OverWrite: BOOL;
@@ -133,6 +134,12 @@ var
 
 threadvar
   ThreadCon: TFtpSendEx;
+  // Outcome of this thread's last FsFindFirstW, see FsFindFirstError
+  FindFirstError: Integer;
+
+const
+  ERROR_ACCESS_DENIED = 5;
+  ERROR_NO_MORE_FILES = 18;
 
 const
   FS_COPYFLAGS_FORCE = FS_COPYFLAGS_OVERWRITE or FS_COPYFLAGS_RESUME;
@@ -668,6 +675,9 @@ begin
   ListRec.FtpSend := nil;
   ListRec.FtpList := nil;
   Result := wfxInvalidHandle;
+  // Until a listing says otherwise, not being able to list is a failure
+  // (no connection, for instance) rather than an empty directory.
+  FindFirstError := ERROR_ACCESS_DENIED;
 
   if Path = PathDelim then
     begin
@@ -685,7 +695,8 @@ begin
         begin
           ListRec.FtpSend := FtpSend;
           ListRec.FtpList := FtpSend.FsFindFirstW(sPath, FindData);
-          if Assigned(ListRec.FtpList) then Result:= THandle(ListRec);
+          if Assigned(ListRec.FtpList) then Result:= THandle(ListRec)
+          else if not FtpSend.FindFailed then FindFirstError:= ERROR_NO_MORE_FILES;
         end;
       finally
         ListLock.Release;
@@ -717,6 +728,11 @@ begin
     end;
     Dispose(ListRec);
   end;
+end;
+
+function FsFindFirstError: Integer; dcpcall; export;
+begin
+  Result:= FindFirstError;
 end;
 
 function FsExecuteFileW(MainWin: THandle; RemoteName, Verb: PWideChar): Integer; dcpcall; export;
