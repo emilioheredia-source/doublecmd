@@ -69,6 +69,7 @@ function FsInitW(PluginNr: Integer; pProgressProc: TProgressProcW;
 function FsFindFirstW(Path: PWideChar; var FindData: TWin32FindDataW): THandle; dcpcall; export;
 function FsFindNextW(Hdl: THandle; var FindData: TWin32FindDataW): BOOL; dcpcall; export;
 function FsFindClose(Hdl: THandle): Integer; dcpcall; export;
+function FsFindFirstError: Integer; dcpcall; export;
 
 function FsExecuteFileW(MainWin: THandle; RemoteName, Verb: PWideChar): Integer; dcpcall; export;
 function FsRenMovFileW(OldName, NewName: PWideChar; Move, OverWrite: BOOL;
@@ -122,7 +123,7 @@ implementation
 uses
   IniFiles, StrUtils, FtpAdv, FtpUtils, FtpConfDlg, syncobjs, LazFileUtils,
   LazUTF8, DCClassesUtf8, DCConvertEncoding, SftpSend, ScpSend, FtpProxy,
-  FtpPropDlg, FtpLng, DCFileAttributes;
+  FtpPropDlg, FtpLng, DCFileAttributes, DCOSUtils;
 
 var
   DefaultIniName: String;
@@ -133,6 +134,12 @@ var
 
 threadvar
   ThreadCon: TFtpSendEx;
+  // Outcome of this thread's last FsFindFirstW, see FsFindFirstError
+  FindFirstError: Integer;
+
+const
+  ERROR_ACCESS_DENIED = 5;
+  ERROR_NO_MORE_FILES = 18;
 
 const
   FS_COPYFLAGS_FORCE = FS_COPYFLAGS_OVERWRITE or FS_COPYFLAGS_RESUME;
@@ -668,6 +675,9 @@ begin
   ListRec.FtpSend := nil;
   ListRec.FtpList := nil;
   Result := wfxInvalidHandle;
+  // Until a listing says otherwise, not being able to list is a failure
+  // (no connection, for instance) rather than an empty directory.
+  FindFirstError := ERROR_ACCESS_DENIED;
 
   if Path = PathDelim then
     begin
@@ -685,7 +695,8 @@ begin
         begin
           ListRec.FtpSend := FtpSend;
           ListRec.FtpList := FtpSend.FsFindFirstW(sPath, FindData);
-          if Assigned(ListRec.FtpList) then Result:= THandle(ListRec);
+          if Assigned(ListRec.FtpList) then Result:= THandle(ListRec)
+          else if not FtpSend.FindFailed then FindFirstError:= ERROR_NO_MORE_FILES;
         end;
       finally
         ListLock.Release;
@@ -717,6 +728,11 @@ begin
     end;
     Dispose(ListRec);
   end;
+end;
+
+function FsFindFirstError: Integer; dcpcall; export;
+begin
+  Result:= FindFirstError;
 end;
 
 function FsExecuteFileW(MainWin: THandle; RemoteName, Verb: PWideChar): Integer; dcpcall; export;
@@ -912,6 +928,7 @@ var
   FtpSend: TFTPSendEx;
   sFileName: AnsiString;
   FileName: AnsiString;
+  MadeWritable: Boolean = False;
 begin
   Result := FS_FILE_READERROR;
   if GetConnectionByPath(RemoteName, FtpSend, sFileName) then
@@ -921,6 +938,13 @@ begin
     begin
       if not FtpSend.CanResume then Exit(FS_FILE_EXISTS);
       Exit(FS_FILE_EXISTSRESUMEALLOWED);
+    end;
+    // A read-only local target cannot be opened for writing. When allowed,
+    // make it writable; a successful download then applies the remote mode.
+    if (CopyFlags and FS_COPYFLAGS_OVERWRITE_READONLY <> 0) and
+       FileIsReadOnly(mbFileGetAttr(FileName)) then
+    begin
+      MadeWritable:= mbFileSetReadOnly(FileName, False);
     end;
     FtpSend.DataStream.Clear;
     FtpSend.DirectFileName := FileName;
@@ -948,6 +972,9 @@ begin
       Result := FS_FILE_WRITEERROR;
     end;
   end;
+  // The download failed: leave the target read-only as it was found.
+  if MadeWritable and (Result <> FS_FILE_OK) and mbFileExists(FileName) then
+    mbFileSetReadOnly(FileName, True);
 end;
 
 function FsPutFileW(LocalName, RemoteName: PWideChar; CopyFlags: Integer): Integer; dcpcall; export;
@@ -971,6 +998,7 @@ begin
     end;
     FtpSend.DataStream.Clear;
     FtpSend.DirectFileName := FileName;
+    FtpSend.OverwriteReadOnly := (CopyFlags and FS_COPYFLAGS_OVERWRITE_READONLY) <> 0;
     ProgressProc(PluginNumber, LocalName, RemoteName, 0);
     if FtpSend.StoreFile(sFileName, (CopyFlags and FS_COPYFLAGS_RESUME) <> 0) then
     begin

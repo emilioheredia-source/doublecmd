@@ -49,6 +49,7 @@ type
     FSFTPSession: PLIBSSH2_SFTP;
   protected
     function Connect: Boolean; override;
+    function LinkAlive: Boolean; override;
   public
     constructor Create(const Encoding: String); override;
     function Login: Boolean; override;
@@ -245,6 +246,17 @@ begin
   Result:= libssh2_sftp_rename(FSFTPSession, PAnsiChar(OldName), PAnsiChar(NewName)) = 0;
 end;
 
+function TSftpSend.LinkAlive: Boolean;
+var
+  Attributes: LIBSSH2_SFTP_ATTRIBUTES;
+begin
+  // One round-trip lets libssh2 consume whatever is pending (a keep-alive is
+  // answered, a disconnect message is noticed). Any SFTP status reply, even
+  // an error, proves the link works.
+  FLastError:= libssh2_sftp_stat(FSFTPSession, '.', @Attributes);
+  Result:= (FLastError = 0) or (FLastError = LIBSSH2_ERROR_SFTP_PROTOCOL);
+end;
+
 function TSftpSend.ChangeMode(const FileName, Mode: String): Boolean;
 var
   Attributes: LIBSSH2_SFTP_ATTRIBUTES;
@@ -268,11 +280,27 @@ var
   TargetHandle: PLIBSSH2_SFTP_HANDLE = nil;
   Flags: cint = LIBSSH2_FXF_CREAT or LIBSSH2_FXF_WRITE;
   OpenMode: clong = $1A0;
+  MadeWritable: Boolean = False;
 {$IFDEF UNIX}
   LocalStat: BaseUnix.TStat;
   UploadAttrs: LIBSSH2_SFTP_ATTRIBUTES;
   LinkTarget: String;
 {$ENDIF}
+
+  function SetRemoteMode(Mode: clong): Boolean;
+  var
+    Attributes: LIBSSH2_SFTP_ATTRIBUTES;
+  begin
+    FillChar(Attributes, SizeOf(Attributes), 0);
+    Attributes.permissions:= Mode;
+    Attributes.flags:= LIBSSH2_SFTP_ATTR_PERMISSIONS;
+    repeat
+      FLastError:= libssh2_sftp_setstat(FSFTPSession, PAnsiChar(FileName), @Attributes);
+      if FLastError = LIBSSH2_ERROR_EAGAIN then FSock.CanRead(10);
+    until FLastError <> LIBSSH2_ERROR_EAGAIN;
+    Result:= (FLastError = 0);
+  end;
+
 begin
   if FCopySCP then begin
     Result:= inherited StoreFile(FileName, Restore);
@@ -347,6 +375,18 @@ begin
       if (TargetHandle = nil) then
       begin
         FLastError:= libssh2_session_last_errno(FSession);
+        // An existing read-only target (e.g. a git object file) refuses the
+        // open. When allowed, make it owner-writable once and open it again;
+        // the source's mode is put back after the transfer.
+        if FOverwriteReadOnly and (not MadeWritable) and
+           (FLastError = LIBSSH2_ERROR_SFTP_PROTOCOL) and
+           (libssh2_sftp_last_error(FSFTPSession) = LIBSSH2_FX_PERMISSION_DENIED) and
+           SetRemoteMode(OpenMode or $80) then
+        begin
+          MadeWritable:= True;
+          FLastError:= LIBSSH2_ERROR_EAGAIN;
+          Continue;
+        end;
         if (FLastError <> LIBSSH2_ERROR_EAGAIN) then Exit(False);
         if (FileSize > 0) then DoProgress((FileSize - TotalBytesToWrite) * 100 div FileSize);
         FSock.CanRead(10);
@@ -386,6 +426,9 @@ begin
     FreeMem(FBuffer);
     Result:= FileClose(TargetHandle) and Result;
     libssh2_session_set_blocking(FSession, 1);
+    // Opening an existing file does not apply OpenMode, so after making the
+    // target writable above set the source's mode explicitly.
+    if MadeWritable then SetRemoteMode(OpenMode);
 {$IFDEF UNIX}
     // Permissions were already applied at create time (see OpenMode above).
     // Only restore ownership, and only when we are root: for a normal user this
@@ -548,6 +591,7 @@ var
   FindRec: PFindRec;
 begin
   Result := libssh2_sftp_opendir(FSFTPSession, PAnsiChar(Path));
+  FFindFailed:= (Result = nil);
   if (Result = nil) then
     PrintLastError
   else begin

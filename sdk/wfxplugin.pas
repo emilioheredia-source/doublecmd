@@ -41,6 +41,11 @@ const FS_FILE_OK=0;
 
       FS_COPYFLAGS_EXISTS_DIFFERENTCASE=16;
 
+      { Double Commander extension: sent together with FS_COPYFLAGS_OVERWRITE
+        or FS_COPYFLAGS_RESUME,
+        the target may be made writable first if it is read-only }
+      FS_COPYFLAGS_OVERWRITE_READONLY=$100;
+
 
 
 { flags for tRequestProc }
@@ -360,6 +365,12 @@ function FsFindNext(Hdl:thandle;var FindData:tWIN32FINDDATA):bool; {$IFDEF MSWIN
 function FsFindNextW(Hdl:thandle;var FindDataW:tWIN32FINDDATAW):bool; {$IFDEF MSWINDOWS}stdcall{$ELSE}cdecl{$ENDIF};
 
 function FsFindClose(Hdl:thandle):integer; {$IFDEF MSWINDOWS}stdcall{$ELSE}cdecl{$ENDIF};
+
+{ Double Commander extension, optional. Called on the same thread right after
+  FsFindFirst/FsFindFirstW returned INVALID_HANDLE_VALUE. Return
+  ERROR_NO_MORE_FILES (18) if the directory is simply empty, any other value
+  if it could not be listed. Without it an invalid handle means "empty". }
+function FsFindFirstError:integer; {$IFDEF MSWINDOWS}stdcall{$ELSE}cdecl{$ENDIF};
 
 function FsMkDir(RemoteDir:pchar):bool; {$IFDEF MSWINDOWS}stdcall{$ELSE}cdecl{$ENDIF};
 

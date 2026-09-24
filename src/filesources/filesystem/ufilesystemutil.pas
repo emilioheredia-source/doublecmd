@@ -109,6 +109,7 @@ type
     FSkipWriteError: Boolean;
     FSkipCopyError: Boolean;
     FSkipAllErrors: Boolean;
+    FOverwriteReadOnly: Boolean;
     FAutoRenameItSelf: Boolean;
     FCorrectSymLinks: Boolean;
     FCopyAttributesOptions: TCopyAttributesOptions;
@@ -203,6 +204,7 @@ type
     property RenameMask: String read FRenameMask write FRenameMask;
     property SkipFlags: TFileSystemOperationHelperSkipFlags read GetSkipFlags write SetSkipFlags;
     property SkipAllErrors: Boolean read FSkipAllErrors write FSkipAllErrors;
+    property OverwriteReadOnly: Boolean read FOverwriteReadOnly write FOverwriteReadOnly;
   end;
 
 implementation
@@ -458,6 +460,7 @@ begin
 
   FCheckFreeSpace := True;
   FSkipAllBigFiles := False;
+  FOverwriteReadOnly := True;
   FSkipReadError := False;
   FSkipWriteError := False;
   FProcessComments := gProcessComments;
@@ -1691,7 +1694,7 @@ var
         Exit(fsoterSkip);
       fsoofeOverwrite:
         begin
-          if FileIsReadOnly(Attrs) then
+          if FOverwriteReadOnly and FileIsReadOnly(Attrs) then
             FileSetReadOnlyUAC(AbsoluteTargetFileName, False);
           // Delete the existing target first when it cannot be overwritten in
           // place: an existing link, a move, or — crucially — when the source
@@ -1731,7 +1734,7 @@ var
         Exit(fsoterSkip);
       fsoofeOverwrite:
         begin
-          if FileIsReadOnly(Attrs) then
+          if FOverwriteReadOnly and FileIsReadOnly(Attrs) then
           begin
             FileSetReadOnlyUAC(AbsoluteTargetFileName, False);
           end;

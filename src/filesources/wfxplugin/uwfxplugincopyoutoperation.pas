@@ -170,6 +170,7 @@ begin
   FOperationHelper.RenameMask := RenameMask;
   FOperationHelper.FileExistsOption := FileExistsOption;
   FOperationHelper.SkipAllErrors := SkipAllErrors;
+  FOperationHelper.OverwriteReadOnly := OverwriteReadOnly;
   FOperationHelper.CopyAttributesOptions := CopyAttributesOptions;
 
   FOperationHelper.Initialize;

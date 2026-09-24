@@ -61,6 +61,7 @@ procedure TFileSystemListOperation.MainExecute;
 var
   AFile: TFile;
   sr: TSearchRecEx;
+  FindResult: Integer;
   IsRootPath, Found: Boolean;
 begin
   FFiles.Clear;
@@ -73,7 +74,17 @@ begin
 
   IsRootPath := FileSource.IsPathAtRoot(Path);
 
-  Found := FindFirstEx(FFiles.Path + '*', 0, sr) = 0;
+  FindResult := FindFirstEx(FFiles.Path + '*', 0, sr);
+  Found := (FindResult = 0);
+  // FindFirstEx returns the OS error when the directory cannot be opened;
+  // only "no (more) files" means it is merely empty.
+{$IF DEFINED(MSWINDOWS)}
+  FListFailed := (FindResult <> 0) and (FindResult <> -1) and
+                 (FindResult <> 2 {ERROR_FILE_NOT_FOUND}) and
+                 (FindResult <> 18 {ERROR_NO_MORE_FILES});
+{$ELSE}
+  FListFailed := (FindResult > 0);
+{$ENDIF}
   try
     if not Found then
     begin

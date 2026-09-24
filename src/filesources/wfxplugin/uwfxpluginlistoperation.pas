@@ -86,7 +86,7 @@ begin
   with FWfxPluginFileSource.WFXModule do
   try
     FFiles.Clear;
-    Handle := WfxFindFirst(FCurrentPath, FindData);
+    Handle := WfxFindFirst(FCurrentPath, FindData, FListFailed);
     if Handle <> wfxInvalidHandle then
     try
       repeat

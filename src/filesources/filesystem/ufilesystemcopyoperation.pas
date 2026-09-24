@@ -198,6 +198,7 @@ begin
   FOperationHelper.CopyAttributesOptions := CopyAttributesOptions;
   FOperationHelper.SkipFlags := FSkipFlags;
   FOperationHelper.SkipAllErrors := SkipAllErrors;
+  FOperationHelper.OverwriteReadOnly := OverwriteReadOnly;
   FOperationHelper.AutoRenameItSelf := AutoRenameItSelf;
   FOperationHelper.CorrectSymLinks := CorrectSymLinks;
   FOperationHelper.FileExistsOption := FileExistsOption;
