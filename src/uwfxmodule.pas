@@ -114,6 +114,7 @@ type
     FsExtractCustomIconW: TFsExtractCustomIconW;
     FsGetPreviewBitmapW: TFsGetPreviewBitmapW;
     FsGetLocalNameW: TFsGetLocalNameW;
+    FsFindFirstError: TFsFindFirstError;
     //-----------------------
     FsContentGetDefaultViewW: TFsContentGetDefaultViewW;
     { Extension API }
@@ -121,6 +122,12 @@ type
     ExtensionFinalize:   TExtensionFinalizeProc;
   public
     function WfxFindFirst(Path: String; var FindData: TWfxFindData): THandle;
+    {en
+       Like WfxFindFirst; on an invalid handle Failed tells a directory that
+       could not be listed from an empty one. Only plugins exporting
+       FsFindFirstError can say so; for others Failed stays False.
+    }
+    function WfxFindFirst(Path: String; var FindData: TWfxFindData; out Failed: Boolean): THandle;
     function WfxFindNext(Hdl: THandle; var FindData: TWfxFindData): Boolean;
     procedure WfxStatusInfo(RemoteDir: String; InfoStartEnd, InfoOperation: Integer);
     function WfxExecuteFile(MainWin: HWND; var RemoteName: String; Verb: String): Integer;
@@ -346,7 +353,18 @@ end;
 { TWFXModule }
 
 function TWFXModule.WfxFindFirst(Path: String; var FindData: TWfxFindData): THandle;
+var
+  Failed: Boolean;
 begin
+  Result:= WfxFindFirst(Path, FindData, Failed);
+end;
+
+function TWFXModule.WfxFindFirst(Path: String; var FindData: TWfxFindData;
+  out Failed: Boolean): THandle;
+const
+  ERROR_NO_MORE_FILES = 18;
+begin
+  Failed:= False;
   try
     if Assigned(FsFindFirstW) then
       begin
@@ -358,10 +376,13 @@ begin
         Result:= FsFindFirst(PAnsiChar(CeUtf8ToSys(Path)), FindData.FindDataA);
         if Result <> wfxInvalidHandle then ConvertFindData(FindData, True);
       end;
+    if (Result = wfxInvalidHandle) and Assigned(FsFindFirstError) then
+      Failed:= FsFindFirstError() <> ERROR_NO_MORE_FILES;
   except
     on E: Exception do
     begin
       Result:= wfxInvalidHandle;
+      Failed:= True;
     end;
   end;
 end;
@@ -762,6 +783,7 @@ begin
     FsStatusInfoW := TFsStatusInfoW(GetProcAddress(AHandle,'FsStatusInfoW'));
     FsExtractCustomIconW := TFsExtractCustomIconW(GetProcAddress(AHandle,'FsExtractCustomIconW'));
     FsGetLocalNameW := TFsGetLocalNameW(GetProcAddress(AHandle,'FsGetLocalNameW'));
+    FsFindFirstError := TFsFindFirstError(GetProcAddress(AHandle,'FsFindFirstError'));
     //--------------------------
     FsContentGetDefaultViewW := TFsContentGetDefaultViewW(GetProcAddress(AHandle,'FsContentGetDefaultViewW'));
     ContentGetValueW := TFsContentGetValueW(GetProcAddress(AHandle, 'FsContentGetValueW'));
@@ -849,6 +871,7 @@ begin
     FsStatusInfoW := nil;
     FsExtractCustomIconW := nil;
     FsGetLocalNameW := nil;
+    FsFindFirstError := nil;
     //---------------------
     FsContentGetDefaultViewW := nil;
     ContentGetValueW := nil;

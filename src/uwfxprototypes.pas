@@ -18,6 +18,8 @@ type
 {R}  TFsFindFirst=function(path :pansichar;var FindData:tWIN32FINDDATA):thandle;
 {R}  TFsFindNext=function(Hdl:thandle;var FindData:tWIN32FINDDATA):bool;
 {R}  TFsFindClose=function(Hdl:thandle):integer;
+     // Double Commander extension, see FsFindFirstError in WfxPlugin
+     TFsFindFirstError=function:integer;
 { Optional }
 {R}  TFsSetCryptCallback = procedure(pCryptProc:TCryptProc;CryptoNr,Flags:integer);
 {R}  TFsMkDir = function(RemoteDir:pansichar):bool;
