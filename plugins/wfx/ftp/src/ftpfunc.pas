@@ -122,7 +122,7 @@ implementation
 uses
   IniFiles, StrUtils, FtpAdv, FtpUtils, FtpConfDlg, syncobjs, LazFileUtils,
   LazUTF8, DCClassesUtf8, DCConvertEncoding, SftpSend, ScpSend, FtpProxy,
-  FtpPropDlg, FtpLng, DCFileAttributes;
+  FtpPropDlg, FtpLng, DCFileAttributes, DCOSUtils;
 
 var
   DefaultIniName: String;
@@ -912,6 +912,7 @@ var
   FtpSend: TFTPSendEx;
   sFileName: AnsiString;
   FileName: AnsiString;
+  MadeWritable: Boolean = False;
 begin
   Result := FS_FILE_READERROR;
   if GetConnectionByPath(RemoteName, FtpSend, sFileName) then
@@ -921,6 +922,13 @@ begin
     begin
       if not FtpSend.CanResume then Exit(FS_FILE_EXISTS);
       Exit(FS_FILE_EXISTSRESUMEALLOWED);
+    end;
+    // A read-only local target cannot be opened for writing. When allowed,
+    // make it writable; a successful download then applies the remote mode.
+    if (CopyFlags and FS_COPYFLAGS_OVERWRITE_READONLY <> 0) and
+       FileIsReadOnly(mbFileGetAttr(FileName)) then
+    begin
+      MadeWritable:= mbFileSetReadOnly(FileName, False);
     end;
     FtpSend.DataStream.Clear;
     FtpSend.DirectFileName := FileName;
@@ -948,6 +956,9 @@ begin
       Result := FS_FILE_WRITEERROR;
     end;
   end;
+  // The download failed: leave the target read-only as it was found.
+  if MadeWritable and (Result <> FS_FILE_OK) and mbFileExists(FileName) then
+    mbFileSetReadOnly(FileName, True);
 end;
 
 function FsPutFileW(LocalName, RemoteName: PWideChar; CopyFlags: Integer): Integer; dcpcall; export;
@@ -971,6 +982,7 @@ begin
     end;
     FtpSend.DataStream.Clear;
     FtpSend.DirectFileName := FileName;
+    FtpSend.OverwriteReadOnly := (CopyFlags and FS_COPYFLAGS_OVERWRITE_READONLY) <> 0;
     ProgressProc(PluginNumber, LocalName, RemoteName, 0);
     if FtpSend.StoreFile(sFileName, (CopyFlags and FS_COPYFLAGS_RESUME) <> 0) then
     begin

@@ -686,6 +686,7 @@ var
   gSyncDirsByContent,
   gSyncDirsAsymmetric,
   gSyncDirsIgnoreDate,
+  gSyncDirsOverwriteReadOnly,
   gSyncDirsShowFilterCopyRight,
   gSyncDirsShowFilterEqual,
   gSyncDirsShowFilterNotEqual,
@@ -2316,6 +2317,7 @@ begin
   gSyncDirsByContent := False;
   gSyncDirsAsymmetric := False;
   gSyncDirsIgnoreDate := False;
+  gSyncDirsOverwriteReadOnly := True;
   gSyncDirsShowFilterCopyRight := True;
   gSyncDirsShowFilterEqual := True;
   gSyncDirsShowFilterNotEqual := True;
@@ -3407,6 +3409,7 @@ begin
       gSyncDirsByContent := GetValue(Node, 'ByContent', gSyncDirsByContent);
       gSyncDirsAsymmetric := GetValue(Node, 'Asymmetric', gSyncDirsAsymmetric);
       gSyncDirsIgnoreDate := GetValue(Node, 'IgnoreDate', gSyncDirsIgnoreDate);
+      gSyncDirsOverwriteReadOnly := GetValue(Node, 'OverwriteReadOnly', gSyncDirsOverwriteReadOnly);
       gSyncDirsShowFilterCopyRight := GetValue(Node, 'FilterCopyRight', gSyncDirsShowFilterCopyRight);
       gSyncDirsShowFilterEqual := GetValue(Node, 'FilterEqual', gSyncDirsShowFilterEqual);
       gSyncDirsShowFilterNotEqual := GetValue(Node, 'FilterNotEqual', gSyncDirsShowFilterNotEqual);
@@ -3997,6 +4000,7 @@ begin
     SetValue(Node, 'ByContent', gSyncDirsByContent);
     SetValue(Node, 'Asymmetric', gSyncDirsAsymmetric);
     SetValue(Node, 'IgnoreDate', gSyncDirsIgnoreDate);
+    SetValue(Node, 'OverwriteReadOnly', gSyncDirsOverwriteReadOnly);
     SetValue(Node, 'FilterCopyRight', gSyncDirsShowFilterCopyRight);
     SetValue(Node, 'FilterEqual', gSyncDirsShowFilterEqual);
     SetValue(Node, 'FilterNotEqual', gSyncDirsShowFilterNotEqual);
