@@ -41,6 +41,11 @@ const FS_FILE_OK=0;
 
       FS_COPYFLAGS_EXISTS_DIFFERENTCASE=16;
 
+      { Double Commander extension: sent together with FS_COPYFLAGS_OVERWRITE
+        or FS_COPYFLAGS_RESUME,
+        the target may be made writable first if it is read-only }
+      FS_COPYFLAGS_OVERWRITE_READONLY=$100;
+
 
 
 { flags for tRequestProc }

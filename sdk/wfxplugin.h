@@ -22,6 +22,10 @@
 #define FS_COPYFLAGS_MOVE 4
 #define FS_COPYFLAGS_EXISTS_SAMECASE 8
 #define FS_COPYFLAGS_EXISTS_DIFFERENTCASE 16
+// Double Commander extension: sent together with FS_COPYFLAGS_OVERWRITE
+// or FS_COPYFLAGS_RESUME,
+// the target may be made writable first if it is read-only
+#define FS_COPYFLAGS_OVERWRITE_READONLY 0x100
 
 // flags for tRequestProc
 #define RT_Other 0
