@@ -1134,6 +1134,16 @@ begin
       FtpSend.ClearFreshDirs;
   end;
 
+  // A sync compare walks the whole tree: let the connection list ahead.
+  if (InfoOperation = FS_STATUS_OP_SYNC_SEARCH) and
+     GetConnectionByPath(RemoteDir, FtpSend, RemotePath) then
+  begin
+    if InfoStartEnd = FS_STATUS_START then
+      FtpSend.BeginSyncSearch
+    else
+      FtpSend.EndSyncSearch;
+  end;
+
   if (InfoOperation in [FS_STATUS_OP_GET_MULTI_THREAD, FS_STATUS_OP_PUT_MULTI_THREAD]) then
   begin
     if InfoStartEnd = FS_STATUS_START then
