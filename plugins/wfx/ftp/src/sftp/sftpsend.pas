@@ -31,6 +31,8 @@ uses
   Classes, SysUtils, WfxPlugin, ftpsend, ScpSend, libssh, FtpAdv;
 
 type
+  // What a remote path is, without following a symlink (lstat)
+  TRemoteKind = (rkNone, rkFile, rkLink, rkDir, rkOther, rkError);
 
   { TSftpSend }
 
@@ -56,6 +58,13 @@ type
     procedure FreePrefetchCache;
     procedure FillFindData(const AName: String; const Attributes: LIBSSH2_SFTP_ATTRIBUTES;
       LinkTarget: PLIBSSH2_SFTP_ATTRIBUTES; var FindData: TWin32FindDataW);
+    // Remote path inspection and changes that never follow a symlink. They
+    // judge by the result on the server, not by return codes: libssh2
+    // reports an error for most symlink requests that did succeed.
+    function RemoteKind(const Path: String): TRemoteKind;
+    function RemoteLinkIs(const Path, Target: String): Boolean;
+    function RemoteRemoveLink(const Path: String): Boolean;
+    function StoreLink(const FileName, LinkTarget: String): Boolean;
   protected
     FCopySCP: Boolean;
     FSFTPSession: PLIBSSH2_SFTP;
@@ -614,6 +623,134 @@ begin
   Result:= libssh2_sftp_setstat(FSFTPSession, PAnsiChar(FileName), @Attributes) = 0;
 end;
 
+function TSftpSend.RemoteKind(const Path: String): TRemoteKind;
+var
+  Attributes: LIBSSH2_SFTP_ATTRIBUTES;
+begin
+  repeat
+    FLastError:= libssh2_sftp_lstat(FSFTPSession, PAnsiChar(Path), @Attributes);
+    if FLastError = LIBSSH2_ERROR_EAGAIN then WaitSocket;
+  until FLastError <> LIBSSH2_ERROR_EAGAIN;
+  if FLastError <> 0 then
+  begin
+    if (FLastError = LIBSSH2_ERROR_SFTP_PROTOCOL) and
+       (libssh2_sftp_last_error(FSFTPSession) = LIBSSH2_FX_NO_SUCH_FILE) then
+      Exit(rkNone);
+    Exit(rkError);
+  end;
+  case Attributes.permissions and S_IFMT of
+    S_IFREG: Result:= rkFile;
+    S_IFLNK: Result:= rkLink;
+    S_IFDIR: Result:= rkDir;
+    else     Result:= rkOther;
+  end;
+end;
+
+function TSftpSend.RemoteLinkIs(const Path, Target: String): Boolean;
+var
+  ALength: cint;
+  ATarget: array[0..4095] of AnsiChar;
+begin
+  repeat
+    ALength:= libssh2_sftp_readlink(FSFTPSession, PAnsiChar(Path), ATarget, SizeOf(ATarget));
+    if ALength = LIBSSH2_ERROR_EAGAIN then WaitSocket;
+  until ALength <> LIBSSH2_ERROR_EAGAIN;
+  Result:= (ALength = Length(Target)) and (ALength > 0) and
+           CompareMem(@ATarget[0], PAnsiChar(Target), ALength);
+end;
+
+function TSftpSend.RemoteRemoveLink(const Path: String): Boolean;
+begin
+  // Only a symlink is ever removed here; the link goes, never what it points at
+  if RemoteKind(Path) <> rkLink then Exit(False);
+  repeat
+    FLastError:= libssh2_sftp_unlink(FSFTPSession, PAnsiChar(Path));
+    if FLastError = LIBSSH2_ERROR_EAGAIN then WaitSocket;
+  until FLastError <> LIBSSH2_ERROR_EAGAIN;
+  Result:= RemoteKind(Path) = rkNone;
+end;
+
+function TSftpSend.StoreLink(const FileName, LinkTarget: String): Boolean;
+var
+  I, Rc: Integer;
+  TempName: String;
+  Existing: TRemoteKind;
+
+  procedure MakeLink(const APath: String);
+  begin
+    // The return code is not trusted (see RemoteKind); callers check the result
+    repeat
+      Rc:= libssh2_sftp_symlink(FSFTPSession, PAnsiChar(LinkTarget), PAnsiChar(APath));
+      if Rc = LIBSSH2_ERROR_EAGAIN then WaitSocket;
+    until Rc <> LIBSSH2_ERROR_EAGAIN;
+  end;
+
+begin
+  Result:= False;
+  Existing:= RemoteKind(FileName);
+  case Existing of
+    rkNone:
+      begin
+        MakeLink(FileName);
+        Exit(RemoteLinkIs(FileName, LinkTarget));
+      end;
+    rkLink:
+      if RemoteLinkIs(FileName, LinkTarget) then Exit(True);
+    rkFile: ;
+    // Never replace a directory (or anything unknown) with a link
+    else Exit;
+  end;
+
+  // Something is there to be replaced. Build the new link beside it first and
+  // check it, so a failure leaves the destination exactly as it was.
+  TempName:= EmptyStr;
+  for I:= 1 to 3 do
+  begin
+    TempName:= Copy(FileName, 1, LastDelimiter('/', FileName)) + '.' +
+               Copy(FileName, LastDelimiter('/', FileName) + 1, MaxInt) +
+               '.dclink-' + IntToHex(Random($7FFFFFFF), 8);
+    if RemoteKind(TempName) = rkNone then Break;
+    TempName:= EmptyStr;
+  end;
+  if TempName = EmptyStr then Exit;
+  MakeLink(TempName);
+  if not RemoteLinkIs(TempName, LinkTarget) then
+  begin
+    RemoteRemoveLink(TempName);
+    Exit;
+  end;
+
+  if Assigned(libssh2_sftp_posix_rename_ex) then
+  begin
+    // Replaces the destination in one step
+    repeat
+      Rc:= libssh2_sftp_posix_rename_ex(FSFTPSession, PAnsiChar(TempName), Length(TempName),
+                                        PAnsiChar(FileName), Length(FileName));
+      if Rc = LIBSSH2_ERROR_EAGAIN then WaitSocket;
+    until Rc <> LIBSSH2_ERROR_EAGAIN;
+  end;
+  if RemoteKind(TempName) <> rkNone then
+  begin
+    // No posix-rename on this server or library: remove the old entry, then
+    // rename. Removing is only ever done for a symlink or a regular file.
+    if Existing = rkLink then
+      RemoteRemoveLink(FileName)
+    else if RemoteKind(FileName) = rkFile then
+    repeat
+      FLastError:= libssh2_sftp_unlink(FSFTPSession, PAnsiChar(FileName));
+      if FLastError = LIBSSH2_ERROR_EAGAIN then WaitSocket;
+    until FLastError <> LIBSSH2_ERROR_EAGAIN;
+    if RemoteKind(FileName) = rkNone then
+    repeat
+      Rc:= libssh2_sftp_rename(FSFTPSession, PAnsiChar(TempName), PAnsiChar(FileName));
+      if Rc = LIBSSH2_ERROR_EAGAIN then WaitSocket;
+    until Rc <> LIBSSH2_ERROR_EAGAIN;
+  end;
+  Result:= RemoteLinkIs(FileName, LinkTarget) and (RemoteKind(TempName) = rkNone);
+  // A failed swap leaves the destination untouched; drop the spare link
+  if not Result then RemoteRemoveLink(TempName);
+end;
+
 function TSftpSend.StoreFile(const FileName: string; Restore: Boolean): Boolean;
 var
   Index: PtrInt;
@@ -629,6 +766,7 @@ var
   Flags: cint = LIBSSH2_FXF_CREAT or LIBSSH2_FXF_WRITE;
   OpenMode: clong = $1A0;
   MadeWritable: Boolean = False;
+  Replaced: Integer = 0;
 {$IFDEF UNIX}
   LocalStat: BaseUnix.TStat;
   UploadAttrs: LIBSSH2_SFTP_ATTRIBUTES;
@@ -656,31 +794,15 @@ begin
   end;
 
 {$IFDEF UNIX}
-  // If the local source is a symlink, recreate it on the remote.
-  // On failure (server refused), fall through to a normal content upload.
-  if fpLStat(FDirectFileName, LocalStat) = 0 then
+  // A local symlink is recreated as a symlink, and nothing else: there is no
+  // falling back to uploading what it points at. That fallback used to open
+  // the destination for writing after the link had in fact been created
+  // (libssh2 reports failure for a symlink that succeeded), so the server
+  // followed the new link and overwrote the file it points to.
+  if (fpLStat(FDirectFileName, LocalStat) = 0) and FPS_ISLNK(LocalStat.st_mode) then
   begin
-    if FPS_ISLNK(LocalStat.st_mode) then
-    begin
-      LinkTarget:= fpReadLink(FDirectFileName);
-      if Length(LinkTarget) > 0 then
-      begin
-        // Remove any existing destination; sftp_symlink does not overwrite.
-        repeat
-          FLastError:= libssh2_sftp_unlink(FSFTPSession, PAnsiChar(FileName));
-          if FLastError = LIBSSH2_ERROR_EAGAIN then FSock.CanRead(10);
-        until FLastError <> LIBSSH2_ERROR_EAGAIN;
-        repeat
-          FLastError:= libssh2_sftp_symlink(FSFTPSession, PAnsiChar(LinkTarget), PAnsiChar(FileName));
-          if FLastError = LIBSSH2_ERROR_EAGAIN then FSock.CanRead(10);
-        until FLastError <> LIBSSH2_ERROR_EAGAIN;
-        if FLastError = 0 then
-        begin
-          Result:= True;
-          Exit;
-        end;
-      end;
-    end;
+    LinkTarget:= fpReadLink(FDirectFileName);
+    Exit((Length(LinkTarget) > 0) and StoreLink(FileName, LinkTarget));
   end;
 {$ENDIF}
 
@@ -696,9 +818,26 @@ begin
     if not Restore then
     begin
       TotalBytesToWrite:= FileSize;
-      Flags:= Flags or LIBSSH2_FXF_TRUNC
+      // Create only: this fails on anything already there, a dangling
+      // symlink included, so nothing is ever written through a link. What is
+      // in the way is looked at only then, keeping a new file at one request.
+      Flags:= Flags or LIBSSH2_FXF_EXCL;
+      // An overwrite most likely finds something: look first, saving the
+      // failed create. Same rules as below.
+      if FExpectExisting then
+      begin
+        Inc(Replaced);
+        case RemoteKind(FileName) of
+          rkNone: ;
+          rkFile: Flags:= (Flags and not LIBSSH2_FXF_EXCL) or LIBSSH2_FXF_TRUNC;
+          rkLink: if not RemoteRemoveLink(FileName) then Exit(False);
+          else Exit(False);
+        end;
+      end;
     end
     else begin
+      // Resuming appends to what is there: only ever to a regular file
+      if RemoteKind(FileName) <> rkFile then Exit(False);
       TotalBytesToWrite:= Self.FileSize(FileName);
       if (FileSize = TotalBytesToWrite) then Exit(True);
       if TotalBytesToWrite < 0 then TotalBytesToWrite:= 0;
@@ -723,6 +862,24 @@ begin
       if (TargetHandle = nil) then
       begin
         FLastError:= libssh2_session_last_errno(FSession);
+        if (FLastError <> LIBSSH2_ERROR_EAGAIN) and
+           ((Flags and LIBSSH2_FXF_EXCL) <> 0) and (Replaced < 3) then
+        begin
+          // Something is in the way: replace a symlink (the link, never its
+          // target), overwrite a regular file, and refuse anything else.
+          Inc(Replaced);
+          case RemoteKind(FileName) of
+            rkLink:
+              if not RemoteRemoveLink(FileName) then Exit(False);
+            rkFile:
+              Flags:= (Flags and not LIBSSH2_FXF_EXCL) or LIBSSH2_FXF_TRUNC;
+            else
+              // rkNone: creating failed for another reason (permissions...)
+              Exit(False);
+          end;
+          FLastError:= LIBSSH2_ERROR_EAGAIN;
+          Continue;
+        end;
         // An existing read-only target (e.g. a git object file) refuses the
         // open. When allowed, make it owner-writable once and open it again;
         // the source's mode is put back after the transfer.
@@ -1056,14 +1213,12 @@ begin
   StrPLCopy(FindData.cFileName, ServerToClient(AName), MAX_PATH - 1);
   FindData.ftLastWriteTime:= TWfxFileTime(UnixFileTimeToWinTime(Attributes.mtime));
   FindData.ftLastAccessTime:= TWfxFileTime(UnixFileTimeToWinTime(Attributes.atime));
-  // LinkTarget: the stat'ed target of a symlink, nil if it could not be read
+  // LinkTarget: the stat'ed target of a symlink, nil if it could not be read.
+  // A link to a directory is flagged as such but keeps its own size (the
+  // length of its target text) like any other link: sync compares links by it.
   if IsLink(Attributes) and Assigned(LinkTarget) and
      ((LinkTarget^.permissions and S_IFMT) = S_IFDIR) then
-  begin
-    FindData.nFileSizeLow:= 0;
-    FindData.nFileSizeHigh:= 0;
     FindData.dwFileAttributes:= FindData.dwFileAttributes or FILE_ATTRIBUTE_REPARSE_POINT;
-  end;
 end;
 
 function TSftpSend.FsFindClose(Handle: Pointer): Integer;
