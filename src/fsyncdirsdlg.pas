@@ -171,6 +171,8 @@ type
     FFileExists: TSyncRecState;
     // Folders the last compare could not read (skipped, left untouched)
     FUnreadableCount: Integer;
+    // Names that are a directory on one side and not on the other (left alone)
+    FTypeConflictCount: Integer;
     FSelectedItems: TStringListEx;
     FFileSourceL, FFileSourceR: IFileSource;
     FCmpFileSourceL, FCmpFileSourceR: IFileSource;
@@ -262,6 +264,10 @@ resourcestring
   rsSyncFoldersUnreadable = '%d folder(s) could not be read';
   rsSyncUnreadableWarning = '%d folder(s) could not be read. They are left'
     + ' untouched on both sides and will not be synchronized. Continue?';
+  rsSyncTypeConflicts = '%d item(s) differ in type (red)';
+  rsSyncTypeConflictWarning = '%d item(s) are a folder on one side and a file or'
+    + ' link on the other (shown in red). They are left untouched on both sides'
+    + ' and will not be synchronized. Continue?';
 
 procedure ShowSyncDirsDlg(FileView1, FileView2: TFileView);
 
@@ -297,11 +303,15 @@ type
     // A folder whose listing failed on that side. The record has no files and
     // its action is fixed at "do nothing", so nothing inside it is touched.
     FUnreadableL, FUnreadableR: Boolean;
+    // A directory on one side, a file or link on the other; action fixed too
+    FTypeConflict: Boolean;
   public
     constructor Create(AForm: TfrmSyncDirsDlg; RelPath: string);
     destructor Destroy; override;
     procedure UpdateState(ignoreDate: Boolean);
     function Unreadable: Boolean; inline;
+    // Rows the sync never acts on: unreadable or type conflict
+    function Fixed: Boolean; inline;
   end;
 
   { TCheckContentThread }
@@ -593,6 +603,11 @@ begin
   Result := FUnreadableL or FUnreadableR;
 end;
 
+function TFileSyncRec.Fixed: Boolean;
+begin
+  Result := Unreadable or FTypeConflict;
+end;
+
 destructor TFileSyncRec.Destroy;
 begin
   FreeAndNil(FFileL);
@@ -603,6 +618,14 @@ end;
 procedure TFileSyncRec.UpdateState(ignoreDate: Boolean);
 var
   FileTimeDiff: Integer;
+
+  function LinkLength(AFile: TFile): Int64;
+  begin
+    if AFile.LinkProperty.LinkTo <> EmptyStr then
+      Result := Length(AFile.LinkProperty.LinkTo)
+    else
+      Result := AFile.Size;
+  end;
 
   function AreEquivalentLinks: Boolean;
   var
@@ -623,9 +646,10 @@ var
     begin
       // One side doesn't expose the link target (e.g. WFX/SFTP plugin).
       // SFTP file size for a symlink equals the byte length of its target
-      // string, so equal sizes strongly imply equal targets. This is a
-      // best-effort check for the copy-then-verify use case.
-      Result := FFileL.Size = FFileR.Size;
+      // string, so equal lengths strongly imply equal targets. Where the
+      // target is known its length is used instead of the size, which is 0
+      // for a local link to a directory.
+      Result := LinkLength(FFileL) = LinkLength(FFileR);
       Exit;
     end;
 
@@ -746,7 +770,8 @@ procedure TfrmSyncDirsDlg.btnSynchronizeClick(Sender: TObject);
 var
   OperationType: TFileSourceOperationType;
   FileExistsOption: TFileSourceOperationOptionFileExists;
-  SymLinkOption: TFileSourceOperationOptionSymLink = fsooslNone;
+  // A link is always synced as a link; see ScanDirs
+  SymLinkOption: TFileSourceOperationOptionSymLink = fsooslDontFollow;
   SkipAllErrors: Boolean = False;
   OverwriteReadOnly: Boolean;
   DirExistsOption: TFileSourceOperationOptionDirectoryExists;
@@ -902,6 +927,10 @@ begin
 
   if (FUnreadableCount > 0) and
      (MessageDlg(Format(rsSyncUnreadableWarning, [FUnreadableCount]),
+                 mtWarning, [mbYes, mbNo], 0, mbNo) <> mrYes) then
+    Exit;
+  if (FTypeConflictCount > 0) and
+     (MessageDlg(Format(rsSyncTypeConflictWarning, [FTypeConflictCount]),
                  mtWarning, [mbYes, mbNo], 0, mbNo) <> mrYes) then
     Exit;
 
@@ -1301,6 +1330,7 @@ begin
         else Font.Color := clWindowText;
         end;
       end;
+      if r.FTypeConflict then Font.Color := clRed;
       if Assigned(r.FFileL) then
       begin
         with hCols[0] do
@@ -1548,7 +1578,7 @@ procedure TfrmSyncDirsDlg.FillFoundItemsDG;
     begin
       r := TFileSyncRec(FVisibleItems.Objects[i]);
       // Unreadable folders are reported separately, see UpdateStatusBar
-      if Assigned(r) and not r.Unreadable then
+      if Assigned(r) and not r.Fixed then
       begin
         Inc(Ftotal);
         if Assigned(r.FFileL) and not Assigned(r.FFileR) then Inc(FuniqueL) else
@@ -1616,7 +1646,7 @@ begin
         { check filter }
         r := TFileSyncRec(Objects[j]);
         // Unreadable folders are always shown: they are why the result is partial
-        if r.Unreadable or
+        if r.Fixed or
            (((Assigned(r.FFileL) <> Assigned(r.FFileR)) and AFilter.single or
            (Assigned(r.FFileL) = Assigned(r.FFileR)) and AFilter.dup)
            and
@@ -1785,12 +1815,72 @@ var
   function ScanDir(dir: string; Share: Double; HasLeft: Boolean = True;
     HasRight: Boolean = True): Integer;
 
+    procedure AddRecord(it: TStringList; const fn: String; f: TFile; sideLeft: Boolean);
+    var
+      j: Integer;
+      r: TFileSyncRec;
+    begin
+      j := it.IndexOf(fn);
+      if j < 0 then
+        r := TFileSyncRec.Create(Self, dir)
+      else
+        r := TFileSyncRec(it.Objects[j]);
+      if sideLeft then
+      begin
+        r.FFileL := f.Clone;
+        r.UpdateState(ignoreDate);
+      end else begin
+        r.FFileR := f.Clone;
+        r.UpdateState(ignoreDate);
+        // Links are compared by their targets, not by the content behind them
+        if ByContent and (r.FState = srsEqual) and (r.FFileR.Size > 0) and
+           not r.FFileR.IsLink and not (Assigned(r.FFileL) and r.FFileL.IsLink) then
+        begin
+          r.FAction := srsUnknown;
+          r.FState := srsUnknown;
+        end;
+      end;
+      it.AddObject(fn, r);
+    end;
+
+    // A name that is a directory on one side and a file or link on the other
+    // becomes one "type differs" record that the sync leaves alone: the
+    // directory is not walked into and nothing on either side is replaced.
+    // Copying into it would write through the link (or fail on the file), and
+    // replacing either side means deleting data the user has to decide about.
+    procedure MarkTypeConflicts(it, dirs: TStringList; sideLeft: Boolean);
+    var
+      i, j: Integer;
+      r: TFileSyncRec;
+    begin
+      for i := dirs.Count - 1 downto 0 do
+      begin
+        j := it.IndexOf(dirs[i]);
+        if j < 0 then Continue;
+        r := TFileSyncRec(it.Objects[j]);
+        if sideLeft then
+        begin
+          if Assigned(r.FFileL) then Continue;
+          r.FFileL := TFile(dirs.Objects[i]);
+        end
+        else begin
+          if Assigned(r.FFileR) then Continue;
+          r.FFileR := TFile(dirs.Objects[i]);
+        end;
+        dirs.Objects[i] := nil;  // ownership handed to the record
+        dirs.Delete(i);
+        r.FTypeConflict := True;
+        r.FState := srsNotEq;
+        r.FAction := srsDoNothing;
+        Inc(FTypeConflictCount);
+      end;
+    end;
+
     procedure ProcessOneSide(it, dirs: TStringList; var ASide: Boolean; sideLeft: Boolean;
       fs: TFiles);
     var
-      i, j: Integer;
+      i: Integer;
       f: TFile;
-      r: TFileSyncRec;
       fn: String;
     begin
       if chkOnlySelected.Checked and ASide then
@@ -1807,7 +1897,7 @@ var
         begin
           f := fs.Items[i];
           fn := NormalizeFileName(f.Name);
-          if f.IsDirectory or f.IsLinkToDirectory then
+          if f.IsDirectory and not f.IsLink then
           begin
             if (f.NameNoExt <> '.') and (f.NameNoExt <> '..') then
             begin
@@ -1818,30 +1908,21 @@ var
                 dirs.AddObject(fn, f.Clone);
             end;
           end
+          else if f.IsLinkToDirectory then
+          begin
+            // A link to a directory is synced as a link, like a link to a
+            // file: compared by its target, copied or deleted as a link, and
+            // never walked into. Walking into it reached the same files twice
+            // (through the link and through its target) and turned the link
+            // into a real copy of the directory on the other side. Directory
+            // exclusions apply to it, file masks do not.
+            if (Template = nil) or (CheckDirectoryName(Template.FileChecks, f.Name)) then
+              AddRecord(it, fn, f, sideLeft);
+          end
           else if (Template = nil) or Template.CheckFile(f) then
           begin
             if ((MaskList = nil) or MaskList.Matches(f.Name)) then
-            begin
-              j := it.IndexOf(fn);
-              if j < 0 then
-                r := TFileSyncRec.Create(Self, dir)
-              else
-                r := TFileSyncRec(it.Objects[j]);
-              if sideLeft then
-              begin
-                r.FFileL := f.Clone;
-                r.UpdateState(ignoreDate);
-              end else begin
-                r.FFileR := f.Clone;
-                r.UpdateState(ignoreDate);
-                if ByContent and (r.FState = srsEqual) and (r.FFileR.Size > 0) then
-                begin
-                  r.FAction := srsUnknown;
-                  r.FState := srsUnknown;
-                end;
-              end;
-              it.AddObject(fn, r);
-            end;
+              AddRecord(it, fn, f, sideLeft);
           end;
         end;
       finally
@@ -1947,6 +2028,8 @@ var
       if fsR = nil then fsR := TFiles.Create(BaseDirR + dir);
       ProcessOneSide(it, dirsLeft, LeftFirst, True, fsL);
       ProcessOneSide(it, dirsRight, RightFirst, False, fsR);
+      MarkTypeConflicts(it, dirsLeft, True);
+      MarkTypeConflicts(it, dirsRight, False);
       SortFoundItems(it);
       if not Subdirs then
       begin
@@ -2097,6 +2180,7 @@ begin
     FFileExists:= srsCopyLeft;
   end;
   FUnreadableCount := 0;
+  FTypeConflictCount := 0;
   NotifySyncSearch(FS_STATUS_START);
   try
     if ScanDir('', 1.0) < 0 then
@@ -2239,6 +2323,8 @@ begin
   s := Format(rsFilesFound, [Ftotal, Fequal, Fnoneq, FuniqueL, FuniqueR]);
   if FUnreadableCount > 0 then
     s := s + '  ' + Format(rsSyncFoldersUnreadable, [FUnreadableCount]);
+  if FTypeConflictCount > 0 then
+    s := s + '  ' + Format(rsSyncTypeConflicts, [FTypeConflictCount]);
   if Assigned(CheckContentThread)
   and not TCheckContentThread(CheckContentThread).Done then
     s := s + ' ...';
@@ -2264,7 +2350,7 @@ var
   ca: TSyncRecState;
 begin
   sr := TFileSyncRec(FVisibleItems.Objects[r]);
-  if not Assigned(sr) or (sr.FState = srsEqual) or sr.Unreadable then Exit;
+  if not Assigned(sr) or (sr.FState = srsEqual) or sr.Fixed then Exit;
   ca := sr.FAction;
   case ca of
   srsNotEq:
@@ -2318,7 +2404,7 @@ var
 
   procedure UpdateAction(NewAction: TSyncRecState);
   begin
-    if SyncRec.Unreadable then Exit;
+    if SyncRec.Fixed then Exit;
     case NewAction of
       srsUnknown:
         NewAction:= SyncRec.FState;
@@ -2573,7 +2659,7 @@ var
 
   procedure AddRemoveItem;
   begin
-    if SyncRec.Unreadable then Exit;
+    if SyncRec.Fixed then Exit;
     if Assigned(ALeft) and Assigned(SyncRec.FFileL) then
       ALeft.Add(SyncRec.FFileL.Clone);
 
