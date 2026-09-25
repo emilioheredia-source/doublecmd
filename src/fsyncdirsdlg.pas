@@ -1666,12 +1666,13 @@ var
   BaseDirL, BaseDirR: string;
   ignoreDate, Subdirs, ByContent, EmptyDirs: Boolean;
   LastMessagesTime: QWord = 0;
-  // Progress accounting over all directories discovered so far, so the
-  // percentage advances smoothly instead of only per top-level directory.
-  // The displayed value is clamped to never step backwards, since the
-  // total keeps growing while subdirectories are still being discovered.
-  ScanDone: Integer = 0;
-  ScanTotal: Integer = 1;
+  // Share of the whole tree already scanned, 0..1. The tree's size is not
+  // known in advance, so each directory hands its share on to its
+  // subdirectories in equal parts, and a directory adds its share once
+  // nothing below it is left to scan. Counting directories discovered vs.
+  // done instead kept the two almost equal during the depth-first walk,
+  // so the percentage sat at 99% for most of a long scan.
+  ScanProgress: Double = 0;
   ScanShownPercent: Integer = 0;
   // "Skip all" answered for a folder that could not be read
   SkipAllUnreadable: Boolean = False;
@@ -1768,7 +1769,8 @@ var
   // count is zero is an empty folder (of matching files) and, when enabled,
   // is mirrored as a unit. HasLeft/HasRight say on which sides the directory
   // exists; the other side is not listed, since that listing would fail.
-  function ScanDir(dir: string; HasLeft: Boolean = True; HasRight: Boolean = True): Integer;
+  function ScanDir(dir: string; Share: Double; HasLeft: Boolean = True;
+    HasRight: Boolean = True): Integer;
 
     procedure ProcessOneSide(it, dirs: TStringList; var ASide: Boolean; sideLeft: Boolean;
       fs: TFiles);
@@ -1875,6 +1877,7 @@ var
     fsL: TFiles = nil;
     fsR: TFiles = nil;
     okL, okR: Boolean;
+    childShare: Double;
   begin
     Result := 0;
     i := FFoundItems.IndexOf(dir);
@@ -1903,7 +1906,7 @@ var
         LastMessagesTime := GetTickCount64;
         // Update the displayed percentage only when pumping messages: a
         // status bar update per scanned directory is measurably expensive
-        ScanShownPercent := Max(ScanShownPercent, ScanDone * 100 div ScanTotal);
+        ScanShownPercent := Max(ScanShownPercent, Min(99, Trunc(ScanProgress * 100)));
         StatusBar1.Panels[0].Text :=
           Format(rsComparingPercent, [ScanShownPercent]);
         Application.ProcessMessages;
@@ -1924,6 +1927,7 @@ var
         UnreadableL := not okL;
         UnreadableR := okL and not okR;
         if not FCancel then Result := -1;
+        ScanProgress := ScanProgress + Share;
         Exit;
       end;
       if fsL = nil then fsL := TFiles.Create(BaseDirL + dir);
@@ -1931,12 +1935,22 @@ var
       ProcessOneSide(it, dirsLeft, LeftFirst, True, fsL);
       ProcessOneSide(it, dirsRight, RightFirst, False, fsR);
       SortFoundItems(it);
-      Inc(ScanDone);
       if not Subdirs then
       begin
         Result := it.Count - itBase;
+        ScanProgress := ScanProgress + Share;
         Exit;
       end;
+      // Split this directory's share among the subdirectories scanned below:
+      // all left ones, plus right-only ones unless mirroring deletes them.
+      j := dirsLeft.Count;
+      if not chkAsymmetric.Checked then
+        for i := 0 to dirsRight.Count - 1 do
+          if dirsLeft.IndexOf(dirsRight[i]) < 0 then Inc(j);
+      if j = 0 then
+        ScanProgress := ScanProgress + Share
+      else
+        childShare := Share / j;
       // Directories present on both sides are recursed into to compare their
       // contents (unchanged). A directory present on the right side only is, in
       // asymmetric (mirror) mode, deleted as a whole: record it as one unit and
@@ -1955,8 +1969,7 @@ var
           TObject(dirsRight.Objects[j]).Free;
           dirsRight.Objects[j] := nil;
         end;
-        Inc(ScanTotal);
-        childCount := ScanDir(dir + d, True, j >= 0);
+        childCount := ScanDir(dir + d, childShare, True, j >= 0);
         if FCancel then Exit;
         if childCount < 0 then
         begin
@@ -1987,8 +2000,7 @@ var
         else
         begin
           d := dirsRight[i];
-          Inc(ScanTotal);
-          childCount := ScanDir(dir + d, False, True);
+          childCount := ScanDir(dir + d, childShare, False, True);
           if FCancel then Exit;
           if childCount < 0 then
           begin
@@ -2072,7 +2084,7 @@ begin
     FFileExists:= srsCopyLeft;
   end;
   FUnreadableCount := 0;
-  if ScanDir('') < 0 then
+  if ScanDir('', 1.0) < 0 then
     AddUnreadableRecord(TStringList(FFoundItems.Objects[FFoundItems.IndexOf('')]), '', '.');
   MaskList.Free;
   OwnTemplate.Free;
