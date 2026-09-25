@@ -72,6 +72,7 @@ const
   LIBSSH2_ERROR_SOCKET_TIMEOUT = -(30);
   LIBSSH2_ERROR_SFTP_PROTOCOL = -(31);
   // SFTP status code from libssh2_sftp_last_error after LIBSSH2_ERROR_SFTP_PROTOCOL
+  LIBSSH2_FX_NO_SUCH_FILE = 2;
   LIBSSH2_FX_PERMISSION_DENIED = 3;
   LIBSSH2_ERROR_REQUEST_DENIED = -(32);
   LIBSSH2_ERROR_METHOD_NOT_SUPPORTED = -(33);
@@ -313,6 +314,13 @@ var
                                    const dest_filename: PAnsiChar;
                                    dest_filename_len: cuint;
                                    flags: clong): cint; cdecl;
+  // Optional (libssh2 1.11+): OpenSSH posix-rename, which replaces an existing
+  // destination atomically. nil when the library does not provide it.
+  libssh2_sftp_posix_rename_ex: function(sftp: PLIBSSH2_SFTP;
+                                   const source_filename: PAnsiChar;
+                                   source_filename_len: csize_t;
+                                   const dest_filename: PAnsiChar;
+                                   dest_filename_len: csize_t): cint; cdecl;
   libssh2_sftp_unlink_ex: function(sftp: PLIBSSH2_SFTP;
                                    const filename: PAnsiChar;
                                    filename_len: cuint): cint; cdecl;
@@ -611,6 +619,7 @@ begin
     libssh2_sftp_seek64:= SafeGetProcAddress(libssh2, 'libssh2_sftp_seek64');
     //* Miscellaneous Ops */
     libssh2_sftp_rename_ex:= SafeGetProcAddress(libssh2, 'libssh2_sftp_rename_ex');
+    libssh2_sftp_posix_rename_ex:= GetProcAddress(libssh2, 'libssh2_sftp_posix_rename_ex');
     libssh2_sftp_unlink_ex:= SafeGetProcAddress(libssh2, 'libssh2_sftp_unlink_ex');
     libssh2_sftp_statvfs:= SafeGetProcAddress(libssh2, 'libssh2_sftp_statvfs');
     libssh2_sftp_mkdir_ex:= SafeGetProcAddress(libssh2, 'libssh2_sftp_mkdir_ex');

@@ -939,6 +939,12 @@ begin
       if not FtpSend.CanResume then Exit(FS_FILE_EXISTS);
       Exit(FS_FILE_EXISTSRESUMEALLOWED);
     end;
+    // Overwriting a local symlink replaces the link: writing to its path
+    // would follow it and overwrite the file it points to instead.
+    if (CopyFlags and FS_COPYFLAGS_FORCE <> 0) and FPS_ISLNK(mbFileGetAttr(FileName)) then
+    begin
+      if not mbDeleteFile(FileName) then Exit(FS_FILE_WRITEERROR);
+    end;
     // A read-only local target cannot be opened for writing. When allowed,
     // make it writable; a successful download then applies the remote mode.
     if (CopyFlags and FS_COPYFLAGS_OVERWRITE_READONLY <> 0) and
@@ -999,6 +1005,7 @@ begin
     FtpSend.DataStream.Clear;
     FtpSend.DirectFileName := FileName;
     FtpSend.OverwriteReadOnly := (CopyFlags and FS_COPYFLAGS_OVERWRITE_READONLY) <> 0;
+    FtpSend.ExpectExisting := (CopyFlags and FS_COPYFLAGS_OVERWRITE) <> 0;
     ProgressProc(PluginNumber, LocalName, RemoteName, 0);
     if FtpSend.StoreFile(sFileName, (CopyFlags and FS_COPYFLAGS_RESUME) <> 0) then
     begin
