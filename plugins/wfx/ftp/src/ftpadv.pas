@@ -103,6 +103,7 @@ type
     FEncoding: String;
     FSourceIsLink: Boolean;
     FOverwriteReadOnly: Boolean;
+    FExpectExisting: Boolean;
     FFindFailed: Boolean;
     FPublicKey, FPrivateKey: String;
     function Connect: Boolean; override;
@@ -144,6 +145,10 @@ type
     function ExecuteCommand(const Command: String; const Directory: String = ''): Boolean; virtual;
     function RetrieveFile(const FileName: string; FileSize: Int64; Restore: Boolean): Boolean; virtual; overload;
     function NetworkError(): Boolean; virtual;
+    // A sync compare is about to list a whole tree (FS_STATUS_OP_SYNC_SEARCH).
+    // A protocol that can fetch directories ahead may do so until the end call.
+    procedure BeginSyncSearch; virtual;
+    procedure EndSyncSearch; virtual;
   public
     property Encoding: String write SetEncoding;
     property UseAllocate: Boolean write FUseAllocate;
@@ -158,6 +163,9 @@ type
     // Set before StoreFile: a read-only target that already exists may be made
     // writable so it can be overwritten (FS_COPYFLAGS_OVERWRITE_READONLY).
     property OverwriteReadOnly: Boolean read FOverwriteReadOnly write FOverwriteReadOnly;
+    // Set before StoreFile: the caller overwrites, so the target most likely
+    // exists; look at it first rather than after a failed create.
+    property ExpectExisting: Boolean read FExpectExisting write FExpectExisting;
     // After FsFindFirstW returned nil: True if the directory could not be
     // listed, False if it is merely empty.
     property FindFailed: Boolean read FFindFailed;
@@ -1134,6 +1142,14 @@ end;
 function TFTPSendEx.NetworkError(): Boolean;
 begin
   Result := FSock.CanRead(0);
+end;
+
+procedure TFTPSendEx.BeginSyncSearch;
+begin
+end;
+
+procedure TFTPSendEx.EndSyncSearch;
+begin
 end;
 
 end.
