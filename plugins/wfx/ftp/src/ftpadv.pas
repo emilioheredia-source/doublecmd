@@ -144,6 +144,10 @@ type
     function ExecuteCommand(const Command: String; const Directory: String = ''): Boolean; virtual;
     function RetrieveFile(const FileName: string; FileSize: Int64; Restore: Boolean): Boolean; virtual; overload;
     function NetworkError(): Boolean; virtual;
+    // A sync compare is about to list a whole tree (FS_STATUS_OP_SYNC_SEARCH).
+    // A protocol that can fetch directories ahead may do so until the end call.
+    procedure BeginSyncSearch; virtual;
+    procedure EndSyncSearch; virtual;
   public
     property Encoding: String write SetEncoding;
     property UseAllocate: Boolean write FUseAllocate;
@@ -1134,6 +1138,14 @@ end;
 function TFTPSendEx.NetworkError(): Boolean;
 begin
   Result := FSock.CanRead(0);
+end;
+
+procedure TFTPSendEx.BeginSyncSearch;
+begin
+end;
+
+procedure TFTPSendEx.EndSyncSearch;
+begin
 end;
 
 end.

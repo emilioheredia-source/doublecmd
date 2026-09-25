@@ -276,7 +276,7 @@ uses
   uOSUtils, uLng, uMasks, Math, uClipboard, IntegerList, fMaskInputDlg, uSearchTemplate,
   LCLVersion, SysConst, DCStrUtils, DCOSUtils, uTypes, uFileSystemDeleteOperation,
   uFileSystemCopyOperation, uFileSystemUtil, uFindFiles, uFileSourceListOperation,
-  uShowMsg;
+  uShowMsg, uWfxPluginFileSource, WfxPlugin;
 
 {$R *.lfm}
 
@@ -1748,6 +1748,19 @@ var
     until False;
   end;
 
+  // Tell plugin file systems that a whole tree is about to be listed, as Total
+  // Commander does (FS_STATUS_OP_SYNC_SEARCH), so they may fetch ahead: over
+  // SFTP the compare otherwise waits out several round trips per directory.
+  procedure NotifySyncSearch(StartEnd: Integer);
+  var
+    Wfx: IWfxPluginFileSource;
+  begin
+    if Supports(FFileSourceL, IWfxPluginFileSource, Wfx) then
+      Wfx.WfxModule.WfxStatusInfo(BaseDirL, StartEnd, FS_STATUS_OP_SYNC_SEARCH);
+    if Supports(FFileSourceR, IWfxPluginFileSource, Wfx) then
+      Wfx.WfxModule.WfxStatusInfo(BaseDirR, StartEnd, FS_STATUS_OP_SYNC_SEARCH);
+  end;
+
   // A folder skipped because it could not be read: one row with no files and
   // no action, so neither side of it is copied or deleted.
   procedure AddUnreadableRecord(it: TStringList; const dir, name: string);
@@ -2084,8 +2097,13 @@ begin
     FFileExists:= srsCopyLeft;
   end;
   FUnreadableCount := 0;
-  if ScanDir('', 1.0) < 0 then
-    AddUnreadableRecord(TStringList(FFoundItems.Objects[FFoundItems.IndexOf('')]), '', '.');
+  NotifySyncSearch(FS_STATUS_START);
+  try
+    if ScanDir('', 1.0) < 0 then
+      AddUnreadableRecord(TStringList(FFoundItems.Objects[FFoundItems.IndexOf('')]), '', '.');
+  finally
+    NotifySyncSearch(FS_STATUS_END);
+  end;
   MaskList.Free;
   OwnTemplate.Free;
   FillFoundItemsDG;

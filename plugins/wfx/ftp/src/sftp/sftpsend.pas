@@ -44,6 +44,18 @@ type
     // content its target holds. False when the link cannot be read or created.
     function RetrieveLink(const FileName: String): Boolean;
 {$ENDIF}
+  private
+    // Directory prefetch while a sync compare lists a whole tree, see
+    // BeginSyncSearch. Listings are keyed by path (with trailing '/').
+    FPrefetch: Boolean;
+    FPrefetchCache: TStringList;
+    FPrefetchChannels: array of PLIBSSH2_SFTP;
+    FPrefetchPending: TStringList;  // found, not fetched yet; top = next
+    FPrefetchSeen: TStringList;     // queued or listed during this compare
+    procedure Prefetch(const First: String);
+    procedure FreePrefetchCache;
+    procedure FillFindData(const AName: String; const Attributes: LIBSSH2_SFTP_ATTRIBUTES;
+      LinkTarget: PLIBSSH2_SFTP_ATTRIBUTES; var FindData: TWin32FindDataW);
   protected
     FCopySCP: Boolean;
     FSFTPSession: PLIBSSH2_SFTP;
@@ -52,8 +64,11 @@ type
     function LinkAlive: Boolean; override;
   public
     constructor Create(const Encoding: String); override;
+    destructor Destroy; override;
     function Login: Boolean; override;
     function Logout: Boolean; override;
+    procedure BeginSyncSearch; override;
+    procedure EndSyncSearch; override;
     function GetCurrentDir: String; override;
     function FileSize(const FileName: String): Int64; override;
     function CreateDir(const Directory: string): Boolean; override;
@@ -83,12 +98,72 @@ const
   READ_BUFFER_SIZE  = 131072;
   WRITE_BUFFER_SIZE = MAX_SFTP_OUTGOING_SIZE * 20;
 
+  // Directory prefetch: SFTP channels used at once (the main one included;
+  // OpenSSH allows 10 per connection by default), directories fetched per
+  // batch - bounded so a cancelled compare does not wait long - and the
+  // number of fetched directories below which the cache is topped up.
+  PREFETCH_CHANNELS = 8;
+  PREFETCH_BATCH = 64;
+  PREFETCH_LOW = 16;
+
 type
+  TDirEntry = record
+    Name: String;                        // as the server sent it
+    Attributes: LIBSSH2_SFTP_ATTRIBUTES;
+    HasTarget: Boolean;                  // a symlink whose target could be stat'ed
+    Target: LIBSSH2_SFTP_ATTRIBUTES;
+  end;
+
+  { TDirListing }
+
+  // A directory read completely ahead of time
+  TDirListing = class
+    Path: String;
+    Failed: Boolean;
+    Closed: Boolean;           // directory handle closed, entries complete
+    PendingLinks: Integer;     // symlinks whose target is still being stat'ed
+    Count: Integer;
+    Entries: array of TDirEntry;
+    procedure Add(const AName: String; const Attrs: LIBSSH2_SFTP_ATTRIBUTES);
+  end;
+
   PFindRec = ^TFindRec;
   TFindRec = record
     Path: String;
     Handle: PLIBSSH2_SFTP_HANDLE;
+    // When set, entries are served from this prefetched listing, not Handle
+    Listing: TDirListing;
+    Index: Integer;
   end;
+
+  TPrefetchStage = (psIdle, psOpen, psRead, psClose, psStat);
+
+  // One SFTP channel, non-blocking, reading one directory (psOpen..psClose)
+  // or stat'ing one symlink target in Listing (psStat)
+  TPrefetchWorker = record
+    Sftp: PLIBSSH2_SFTP;
+    Stage: TPrefetchStage;
+    Handle: PLIBSSH2_SFTP_HANDLE;
+    Listing: TDirListing;
+    LinkIndex: Integer;
+  end;
+
+function IsLink(const Attributes: LIBSSH2_SFTP_ATTRIBUTES): Boolean; inline;
+begin
+  Result:= (Attributes.permissions and S_IFMT) = S_IFLNK;
+end;
+
+{ TDirListing }
+
+procedure TDirListing.Add(const AName: String; const Attrs: LIBSSH2_SFTP_ATTRIBUTES);
+begin
+  if Count = Length(Entries) then
+    SetLength(Entries, Count * 2 + 16);
+  Entries[Count].Name:= AName;
+  Entries[Count].Attributes:= Attrs;
+  Entries[Count].HasTarget:= False;
+  Inc(Count);
+end;
 
 { TSftpSend }
 
@@ -144,6 +219,279 @@ constructor TSftpSend.Create(const Encoding: String);
 begin
   inherited Create(Encoding);
   FCanResume := True;
+end;
+
+destructor TSftpSend.Destroy;
+begin
+  // The channels go with the session; only the cached listings are ours
+  FreePrefetchCache;
+  FreeAndNil(FPrefetchCache);
+  FreeAndNil(FPrefetchPending);
+  FreeAndNil(FPrefetchSeen);
+  inherited Destroy;
+end;
+
+procedure TSftpSend.BeginSyncSearch;
+begin
+  if FCopySCP then Exit;
+  if FPrefetchCache = nil then
+  begin
+    FPrefetchCache:= TStringList.Create;
+    FPrefetchCache.Sorted:= True;
+    FPrefetchCache.CaseSensitive:= True;
+    FPrefetchPending:= TStringList.Create;
+    FPrefetchSeen:= TStringList.Create;
+    FPrefetchSeen.Sorted:= True;
+    FPrefetchSeen.CaseSensitive:= True;
+  end;
+  FreePrefetchCache;
+  FPrefetch:= True;
+end;
+
+procedure TSftpSend.EndSyncSearch;
+var
+  I: Integer;
+begin
+  FPrefetch:= False;
+  FreePrefetchCache;
+  for I:= 0 to High(FPrefetchChannels) do
+    libssh2_sftp_shutdown(FPrefetchChannels[I]);
+  FPrefetchChannels:= nil;
+end;
+
+procedure TSftpSend.FreePrefetchCache;
+var
+  I: Integer;
+begin
+  if FPrefetchCache = nil then Exit;
+  for I:= 0 to FPrefetchCache.Count - 1 do
+    FPrefetchCache.Objects[I].Free;
+  FPrefetchCache.Clear;
+  FPrefetchPending.Clear;
+  FPrefetchSeen.Clear;
+end;
+
+procedure TSftpSend.Prefetch(const First: String);
+var
+  I, Rc, Busy, Active, Listed: Integer;
+  FirstPath: String;
+  Progress: Boolean;
+  Sftp: PLIBSSH2_SFTP;
+  Workers: array of TPrefetchWorker;
+  // Symlinks waiting for their target to be stat'ed, by any free channel:
+  // pairs of (listing, entry index)
+  LinkJobs: TFPList;
+  LinkIndexes: array of Integer;
+  InFlight: TFPList;
+  Attrs: LIBSSH2_SFTP_ATTRIBUTES;
+  EntryName: String;
+  AName: array[0..1023] of AnsiChar;
+  AFullData: array[0..2047] of AnsiChar;
+
+  // The directory is complete: cache it and queue its subdirectories. They go
+  // on top of the pending stack in the order the compare visits them (names
+  // ascending), so what is fetched next is what the compare asks for next.
+  procedure Finish(Listing: TDirListing);
+  var
+    J: Integer;
+    SubDirs: TStringList;
+  begin
+    if not Listing.Failed then
+    begin
+      SubDirs:= TStringList.Create;
+      try
+        for J:= 0 to Listing.Count - 1 do
+          with Listing.Entries[J] do
+            // Real directories only: following links could loop
+            if ((Attributes.permissions and S_IFMT) = S_IFDIR) and
+               (Name <> '.') and (Name <> '..') then
+              SubDirs.Add(Name);
+        SubDirs.Sort;
+        for J:= SubDirs.Count - 1 downto 0 do
+          if FPrefetchSeen.IndexOf(Listing.Path + SubDirs[J] + '/') < 0 then
+          begin
+            FPrefetchSeen.Add(Listing.Path + SubDirs[J] + '/');
+            FPrefetchPending.Add(Listing.Path + SubDirs[J] + '/');
+          end;
+      finally
+        SubDirs.Free;
+      end;
+    end;
+    InFlight.Remove(Listing);
+    FPrefetchCache.AddObject(Listing.Path, Listing);
+  end;
+
+  // Entries read: queue the symlinks for their stat, share the work out
+  procedure QueueLinks(Listing: TDirListing);
+  var
+    J: Integer;
+  begin
+    if Listing.Failed then Exit;
+    for J:= 0 to Listing.Count - 1 do
+      if IsLink(Listing.Entries[J].Attributes) then
+      begin
+        LinkJobs.Add(Listing);
+        SetLength(LinkIndexes, LinkJobs.Count);
+        LinkIndexes[LinkJobs.Count - 1]:= J;
+        Inc(Listing.PendingLinks);
+      end;
+  end;
+
+  procedure LinkDone(Listing: TDirListing);
+  begin
+    Dec(Listing.PendingLinks);
+    if Listing.Closed and (Listing.PendingLinks = 0) then Finish(Listing);
+  end;
+
+  // Advance one worker by one call. False when that call would block.
+  function Step(var W: TPrefetchWorker): Boolean;
+  begin
+    Result:= True;
+    case W.Stage of
+      psOpen:
+        begin
+          W.Handle:= libssh2_sftp_opendir(W.Sftp, PAnsiChar(W.Listing.Path));
+          if (W.Handle = nil) then
+          begin
+            if libssh2_session_last_errno(FSession) = LIBSSH2_ERROR_EAGAIN then
+              Exit(False);
+            W.Listing.Failed:= True;
+            W.Listing.Closed:= True;
+            Finish(W.Listing);
+            W.Stage:= psIdle;
+          end
+          else W.Stage:= psRead;
+        end;
+      psRead:
+        begin
+          Rc:= libssh2_sftp_readdir_ex(W.Handle, AName, SizeOf(AName),
+                                       AFullData, SizeOf(AFullData), @Attrs);
+          if Rc = LIBSSH2_ERROR_EAGAIN then Exit(False);
+          if Rc > 0 then
+          begin
+            SetString(EntryName, PAnsiChar(@AName[0]), Rc);
+            W.Listing.Add(EntryName, Attrs);
+          end
+          else begin
+            // 0 is the end of the directory, anything else an error
+            if Rc < 0 then W.Listing.Failed:= True;
+            QueueLinks(W.Listing);
+            W.Stage:= psClose;
+          end;
+        end;
+      psClose:
+        begin
+          if libssh2_sftp_closedir(W.Handle) = LIBSSH2_ERROR_EAGAIN then
+            Exit(False);
+          W.Listing.Closed:= True;
+          if W.Listing.PendingLinks = 0 then Finish(W.Listing);
+          W.Stage:= psIdle;
+        end;
+      psStat:
+        with W.Listing.Entries[W.LinkIndex] do
+        begin
+          // Tells a link to a directory from any other link
+          Rc:= libssh2_sftp_stat(W.Sftp, PAnsiChar(W.Listing.Path + Name), @Target);
+          if Rc = LIBSSH2_ERROR_EAGAIN then Exit(False);
+          HasTarget:= (Rc = 0);
+          LinkDone(W.Listing);
+          W.Stage:= psIdle;
+        end;
+    end;
+  end;
+
+  // Give an idle worker something to do: symlinks first, so directories that
+  // have been read complete soonest; then First; then the top of the pending
+  // stack. Past the batch size, idle channels still take directories while
+  // another channel is busy, up to a hard cap that keeps a cancelled compare
+  // responsive.
+  function Assign(var W: TPrefetchWorker): Boolean;
+  var
+    APath: String;
+  begin
+    Result:= True;
+    if LinkJobs.Count > 0 then
+    begin
+      W.Listing:= TDirListing(LinkJobs[LinkJobs.Count - 1]);
+      W.LinkIndex:= LinkIndexes[LinkJobs.Count - 1];
+      LinkJobs.Delete(LinkJobs.Count - 1);
+      W.Stage:= psStat;
+      Exit;
+    end;
+    if not ((Listed < PREFETCH_BATCH) or
+            ((Active > 0) and (Listed < 4 * PREFETCH_BATCH))) then
+      Exit(False);
+    if FirstPath <> '' then
+    begin
+      APath:= FirstPath;
+      FirstPath:= '';
+    end
+    else if FPrefetchPending.Count > 0 then
+    begin
+      APath:= FPrefetchPending[FPrefetchPending.Count - 1];
+      FPrefetchPending.Delete(FPrefetchPending.Count - 1);
+    end
+    else
+      Exit(False);
+    Inc(Listed);
+    W.Listing:= TDirListing.Create;
+    W.Listing.Path:= APath;
+    InFlight.Add(W.Listing);
+    W.Stage:= psOpen;
+  end;
+
+begin
+  // Extra channels on the same SSH connection, opened once per compare. The
+  // server may allow fewer; work with whatever it grants.
+  if FPrefetchChannels = nil then
+    for I:= 2 to PREFETCH_CHANNELS do
+    begin
+      Sftp:= libssh2_sftp_init(FSession);
+      if Sftp = nil then Break;
+      SetLength(FPrefetchChannels, Length(FPrefetchChannels) + 1);
+      FPrefetchChannels[High(FPrefetchChannels)]:= Sftp;
+    end;
+
+  SetLength(Workers, Length(FPrefetchChannels) + 1);
+  for I:= 0 to High(Workers) do
+  begin
+    if I = 0 then
+      Workers[I].Sftp:= FSFTPSession
+    else
+      Workers[I].Sftp:= FPrefetchChannels[I - 1];
+    Workers[I].Stage:= psIdle;
+  end;
+
+  Listed:= 0;
+  FirstPath:= First;
+  LinkJobs:= TFPList.Create;
+  InFlight:= TFPList.Create;
+  libssh2_session_set_blocking(FSession, 0);
+  try
+    // Every channel works on a directory (or symlink) of its own, so the
+    // round trips of up to PREFETCH_CHANNELS requests overlap.
+    repeat
+      Busy:= 0;
+      Progress:= False;
+      Active:= 0;
+      for I:= 0 to High(Workers) do
+        if Workers[I].Stage <> psIdle then Inc(Active);
+      for I:= 0 to High(Workers) do
+      begin
+        if (Workers[I].Stage = psIdle) and not Assign(Workers[I]) then Continue;
+        Inc(Busy);
+        if Step(Workers[I]) then Progress:= True;
+      end;
+      if (Busy > 0) and not Progress then WaitSocket;
+    until Busy = 0;
+  finally
+    libssh2_session_set_blocking(FSession, 1);
+    // Only after an exception is anything left half done
+    for I:= 0 to InFlight.Count - 1 do
+      TDirListing(InFlight[I]).Free;
+    InFlight.Free;
+    LinkJobs.Free;
+  end;
 end;
 
 function TSftpSend.Login: Boolean;
@@ -588,8 +936,49 @@ end;
 
 function TSftpSend.FsFindFirstW(const Path: String; var FindData: TWin32FindDataW): Pointer;
 var
+  I: Integer;
+  Key: String;
   FindRec: PFindRec;
+  Listing: TDirListing;
 begin
+  if FPrefetch then
+  begin
+    Key:= Path;
+    if (Key = '') or (Key[Length(Key)] <> '/') then Key:= Key + '/';
+    I:= FPrefetchCache.IndexOf(Key);
+    if I < 0 then
+    begin
+      // Not fetched yet: fetch it first, and more alongside it
+      if FPrefetchSeen.IndexOf(Key) < 0 then FPrefetchSeen.Add(Key);
+      I:= FPrefetchPending.IndexOf(Key);
+      if I >= 0 then FPrefetchPending.Delete(I);
+      Prefetch(Key);
+    end
+    else if (FPrefetchCache.Count <= PREFETCH_LOW) and (FPrefetchPending.Count > 0) then
+      // Top up before the compare runs out of fetched directories
+      Prefetch('');
+    I:= FPrefetchCache.IndexOf(Key);
+    if I >= 0 then
+    begin
+      // Each directory is listed once per compare: hand the listing over
+      Listing:= TDirListing(FPrefetchCache.Objects[I]);
+      FPrefetchCache.Delete(I);
+      FFindFailed:= Listing.Failed;
+      if Listing.Failed or (Listing.Count = 0) then
+      begin
+        Listing.Free;
+        Exit(nil);
+      end;
+      New(FindRec);
+      FindRec.Path:= Key;
+      FindRec.Handle:= nil;
+      FindRec.Listing:= Listing;
+      FindRec.Index:= 0;
+      FsFindNextW(FindRec, FindData);
+      Exit(FindRec);
+    end;
+  end;
+
   Result := libssh2_sftp_opendir(FSFTPSession, PAnsiChar(Path));
   FFindFailed:= (Result = nil);
   if (Result = nil) then
@@ -598,6 +987,7 @@ begin
     New(FindRec);
     FindRec.Path:= Path;
     FindRec.Handle:= Result;
+    FindRec.Listing:= nil;
     // Prime the first entry. If the directory has none (some servers, e.g. the
     // Windows OpenSSH SFTP server, do not return '.'/'..' for an empty folder),
     // FindData is left unset; return an invalid handle so the caller does not
@@ -617,49 +1007,62 @@ var
   Return: Integer;
   FindRec: PFindRec absolute Handle;
   Attributes: LIBSSH2_SFTP_ATTRIBUTES;
-  LinkAttrs: LIBSSH2_SFTP_ATTRIBUTES;
+  LinkTarget: LIBSSH2_SFTP_ATTRIBUTES;
   AFileName: array[0..1023] of AnsiChar;
   AFullData: array[0..2047] of AnsiChar;
 begin
+  if Assigned(FindRec.Listing) then
+  begin
+    Result:= FindRec.Index < FindRec.Listing.Count;
+    if Result then
+    begin
+      with FindRec.Listing.Entries[FindRec.Index] do
+        if HasTarget then
+          FillFindData(Name, Attributes, @Target, FindData)
+        else
+          FillFindData(Name, Attributes, nil, FindData);
+      Inc(FindRec.Index);
+    end;
+    Exit;
+  end;
   Return:= libssh2_sftp_readdir_ex(FindRec.Handle, AFileName, SizeOf(AFileName),
                                    AFullData, SizeOf(AFullData), @Attributes);
   Result:= (Return > 0);
   if Result then
   begin
-    FillChar(FindData, SizeOf(FindData), 0);
-    FindData.dwReserved0:= Attributes.permissions;
-    FindData.dwFileAttributes:= FILE_ATTRIBUTE_UNIX_MODE;
-    if (Attributes.permissions and S_IFMT) <> S_IFDIR then
-    begin
-      FindData.nFileSizeLow:= Int64Rec(Attributes.filesize).Lo;
-      FindData.nFileSizeHigh:= Int64Rec(Attributes.filesize).Hi;
-    end;
-    StrPLCopy(FindData.cFileName, ServerToClient(AFileName), MAX_PATH - 1);
-    FindData.ftLastWriteTime:= TWfxFileTime(UnixFileTimeToWinTime(Attributes.mtime));
-    FindData.ftLastAccessTime:= TWfxFileTime(UnixFileTimeToWinTime(Attributes.atime));
-    if (Attributes.permissions and S_IFMT) = S_IFLNK then
-    begin
-      // Follow the link to detect if the target is a directory, but keep
-      // the symlink's own mtime and size for sync comparisons.
-      LinkAttrs:= Attributes;
-      if libssh2_sftp_stat(FSFTPSession, PAnsiChar(FindRec.Path + AFileName), @Attributes) = 0 then
-      begin
-        if (Attributes.permissions and S_IFMT) = S_IFDIR then
-        begin
-          FindData.nFileSizeLow:= 0;
-          FindData.nFileSizeHigh:= 0;
-          FindData.dwFileAttributes:= FindData.dwFileAttributes or FILE_ATTRIBUTE_REPARSE_POINT;
-        end
-        else
-        begin
-          // Restore the symlink's own size (= byte length of link target string).
-          FindData.nFileSizeLow:= Int64Rec(LinkAttrs.filesize).Lo;
-          FindData.nFileSizeHigh:= Int64Rec(LinkAttrs.filesize).Hi;
-        end;
-      end;
-      FindData.ftLastWriteTime:= TWfxFileTime(UnixFileTimeToWinTime(LinkAttrs.mtime));
-      FindData.ftLastAccessTime:= TWfxFileTime(UnixFileTimeToWinTime(LinkAttrs.atime));
-    end;
+    // Follow a link to detect whether the target is a directory
+    if IsLink(Attributes) and
+       (libssh2_sftp_stat(FSFTPSession, PAnsiChar(FindRec.Path + AFileName), @LinkTarget) = 0) then
+      FillFindData(AFileName, Attributes, @LinkTarget, FindData)
+    else
+      FillFindData(AFileName, Attributes, nil, FindData);
+  end;
+end;
+
+procedure TSftpSend.FillFindData(const AName: String;
+  const Attributes: LIBSSH2_SFTP_ATTRIBUTES; LinkTarget: PLIBSSH2_SFTP_ATTRIBUTES;
+  var FindData: TWin32FindDataW);
+begin
+  FillChar(FindData, SizeOf(FindData), 0);
+  FindData.dwReserved0:= Attributes.permissions;
+  FindData.dwFileAttributes:= FILE_ATTRIBUTE_UNIX_MODE;
+  // A symlink keeps its own mtime and size (the length of the link target
+  // string) for sync comparisons.
+  if (Attributes.permissions and S_IFMT) <> S_IFDIR then
+  begin
+    FindData.nFileSizeLow:= Int64Rec(Attributes.filesize).Lo;
+    FindData.nFileSizeHigh:= Int64Rec(Attributes.filesize).Hi;
+  end;
+  StrPLCopy(FindData.cFileName, ServerToClient(AName), MAX_PATH - 1);
+  FindData.ftLastWriteTime:= TWfxFileTime(UnixFileTimeToWinTime(Attributes.mtime));
+  FindData.ftLastAccessTime:= TWfxFileTime(UnixFileTimeToWinTime(Attributes.atime));
+  // LinkTarget: the stat'ed target of a symlink, nil if it could not be read
+  if IsLink(Attributes) and Assigned(LinkTarget) and
+     ((LinkTarget^.permissions and S_IFMT) = S_IFDIR) then
+  begin
+    FindData.nFileSizeLow:= 0;
+    FindData.nFileSizeHigh:= 0;
+    FindData.dwFileAttributes:= FindData.dwFileAttributes or FILE_ATTRIBUTE_REPARSE_POINT;
   end;
 end;
 
@@ -667,7 +1070,13 @@ function TSftpSend.FsFindClose(Handle: Pointer): Integer;
 var
   FindRec: PFindRec absolute Handle;
 begin
-  Result:= libssh2_sftp_closedir(FindRec.Handle);
+  if Assigned(FindRec.Listing) then
+  begin
+    FindRec.Listing.Free;
+    Result:= 0;
+  end
+  else
+    Result:= libssh2_sftp_closedir(FindRec.Handle);
   Dispose(FindRec);
 end;
 
