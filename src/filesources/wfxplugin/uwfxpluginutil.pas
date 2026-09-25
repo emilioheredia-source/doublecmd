@@ -600,7 +600,12 @@ begin
           mbFileSetTime(TargetFileName, DateTimeToFileTime(SourceFile.ModificationTime));
       end;
     end
-    else begin
+    // A plugin sets times through its FsSetTime, which over SFTP (setstat)
+    // follows a symlink: it would stamp the file the new link points to and
+    // leave the link at "now". Link times cannot be set there, and sync
+    // ignores them when comparing links, so leave links alone.
+    else if not SourceFile.AttributesProperty.IsLink then
+    begin
       WfxFileTime := DateTimeToWfxFileTime(SourceFile.ModificationTime);
       FWfxPluginFileSource.WfxModule.WfxSetTime(TargetFileName, nil, nil, @WfxFileTime);
     end;
