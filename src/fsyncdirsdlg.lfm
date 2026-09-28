@@ -796,6 +796,9 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
     object miSelectCopyReverse: TMenuItem
       Action = actSelectCopyReverse
     end
+    object miSelectKeepLink: TMenuItem
+      Action = actSelectKeepLink
+    end
     object miSeparator1: TMenuItem
       Caption = '-'
     end
@@ -860,6 +863,10 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
     end
     object actSelectCopyReverse: TAction
       Caption = 'Reverse copy direction'
+      OnExecute = actExecute
+    end
+    object actSelectKeepLink: TAction
+      Caption = 'Keep the link (red rows: replace the folder or file on the other side)'
       OnExecute = actExecute
     end
     object actSelectDeleteLeft: TAction
