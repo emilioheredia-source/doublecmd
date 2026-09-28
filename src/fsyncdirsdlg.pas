@@ -62,6 +62,7 @@ type
     actSelectCopyLeftToRight: TAction;
     actSelectCopyRightToLeft: TAction;
     actSelectCopyDefault: TAction;
+    actSelectKeepLink: TAction;
     ActionList: TActionList;
     btnAbort: TBitBtn;
     btnCompare: TButton;
@@ -103,6 +104,7 @@ type
     miSelectCopyLeftToRight: TMenuItem;
     miSelectCopyRightToLeft: TMenuItem;
     miSelectCopyDefault: TMenuItem;
+    miSelectKeepLink: TMenuItem;
     miSelectClear: TMenuItem;
     MenuItemCompare: TMenuItem;
     MenuItemViewRight: TMenuItem;
@@ -213,7 +215,7 @@ type
     procedure StopCheckContentThread;
     procedure UpdateSelection(R: Integer);
     procedure EnableControls(AEnabled: Boolean);
-    procedure SetSyncRecState(AState: TSyncRecState);
+    procedure SetSyncRecState(AState: TSyncRecState; AKeepLink: Boolean = False);
     procedure DeleteFiles(ALeft, ARight: Boolean);
     function DeleteFiles(FileSource: IFileSource; var Files: TFiles): Boolean;
     procedure SetPanelWatchers(AEnabled: Boolean);
@@ -243,6 +245,7 @@ type
     procedure cm_SelectCopyReverse(const {%H-}Params:array of string);
     procedure cm_SelectCopyLeftToRight(const {%H-}Params:array of string);
     procedure cm_SelectCopyRightToLeft(const {%H-}Params:array of string);
+    procedure cm_SelectKeepLink(const {%H-}Params:array of string);
 
 
     procedure cm_DeleteLeft(const {%H-}Params:array of string);
@@ -266,8 +269,12 @@ resourcestring
     + ' untouched on both sides and will not be synchronized. Continue?';
   rsSyncTypeConflicts = '%d item(s) differ in type (red)';
   rsSyncTypeConflictWarning = '%d item(s) are a folder on one side and a file or'
-    + ' link on the other (shown in red). They are left untouched on both sides'
-    + ' and will not be synchronized. Continue?';
+    + ' link on the other (shown in red) and have no action set. They are left'
+    + ' untouched on both sides and will not be synchronized. Continue?';
+  rsSyncTypeConflictReplace = '%d item(s) shown in red will replace an item of a'
+    + ' different type on the other side. What is there now is deleted first'
+    + ' (to the trash if selected) - for a folder, everything in it - and the'
+    + ' item is then copied over whole. Continue?';
 
 procedure ShowSyncDirsDlg(FileView1, FileView2: TFileView);
 
@@ -303,14 +310,15 @@ type
     // A folder whose listing failed on that side. The record has no files and
     // its action is fixed at "do nothing", so nothing inside it is touched.
     FUnreadableL, FUnreadableR: Boolean;
-    // A directory on one side, a file or link on the other; action fixed too
+    // A directory on one side, a file or link on the other. The action starts
+    // at "do nothing"; a copy chosen by the user replaces the other side.
     FTypeConflict: Boolean;
   public
     constructor Create(AForm: TfrmSyncDirsDlg; RelPath: string);
     destructor Destroy; override;
     procedure UpdateState(ignoreDate: Boolean);
     function Unreadable: Boolean; inline;
-    // Rows the sync never acts on: unreadable or type conflict
+    // Unreadable or type conflict: always shown, counted separately
     function Fixed: Boolean; inline;
   end;
 
@@ -883,17 +891,28 @@ var
   DeleteLeft, DeleteRight,
   CopyLeft, CopyRight: Boolean;
   DeleteLeftFiles, DeleteRightFiles,
-  CopyLeftFiles, CopyRightFiles: TFiles;
+  CopyLeftFiles, CopyRightFiles,
+  ReplaceLeftFiles, ReplaceRightFiles: TFiles;
   Dest: string;
+  ConflictKeepCount, ConflictReplaceCount: Integer;
 begin
   DeleteLeftCount := 0; DeleteRightCount := 0;
   CopyLeftCount := 0; CopyRightCount := 0;
   CopyLeftSize := 0;  CopyRightSize := 0;
+  ConflictKeepCount := 0; ConflictReplaceCount := 0;
 
   for i := 0 to FVisibleItems.Count - 1 do
     if Assigned(FVisibleItems.Objects[i]) then
     begin
       fsr := TFileSyncRec(FVisibleItems.Objects[i]);
+      if fsr.FTypeConflict then
+      begin
+        if fsr.FAction = srsDoNothing then
+          Inc(ConflictKeepCount)
+        else if (fsr.FAction = srsCopyLeft) and Assigned(fsr.FFileL) or
+                (fsr.FAction = srsCopyRight) and Assigned(fsr.FFileR) then
+          Inc(ConflictReplaceCount);
+      end;
       case fsr.FAction of
       srsCopyLeft:
         begin
@@ -929,8 +948,12 @@ begin
      (MessageDlg(Format(rsSyncUnreadableWarning, [FUnreadableCount]),
                  mtWarning, [mbYes, mbNo], 0, mbNo) <> mrYes) then
     Exit;
-  if (FTypeConflictCount > 0) and
-     (MessageDlg(Format(rsSyncTypeConflictWarning, [FTypeConflictCount]),
+  if (ConflictKeepCount > 0) and
+     (MessageDlg(Format(rsSyncTypeConflictWarning, [ConflictKeepCount]),
+                 mtWarning, [mbYes, mbNo], 0, mbNo) <> mrYes) then
+    Exit;
+  if (ConflictReplaceCount > 0) and
+     (MessageDlg(Format(rsSyncTypeConflictReplace, [ConflictReplaceCount]),
                  mtWarning, [mbYes, mbNo], 0, mbNo) <> mrYes) then
     Exit;
 
@@ -960,7 +983,8 @@ begin
     chkDeleteRight.Caption := Format(rsDeleteRight, [DeleteRightCount]);
     chkOverwriteReadOnly.Checked := gSyncDirsOverwriteReadOnly;
     chkDeleteToTrash.Checked := gUseTrash;
-    chkDeleteToTrash.Enabled := chkDeleteLeft.Enabled or chkDeleteRight.Enabled;
+    chkDeleteToTrash.Enabled := chkDeleteLeft.Enabled or chkDeleteRight.Enabled or
+      (ConflictReplaceCount > 0);
     chkLeftToRight.Caption :=
       Format(rsLeftToRightCopy, [CopyRightCount, cnvFormatFileSize(CopyRightSize, fsfFloat, gFileSizeDigits), IntToStrTS(CopyRightSize)]);
     chkRightToLeft.Caption :=
@@ -992,7 +1016,8 @@ begin
       ProgressBar.Position:=0;
       ProgressBarDelete.Position:=0;
       pnlCopyProgress.Visible:= CopyLeft or CopyRight;
-      pnlDeleteProgress.Visible:= DeleteLeft or DeleteRight;
+      pnlDeleteProgress.Visible:= DeleteLeft or DeleteRight or
+        (ConflictReplaceCount > 0);
 
       SetPanelWatchers(False);
       try
@@ -1003,13 +1028,23 @@ begin
         CopyRightFiles := TFiles.Create('');
         DeleteLeftFiles := TFiles.Create('');
         DeleteRightFiles := TFiles.Create('');
+        ReplaceLeftFiles := TFiles.Create('');
+        ReplaceRightFiles := TFiles.Create('');
         if FVisibleItems.Objects[i] <> nil then
           repeat
             fsr := TFileSyncRec(FVisibleItems.Objects[i]);
             Dest := fsr.FRelPath;
             case fsr.FAction of
             srsCopyRight:
-              if CopyRight then
+              if CopyRight and fsr.FTypeConflict then
+              begin
+                // Replace whatever is on the right, then copy the item whole:
+                // the folder side was never scanned, so it has no rows inside
+                if Assigned(fsr.FFileR) then
+                  ReplaceRightFiles.Add(fsr.FFileR.Clone);
+                CopyRightFiles.Add(fsr.FFileL.Clone);
+              end
+              else if CopyRight then
               begin
                 // An empty source folder has no file to carry it into being on
                 // the target, so recreate the directory tree directly. Routing
@@ -1021,7 +1056,13 @@ begin
                   CopyRightFiles.Add(fsr.FFileL.Clone);
               end;
             srsCopyLeft:
-              if CopyLeft then
+              if CopyLeft and fsr.FTypeConflict then
+              begin
+                if Assigned(fsr.FFileL) then
+                  ReplaceLeftFiles.Add(fsr.FFileL.Clone);
+                CopyLeftFiles.Add(fsr.FFileR.Clone);
+              end
+              else if CopyLeft then
               begin
                 if fsr.FFileR.IsDirectory then
                   ForceRemoteDir(FCmpFileSourceL, FCmpFilePathL, fsr.FRelPath + fsr.FFileR.Name)
@@ -1041,6 +1082,26 @@ begin
             i := i + 1;
           until (i = FVisibleItems.Count) or (FVisibleItems.Objects[i] = nil);
         i := i + 1;
+        // The item of the other type goes before the copy that replaces it
+        if ReplaceLeftFiles.Count > 0 then
+        begin
+          if not DeleteFiles(FCmpFileSourceL, ReplaceLeftFiles) then
+          begin
+            CopyLeftFiles.Free; CopyRightFiles.Free;
+            DeleteLeftFiles.Free; DeleteRightFiles.Free;
+            ReplaceRightFiles.Free;
+            Break;
+          end;
+        end else ReplaceLeftFiles.Free;
+        if ReplaceRightFiles.Count > 0 then
+        begin
+          if not DeleteFiles(FCmpFileSourceR, ReplaceRightFiles) then
+          begin
+            CopyLeftFiles.Free; CopyRightFiles.Free;
+            DeleteLeftFiles.Free; DeleteRightFiles.Free;
+            Break;
+          end;
+        end else ReplaceRightFiles.Free;
         if CopyLeftFiles.Count > 0 then
         begin
           if not CopyFiles(FCmpFileSourceR, FCmpFileSourceL, CopyLeftFiles,
@@ -1472,6 +1533,7 @@ procedure TfrmSyncDirsDlg.pmGridMenuPopup(Sender: TObject);
 begin
   miSelectDeleteLeft.Visible := not chkAsymmetric.Checked;
   miSelectDeleteBoth.Visible := not chkAsymmetric.Checked;
+  miSelectKeepLink.Visible := FTypeConflictCount > 0;
 end;
 
 procedure TfrmSyncDirsDlg.TimerTimer(Sender: TObject);
@@ -1844,10 +1906,11 @@ var
     end;
 
     // A name that is a directory on one side and a file or link on the other
-    // becomes one "type differs" record that the sync leaves alone: the
-    // directory is not walked into and nothing on either side is replaced.
-    // Copying into it would write through the link (or fail on the file), and
+    // becomes one "type differs" record that the sync leaves alone unless the
+    // user picks a direction: the directory is not walked into, since copying
+    // into it would write through the link (or fail on the file), and
     // replacing either side means deleting data the user has to decide about.
+    // A chosen copy deletes the other side first, then copies the item whole.
     procedure MarkTypeConflicts(it, dirs: TStringList; sideLeft: Boolean);
     var
       i, j: Integer;
@@ -2350,7 +2413,7 @@ var
   ca: TSyncRecState;
 begin
   sr := TFileSyncRec(FVisibleItems.Objects[r]);
-  if not Assigned(sr) or (sr.FState = srsEqual) or sr.Fixed then Exit;
+  if not Assigned(sr) or (sr.FState = srsEqual) or sr.Unreadable then Exit;
   ca := sr.FAction;
   case ca of
   srsNotEq:
@@ -2361,7 +2424,8 @@ begin
     else
       ca := srsDoNothing;
   srsCopyLeft:
-    if Assigned(sr.FFileL) then
+    // A type conflict has no automatic action to return to
+    if Assigned(sr.FFileL) and not sr.FTypeConflict then
       ca := srsNotEq
     else
       ca := srsDoNothing;
@@ -2396,7 +2460,7 @@ begin
   Timer.Enabled:= not AEnabled;
 end;
 
-procedure TfrmSyncDirsDlg.SetSyncRecState(AState: TSyncRecState);
+procedure TfrmSyncDirsDlg.SetSyncRecState(AState: TSyncRecState; AKeepLink: Boolean);
 var
   R, Y: Integer;
   Selection: TGridRect;
@@ -2404,10 +2468,26 @@ var
 
   procedure UpdateAction(NewAction: TSyncRecState);
   begin
-    if SyncRec.Fixed then Exit;
+    if SyncRec.Unreadable then Exit;
+    if AKeepLink then
+    begin
+      // A type conflict where one side is a link: copy the link over the
+      // folder or file on the other side. Anything else is left as it is.
+      if not SyncRec.FTypeConflict or
+         not Assigned(SyncRec.FFileL) or not Assigned(SyncRec.FFileR) then Exit;
+      if SyncRec.FFileL.IsLink and not SyncRec.FFileR.IsLink then
+        NewAction:= srsCopyRight
+      else if SyncRec.FFileR.IsLink and not SyncRec.FFileL.IsLink then
+        NewAction:= srsCopyLeft
+      else
+        Exit;
+    end;
     case NewAction of
       srsUnknown:
-        NewAction:= SyncRec.FState;
+        if SyncRec.FTypeConflict then
+          NewAction:= srsDoNothing
+        else
+          NewAction:= SyncRec.FState;
       srsNotEq:
         begin
           if (SyncRec.FAction = srsCopyLeft) and Assigned(SyncRec.FFileL) then
@@ -2659,7 +2739,7 @@ var
 
   procedure AddRemoveItem;
   begin
-    if SyncRec.Fixed then Exit;
+    if SyncRec.Unreadable then Exit;
     if Assigned(ALeft) and Assigned(SyncRec.FFileL) then
       ALeft.Add(SyncRec.FFileL.Clone);
 
@@ -2674,8 +2754,18 @@ var
         FreeAndNil(SyncRec.FFileR);
 
       if Assigned(SyncRec.FFileL) or Assigned(SyncRec.FFileR) then
-        SyncRec.UpdateState(chkIgnoreDate.Checked)
+      begin
+        SyncRec.UpdateState(chkIgnoreDate.Checked);
+        // A folder left from a type conflict was never scanned; the row stays
+        // a conflict so that a copy chosen for it takes the folder whole
+        if SyncRec.FTypeConflict then
+        begin
+          SyncRec.FState := srsNotEq;
+          SyncRec.FAction := srsDoNothing;
+        end;
+      end
       else begin
+        if SyncRec.FTypeConflict then Dec(FTypeConflictCount);
         MainDrawGrid.DeleteRow(R);
         FVisibleItems.Delete(R);
       end;
@@ -3000,6 +3090,13 @@ end;
 procedure TfrmSyncDirsDlg.cm_SelectCopyRightToLeft(const Params: array of string);
 begin
   SetSyncRecState(srsCopyLeft);
+end;
+
+procedure TfrmSyncDirsDlg.cm_SelectKeepLink(const Params: array of string);
+begin
+  // Links are usually the original: the real folder on the other side came
+  // from an earlier sync that copied what the link pointed to
+  SetSyncRecState(srsDoNothing, True);
 end;
 
 procedure TfrmSyncDirsDlg.cm_DeleteLeft(const Params: array of string);
