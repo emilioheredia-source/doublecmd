@@ -987,9 +987,8 @@ var
   RetrStream: TFileStreamEx;
   TotalBytesToRead: Int64 = 0;
   SourceHandle: PLIBSSH2_SFTP_HANDLE;
-{$IFDEF UNIX}
   DownloadAttrs: LIBSSH2_SFTP_ATTRIBUTES;
-{$ENDIF}
+  HaveAttrs: Boolean;
 begin
   if FCopySCP then begin
     Result:= inherited RetrieveFile(FileName, FileSize, Restore);
@@ -1014,6 +1013,14 @@ begin
   TargetName := PWideChar(CeUtf8ToUtf16(FDirectFileName));
 
   if Restore then TotalBytesToRead:= RetrStream.Seek(0, soEnd);
+
+  // Stat what the open below will read. For a link being followed that is its
+  // target, and the caller only knows the link's own size (the length of the
+  // target path): trusting that stopped the download after a few bytes and
+  // reported success. The same attributes give the mode applied afterwards.
+  HaveAttrs:= libssh2_sftp_stat(FSFTPSession, PAnsiChar(FileName), @DownloadAttrs) = 0;
+  if HaveAttrs and ((DownloadAttrs.flags and LIBSSH2_SFTP_ATTR_SIZE) <> 0) then
+    FileSize:= DownloadAttrs.filesize;
 
   libssh2_session_set_blocking(FSession, 0);
   try
@@ -1075,17 +1082,14 @@ begin
     RetrStream.Free;
     libssh2_session_set_blocking(FSession, 1);
 {$IFDEF UNIX}
-    if Result then
+    if Result and HaveAttrs then
     begin
-      if libssh2_sftp_stat(FSFTPSession, PAnsiChar(FileName), @DownloadAttrs) = 0 then
-      begin
-        if (DownloadAttrs.flags and LIBSSH2_SFTP_ATTR_PERMISSIONS) <> 0 then
-          FpChmod(FDirectFileName, DownloadAttrs.permissions and $0FFF);
-        // Only root can restore ownership; for a normal user this always fails,
-        // so skip the syscall (mirrors what StoreFile does for uploads).
-        if (fpGetEUID = 0) and ((DownloadAttrs.flags and LIBSSH2_SFTP_ATTR_UIDGID) <> 0) then
-          FpChown(FDirectFileName, DownloadAttrs.uid, DownloadAttrs.gid);
-      end;
+      if (DownloadAttrs.flags and LIBSSH2_SFTP_ATTR_PERMISSIONS) <> 0 then
+        FpChmod(FDirectFileName, DownloadAttrs.permissions and $0FFF);
+      // Only root can restore ownership; for a normal user this always fails,
+      // so skip the syscall (mirrors what StoreFile does for uploads).
+      if (fpGetEUID = 0) and ((DownloadAttrs.flags and LIBSSH2_SFTP_ATTR_UIDGID) <> 0) then
+        FpChown(FDirectFileName, DownloadAttrs.uid, DownloadAttrs.gid);
     end;
 {$ENDIF}
   end;
