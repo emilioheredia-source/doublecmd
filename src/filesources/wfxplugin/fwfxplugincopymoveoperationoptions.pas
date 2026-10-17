@@ -7,6 +7,7 @@ interface
 uses
   Classes, SysUtils, FileUtil, Forms, Controls, StdCtrls, ExtCtrls,
   uFileSourceOperationOptionsUI,
+  uFileSourceOperationOptions,
   uFileSourceCopyOperation,
   uWfxPluginCopyOperation,
   uWfxPluginMoveOperation,
@@ -19,6 +20,7 @@ type
 
   TWfxPluginCopyMoveOperationOptionsUI = class(TFileSourceOperationOptionsUI)
     cbCopyTime: TCheckBox;
+    cbFollowLinks: TCheckBox;
     cbWorkInBackground: TCheckBox;
     cmbFileExists: TComboBox;
     grpOptions: TGroupBox;
@@ -27,6 +29,7 @@ type
     pnlComboBoxes: TPanel;
     procedure cbWorkInBackgroundChange(Sender: TObject);
   private
+    function GetSymLinkOption: TFileSourceOperationOptionSymLink;
     procedure SetCopyOptions(CopyOperation: TFileSourceCopyOperation);
     procedure SetOperationOptions(CopyOperation: TWfxPluginCopyOperation); overload;
     procedure SetOperationOptions(MoveOperation: TWfxPluginMoveOperation); overload;
@@ -64,7 +67,7 @@ implementation
 
 uses
   DCStrUtils, uLng, DCOSUtils, WfxPlugin, fCopyMoveDlg, uGlobs, uWfxPluginFileSource,
-  uFileSourceOperationOptions, uOperationsManager;
+  uOperationsManager;
 
 { TWfxPluginCopyMoveOperationOptionsUI }
 
@@ -84,6 +87,23 @@ begin
   begin
     cbCopyTime.Visible := Assigned(FsSetTime) or Assigned(FsSetTimeW);
     cbCopyTime.Checked := cbCopyTime.Visible and gOperationOptionCopyTime;
+  end;
+
+  // Shown for uploads and downloads only. Same default as the local copy
+  // dialog's "Follow links"; grayed asks for each link.
+  case gOperationOptionSymLinks of
+    fsooslFollow    : cbFollowLinks.State := cbChecked;
+    fsooslDontFollow: cbFollowLinks.State := cbUnchecked;
+    fsooslNone      : cbFollowLinks.State := cbGrayed;
+  end;
+end;
+
+function TWfxPluginCopyMoveOperationOptionsUI.GetSymLinkOption: TFileSourceOperationOptionSymLink;
+begin
+  case cbFollowLinks.State of
+    cbChecked  : Result := fsooslFollow;
+    cbUnchecked: Result := fsooslDontFollow;
+    else         Result := fsooslNone;
   end;
 end;
 
@@ -166,6 +186,7 @@ begin
       1: FileExistsOption := fsoofeOverwrite;
       2: FileExistsOption := fsoofeSkip;
     end;
+    SymLinkOption := GetSymLinkOption;
     SetCopyOptions(CopyInOperation);
   end;
 end;
@@ -180,6 +201,7 @@ begin
       1: FileExistsOption := fsoofeOverwrite;
       2: FileExistsOption := fsoofeSkip;
     end;
+    SymLinkOption := GetSymLinkOption;
     SetCopyOptions(CopyOutOperation);
   end;
 end;
@@ -201,6 +223,7 @@ begin
       cbWorkInBackground.Checked:= (WfxModule.BackgroundFlags and BG_UPLOAD <> 0);
   end;
   cbWorkInBackgroundChange(cbWorkInBackground);
+  cbFollowLinks.Visible:= True;
 end;
 
 { TWfxPluginCopyOutOperationOptionsUI }
@@ -220,6 +243,7 @@ begin
       cbWorkInBackground.Checked:= (WfxModule.BackgroundFlags and BG_DOWNLOAD <> 0);
   end;
   cbWorkInBackgroundChange(cbWorkInBackground);
+  cbFollowLinks.Visible:= True;
 end;
 
 end.

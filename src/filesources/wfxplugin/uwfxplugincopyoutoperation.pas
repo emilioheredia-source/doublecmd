@@ -113,6 +113,9 @@ begin
 
   inherited Create(aSourceFileSource, aTargetFileSource, theSourceFiles, aTargetPath);
 
+  // Copy links as links unless the copy dialog says to follow them: viewing,
+  // drag and drop and sync create this operation without asking.
+  SymLinkOption:= fsooslDontFollow;
   SetNeedsConnection(FNeedsConnection);
 end;
 
@@ -136,13 +139,10 @@ begin
     TreeBuilder := TWfxTreeBuilder.Create(@AskQuestion, @CheckOperationState);
     try
       TreeBuilder.WfxModule:= WfxModule;
-      // Copy links as links, like copy-in and move already do. Following them
-      // here made the plugin asymmetric - uploads preserved a symlink, the
-      // download turned it back into a file - so a round trip did not round
-      // trip. Note this only reaches symlinks to files in the sync path: the
-      // sync scanner treats a link to a directory as a directory and descends
-      // into it, so those never arrive here as links.
-      TreeBuilder.SymLinkOption:= fsooslDontFollow;
+      // Links are copied as links by default, like copy-in and move do, so
+      // that an upload and a download round trip; "Follow links" in the copy
+      // dialog copies what they point to instead.
+      TreeBuilder.SymLinkOption:= SymLinkOption;
       TreeBuilder.BuildFromFiles(SourceFiles);
       FSourceFilesTree := TreeBuilder.ReleaseTree;
       FStatistics.TotalFiles := TreeBuilder.FilesCount;

@@ -79,5 +79,15 @@ object WfxPluginCopyMoveOperationOptionsUI: TWfxPluginCopyMoveOperationOptionsUI
       Caption = 'Copy d&ate/time'
       TabOrder = 0
     end
+    object cbFollowLinks: TCheckBox
+      Left = 0
+      Height = 19
+      Top = 38
+      Width = 93
+      AllowGrayed = True
+      Caption = 'Fo&llow links'
+      TabOrder = 2
+      Visible = False
+    end
   end
 end

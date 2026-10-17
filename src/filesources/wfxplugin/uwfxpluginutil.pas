@@ -31,6 +31,8 @@ type
   TWfxTreeBuilder = class(TFileSourceTreeBuilder)
   private
     FWfxModule: TWfxModule;
+    // Names of the links to directories followed on the way to the current one
+    FFollowedDirLinks: array of String;
   protected
     procedure AddLinkTarget(aFile: TFile; CurrentNode: TFileTreeNode); override;
     procedure AddFilesInDirectory(srcPath: String; CurrentNode: TFileTreeNode); override;
@@ -213,7 +215,31 @@ end;
 { TWfxTreeBuilder }
 
 procedure TWfxTreeBuilder.AddLinkTarget(aFile: TFile; CurrentNode: TFileTreeNode);
+const
+  MaxFollowedDirLinks = 8;
+var
+  Index: Integer;
 begin
+  // A link to a directory may point at one of its own parents ("a -> .."),
+  // and a plugin does not say where links point, so such a loop cannot be
+  // recognised by its target. Following a link with the name of one already
+  // followed on this path, or going too deep, is taken as a loop: that link
+  // is copied as a link.
+  if aFile.IsLinkToDirectory then
+  begin
+    if Length(FFollowedDirLinks) >= MaxFollowedDirLinks then
+    begin
+      AddLink(aFile, CurrentNode);
+      Exit;
+    end;
+    for Index:= 0 to High(FFollowedDirLinks) do
+      if FFollowedDirLinks[Index] = aFile.Name then
+      begin
+        AddLink(aFile, CurrentNode);
+        Exit;
+      end;
+  end;
+
   // Add as normal file/directory
   if aFile.AttributesProperty is TNtfsFileAttributesProperty then
     aFile.Attributes:= aFile.Attributes and (not FILE_ATTRIBUTE_REPARSE_POINT)
@@ -228,7 +254,14 @@ begin
     else begin
       aFile.Attributes:= aFile.Attributes or S_IFDIR;
     end;
-    AddDirectory(aFile, CurrentNode);
+    Index:= Length(FFollowedDirLinks);
+    SetLength(FFollowedDirLinks, Index + 1);
+    FFollowedDirLinks[Index]:= aFile.Name;
+    try
+      AddDirectory(aFile, CurrentNode);
+    finally
+      SetLength(FFollowedDirLinks, Index);
+    end;
   end;
 end;
 
@@ -351,7 +384,14 @@ begin
 
     if ProcessedOk = FS_FILE_USERABORT then AbortOperation();
 
-    if ProcessedOk = FS_FILE_OK then CopyProperties(aFile, TargetName);
+    // A followed link was copied as what it points to: take that one's time
+    if ProcessedOk = FS_FILE_OK then
+    begin
+      if aFile.IsLink and (FMode <> wpohmMove) and (CurrentSubNode.SubNodesCount > 0) then
+        CopyProperties(CurrentSubNode.SubNodes[0].TheFile, TargetName)
+      else
+        CopyProperties(aFile, TargetName);
+    end;
 
     if ProcessedOk = FS_FILE_OK then
       begin
