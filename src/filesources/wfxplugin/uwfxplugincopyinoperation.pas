@@ -113,6 +113,9 @@ begin
 
   inherited Create(aSourceFileSource, aTargetFileSource, theSourceFiles, aTargetPath);
 
+  // Copy links as links unless the copy dialog says to follow them: drag and
+  // drop, paste and sync create this operation without asking.
+  SymLinkOption:= fsooslDontFollow;
   SetNeedsConnection(FNeedsConnection);
 end;
 
@@ -137,7 +140,7 @@ begin
   TreeBuilder := TFileSystemTreeBuilder.Create(@AskQuestion, @CheckOperationState);
   try
     ElevateAction:= dupError;
-    TreeBuilder.SymLinkOption:= fsooslDontFollow;
+    TreeBuilder.SymLinkOption:= SymLinkOption;
     TreeBuilder.BuildFromFiles(SourceFiles);
     FSourceFilesTree := TreeBuilder.ReleaseTree;
     FStatistics.TotalFiles := TreeBuilder.FilesCount;
