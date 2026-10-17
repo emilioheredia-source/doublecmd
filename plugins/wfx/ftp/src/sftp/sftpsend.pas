@@ -766,6 +766,7 @@ var
   Flags: cint = LIBSSH2_FXF_CREAT or LIBSSH2_FXF_WRITE;
   OpenMode: clong = $1A0;
   MadeWritable: Boolean = False;
+  NeedMode: Boolean = False;
   Replaced: Integer = 0;
 {$IFDEF UNIX}
   LocalStat: BaseUnix.TStat;
@@ -848,8 +849,8 @@ begin
 
 {$IFDEF UNIX}
     // Create the remote file directly with the local file's permission bits,
-    // so we don't need a separate setstat round-trip afterwards. Like any
-    // normal file creation this is subject to the server's umask.
+    // so a new file needs no separate setstat round-trip afterwards (see
+    // NeedMode below for when it still does).
     if fpStat(FDirectFileName, LocalStat) = 0 then
       OpenMode:= LocalStat.st_mode and $0FFF;
 {$ENDIF}
@@ -898,6 +899,15 @@ begin
       end;
     until not ((TargetHandle = nil) and (FLastError = LIBSSH2_ERROR_EAGAIN));
 
+{$IFDEF UNIX}
+    // The server applies OpenMode only to a file the open creates, and then
+    // less its umask. An existing file, overwritten or resumed, kept its old
+    // mode (an executable copied over a non-executable one stayed so, as sync
+    // does with every changed file), and group/other write bits are usually
+    // masked off: set the mode explicitly in those cases.
+    NeedMode:= ((Flags and LIBSSH2_FXF_EXCL) = 0) or ((OpenMode and $12) <> 0);
+{$ENDIF}
+
     BytesToRead:= WRITE_BUFFER_SIZE;
     while (TotalBytesToWrite > 0) do
     begin
@@ -931,11 +941,10 @@ begin
     FreeMem(FBuffer);
     Result:= FileClose(TargetHandle) and Result;
     libssh2_session_set_blocking(FSession, 1);
-    // Opening an existing file does not apply OpenMode, so after making the
-    // target writable above set the source's mode explicitly.
-    if MadeWritable then SetRemoteMode(OpenMode);
+    // After making the target writable above, put a mode back even if the
+    // transfer failed.
+    if MadeWritable or (Result and NeedMode) then SetRemoteMode(OpenMode);
 {$IFDEF UNIX}
-    // Permissions were already applied at create time (see OpenMode above).
     // Only restore ownership, and only when we are root: for a normal user this
     // setstat always fails on the server, wasting a round-trip on every file.
     if Result and (fpGetEUID = 0) then
