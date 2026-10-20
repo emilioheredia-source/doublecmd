@@ -14,6 +14,7 @@ var
 resourcestring
   rsAddConnection = 'Add connection';
   rsQuickConnection = 'Quick connection';
+  rsPasswordFor = 'Password for %s on %s:';
 
 procedure TranslateResourceStrings;
 
