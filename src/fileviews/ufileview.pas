@@ -145,14 +145,13 @@ type
     FLastMarkIgnoreAccents: Boolean;
     FLastLoadedFileSource: IFileSource;
     FLastLoadedPath: String;
-    // A remote location the tab was on when DC closed. The tab starts on a
-    // local folder; TfrmMain asks once its window is shown whether to go back
+    // The remote location the tab was on when DC closed (its history indexes),
+    // until the user answers whether to connect again
     FReconnectSource: IFileSource;
     FReconnectIndex, FReconnectPathIndex: Integer;
-    // A remote location being reconnected, checked by its first listing: if it
-    // cannot be reached the view falls back to a local folder
-    FUnverifiedSource: IFileSource;
-    FUnverifiedPath: String;
+    // A reconnect in progress, until its first listing tells whether it worked
+    FReconnectingSource: IFileSource;
+    FReconnectingPath: String;
     FLoadingFileListLongTime: Boolean;
     FMethods: TFormCommands;
     FForceReload: Boolean;
@@ -223,6 +222,11 @@ type
     procedure SetFileList(var NewAllDisplayFiles: TDisplayFiles;
                           var NewFilteredDisplayFiles: TDisplayFiles;
                           ListFailed: Boolean);
+    function LoadHistoryFileSource(AConfig: TXmlConfig; FSNode: TXmlNode;
+                                   out AFileSource: IFileSource): Boolean;
+    procedure DeferReconnect;
+    function HasPendingReconnect: Boolean;
+    procedure CheckReconnectListing(ListFailed: Boolean);
     procedure LeaveUnreachableLocation({%H-}Data: PtrInt);
     function LocalFallbackPath: String;
     procedure SetFlatView(AFlatView: Boolean);
@@ -2615,7 +2619,7 @@ var
   HistoryNode, EntryNode, FSNode, PathsNode: TXmlNode;
   SortingsNode, SortingSubNode, SortFunctionNode: TXmlNode;
   FileSourceClass: TFileSourceClass;
-  sFSType, sPath, sFilename, sAddress: String;
+  sPath, sFilename: String;
   aFileSource: IFileSource = nil;
   ActiveFSIndex: Integer = -1;
   ActivePathIndex: Integer = -1;
@@ -2669,29 +2673,8 @@ begin
         FSNode := EntryNode.FindNode('FileSource');
         if Assigned(FSNode) then
         begin
-          sFSType := '';
-          sAddress := '';
-          if AConfig.TryGetAttr(FSNode, 'Address', sAddress) or
-             AConfig.TryGetAttr(FSNode, 'Type', sFSType) then
+          if LoadHistoryFileSource(AConfig, FSNode, aFileSource) then
           begin
-            // Create file source based on saved configuration or create empty and
-            // allow it to read its configuration from FSNode.
-            aFileSource := nil;
-            // A file source reached by an address (wfx://<plugin>) is recreated
-            // from it, and skipped if its plugin is not installed. Nothing
-            // connects until the location is listed.
-            if Length(sAddress) > 0 then
-            begin
-              sPath := sAddress + '/';
-              aFileSource := ParseFileSource(sPath);
-            end
-            else if sFSType = 'FileSystem' then
-              aFileSource := TFileSystemFileSource.GetFileSource
-            else begin
-              FileSourceClass := gVfsModuleList.FindFileSource(sFSType);
-              if Assigned(FileSourceClass) then aFileSource := FileSourceClass.GetFileSource;
-            end;
-
             if Assigned(aFileSource) then
             begin
               FHistory.AddFileSource(aFileSource);
@@ -2755,18 +2738,7 @@ begin
     ActivePathIndex := -1;
   FHistory.SetIndexes(ActiveFSIndex, ActivePathIndex);
 
-  // A tab that was on a connection starts on a local folder, added after the
-  // remote location: connecting now could block DC's start and ask for a
-  // password before its window is even shown. TfrmMain asks once it is.
-  aFileSource:= GetCurrentFileSource;
-  if Assigned(aFileSource) and (fspUsesConnections in aFileSource.Properties) then
-  begin
-    FReconnectSource := aFileSource;
-    FReconnectIndex := FHistory.CurrentFileSourceIndex;
-    FReconnectPathIndex := FHistory.CurrentPathIndex;
-    FHistory.Add(TFileSystemFileSource.GetFileSource, LocalFallbackPath);
-  end;
-
+  DeferReconnect;
   aFileSource:= GetCurrentFileSource;
 
   if Assigned(aFileSource) and TFileSystemFileSource.ClassNameIs(aFileSource.ClassName) then
@@ -3431,66 +3403,117 @@ begin
   // get selected on further reloads.
   RequestedActiveFile := '';
 
-  // First listing of a restored remote location: if it could not be read
-  // (no connection, cancelled login), leave it. Not from here, where the
-  // list is still being applied.
-  if Assigned(FUnverifiedSource) then
+  CheckReconnectListing(ListFailed);
+end;
+
+function TFileView.LoadHistoryFileSource(AConfig: TXmlConfig; FSNode: TXmlNode;
+  out AFileSource: IFileSource): Boolean;
+var
+  sType, sAddress: String;
+  FileSourceClass: TFileSourceClass;
+begin
+  AFileSource := nil;
+  // A plugin location is saved by its address (wfx://<plugin>) and no type:
+  // older versions skip such an entry. Creating it does not connect yet.
+  if AConfig.TryGetAttr(FSNode, 'Address', sAddress) then
   begin
-    if ListFailed and FileSource.Equals(FUnverifiedSource) and
-       (CurrentPath = FUnverifiedPath) then
-      Application.QueueAsyncCall(@LeaveUnreachableLocation, 0);
-    FUnverifiedSource := nil;
+    sAddress := sAddress + '/';
+    AFileSource := ParseFileSource(sAddress);
+    Exit(True);
   end;
+
+  Result := AConfig.TryGetAttr(FSNode, 'Type', sType);
+  if not Result then Exit;
+
+  if sType = 'FileSystem' then
+    AFileSource := TFileSystemFileSource.GetFileSource
+  else begin
+    FileSourceClass := gVfsModuleList.FindFileSource(sType);
+    if Assigned(FileSourceClass) then AFileSource := FileSourceClass.GetFileSource;
+  end;
+end;
+
+procedure TFileView.DeferReconnect;
+begin
+  // Connecting while DC starts could keep it from starting, and ask for a
+  // password before its window is shown. So a tab that was on a connection
+  // starts on a local folder, and TfrmMain.AskToReconnectTabs asks later.
+  if not Assigned(FileSource) or not (fspUsesConnections in FileSource.Properties) then
+    Exit;
+
+  FReconnectSource := FileSource;
+  FReconnectIndex := FHistory.CurrentFileSourceIndex;
+  FReconnectPathIndex := FHistory.CurrentPathIndex;
+  // Added after the remote location, which so stays one step back
+  FHistory.Add(TFileSystemFileSource.GetFileSource, LocalFallbackPath);
+end;
+
+function TFileView.HasPendingReconnect: Boolean;
+begin
+  // The history entry can be gone if the user browsed away meanwhile
+  Result := Assigned(FReconnectSource) and
+            (FReconnectIndex < FHistory.Count) and
+            FHistory.FileSource[FReconnectIndex].Equals(FReconnectSource) and
+            (FReconnectPathIndex < FHistory.PathsCount[FReconnectIndex]);
+end;
+
+procedure TFileView.CheckReconnectListing(ListFailed: Boolean);
+var
+  ReconnectFailed: Boolean;
+begin
+  if not Assigned(FReconnectingSource) then Exit;
+
+  ReconnectFailed := ListFailed and FileSource.Equals(FReconnectingSource) and
+                     (CurrentPath = FReconnectingPath);
+  FReconnectingSource := nil;
+  // Leave it later: the file list is still being applied here
+  if ReconnectFailed then
+    Application.QueueAsyncCall(@LeaveUnreachableLocation, 0);
 end;
 
 procedure TFileView.LeaveUnreachableLocation(Data: PtrInt);
 begin
-  // The remote location stays in the history right before the local folder,
-  // so going back tries to connect again.
+  // Added after the remote location, so Back tries to connect again
   AddFileSource(TFileSystemFileSource.GetFileSource, LocalFallbackPath);
 end;
 
 function TFileView.LocalFallbackPath: String;
 var
-  Index: Integer;
+  Index, LastPath: Integer;
 begin
-  // The last local folder of this tab before the current location, or home
-  Result := '';
+  // The tab's last local folder before the current location, or home
   for Index := FHistory.CurrentFileSourceIndex - 1 downto 0 do
   begin
+    LastPath := FHistory.PathsCount[Index] - 1;
     if TFileSystemFileSource.ClassNameIs(FHistory.FileSource[Index].ClassName) and
-       (FHistory.PathsCount[Index] > 0) then
+       (LastPath >= 0) then
     begin
-      Result := GetDeepestExistingPath(FHistory.Path[Index, FHistory.PathsCount[Index] - 1]);
-      Break;
+      Result := GetDeepestExistingPath(FHistory.Path[Index, LastPath]);
+      if Length(Result) > 0 then Exit;
     end;
   end;
-  if Length(Result) = 0 then Result := GetHomeDir;
+  Result := GetHomeDir;
 end;
 
 function TFileView.PendingReconnect: String;
 var
-  Index: Integer;
+  SchemeEnd: Integer;
 begin
-  Result := '';
-  if Assigned(FReconnectSource) and (FReconnectIndex < FHistory.Count) and
-     FHistory.FileSource[FReconnectIndex].Equals(FReconnectSource) and
-     (FReconnectPathIndex < FHistory.PathsCount[FReconnectIndex]) then
-  begin
-    // wfx://FTP + /server/path/ -> "FTP: /server/path/"
-    Result := FReconnectSource.CurrentAddress;
-    Index := Pos('://', Result);
-    if Index > 0 then Delete(Result, 1, Index + 2);
-    Result := Result + ': ' + FHistory.Path[FReconnectIndex, FReconnectPathIndex];
-  end;
+  if not HasPendingReconnect then Exit('');
+
+  // "wfx://FTP" + "/server/path/" is shown as "FTP: /server/path/"
+  Result := FReconnectSource.CurrentAddress;
+  SchemeEnd := Pos('://', Result);
+  if SchemeEnd > 0 then Delete(Result, 1, SchemeEnd + 2);
+  Result := Result + ': ' + FHistory.Path[FReconnectIndex, FReconnectPathIndex];
 end;
 
 procedure TFileView.Reconnect(Connect: Boolean);
 begin
-  if Connect and (PendingReconnect <> '') then
+  if Connect and HasPendingReconnect then
   begin
-    FUnverifiedSource := FReconnectSource;
-    FUnverifiedPath := FHistory.Path[FReconnectIndex, FReconnectPathIndex];
+    FReconnectingSource := FReconnectSource;
+    FReconnectingPath := FHistory.Path[FReconnectIndex, FReconnectPathIndex];
     GoToHistoryIndex(FReconnectIndex, FReconnectPathIndex);
   end;
   FReconnectSource := nil;
