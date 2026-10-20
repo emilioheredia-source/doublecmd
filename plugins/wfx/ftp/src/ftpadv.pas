@@ -769,6 +769,9 @@ constructor TFTPSendEx.Create(const Encoding: String);
 begin
   inherited Create;
   FTimeout:= 15000;
+  // Without it a host that does not answer takes the system's TCP timeout
+  // (about two minutes on Linux), with DC waiting on its main thread.
+  FSock.ConnectionTimeout:= FTimeout;
   FDirectFile:= True;
 
   FFreshDirs:= TStringList.Create;
