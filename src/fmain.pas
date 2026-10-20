@@ -653,6 +653,8 @@ type
     procedure frmMainClose(Sender: TObject; var CloseAction: TCloseAction);
     procedure frmMainAfterShow(Sender: TObject);
     procedure AskToReconnectTabs;
+    procedure CollectPendingReconnects(ANotebook: TFileViewNotebook;
+                                       Views: TFPList; var Locations: String);
     procedure frmMainShow(Sender: TObject);
     procedure mnuDropClick(Sender: TObject);
     procedure mnuSplitterPercentClick(Sender: TObject);
@@ -2522,34 +2524,40 @@ end;
 
 procedure TfrmMain.AskToReconnectTabs;
 var
-  Index, Side: Integer;
+  Index: Integer;
   Locations: String = '';
   Connect: Boolean;
   Views: TFPList;
-  ANotebook: TFileViewNotebook;
 begin
-  // Tabs restored from a connection start on a local folder (see
-  // TFileView.LoadConfiguration): ask once, now that the window is shown,
-  // whether to connect them again. Afterwards nothing is pending.
+  // Tabs that were on a connection start on a local folder (see
+  // TFileView.DeferReconnect). Now that the window is shown, ask once.
   Views := TFPList.Create;
   try
-    for Side := 0 to 1 do
-    begin
-      if Side = 0 then ANotebook := nbLeft else ANotebook := nbRight;
-      for Index := 0 to ANotebook.PageCount - 1 do
-        if ANotebook.View[Index].PendingReconnect <> '' then
-        begin
-          Views.Add(ANotebook.View[Index]);
-          Locations += LineEnding + '    ' + ANotebook.View[Index].PendingReconnect;
-        end;
-    end;
+    CollectPendingReconnects(nbLeft, Views, Locations);
+    CollectPendingReconnects(nbRight, Views, Locations);
     if Views.Count = 0 then Exit;
+
     Connect := msgYesNo(Format(rsMsgReconnectTabs,
                                [LineEnding + Locations, LineEnding + LineEnding, LineEnding]));
     for Index := 0 to Views.Count - 1 do
       TFileView(Views[Index]).Reconnect(Connect);
   finally
     Views.Free;
+  end;
+end;
+
+procedure TfrmMain.CollectPendingReconnects(ANotebook: TFileViewNotebook;
+  Views: TFPList; var Locations: String);
+var
+  Index: Integer;
+  Location: String;
+begin
+  for Index := 0 to ANotebook.PageCount - 1 do
+  begin
+    Location := ANotebook.View[Index].PendingReconnect;
+    if Location = '' then Continue;
+    Views.Add(ANotebook.View[Index]);
+    Locations += LineEnding + '    ' + Location;
   end;
 end;
 
