@@ -766,12 +766,13 @@ var
   Flags: cint = LIBSSH2_FXF_CREAT or LIBSSH2_FXF_WRITE;
   OpenMode: clong = $1A0;
   MadeWritable: Boolean = False;
-  NeedMode: Boolean = False;
+  ApplyModeAfter: Boolean = False;
   Replaced: Integer = 0;
 {$IFDEF UNIX}
   LocalStat: BaseUnix.TStat;
   UploadAttrs: LIBSSH2_SFTP_ATTRIBUTES;
   LinkTarget: String;
+  Created: Boolean;
 {$ENDIF}
 
   function SetRemoteMode(Mode: clong): Boolean;
@@ -849,8 +850,7 @@ begin
 
 {$IFDEF UNIX}
     // Create the remote file directly with the local file's permission bits,
-    // so a new file needs no separate setstat round-trip afterwards (see
-    // NeedMode below for when it still does).
+    // so a new file needs no separate setstat round-trip afterwards.
     if fpStat(FDirectFileName, LocalStat) = 0 then
       OpenMode:= LocalStat.st_mode and $0FFF;
 {$ENDIF}
@@ -900,12 +900,11 @@ begin
     until not ((TargetHandle = nil) and (FLastError = LIBSSH2_ERROR_EAGAIN));
 
 {$IFDEF UNIX}
-    // The server applies OpenMode only to a file the open creates, and then
-    // less its umask. An existing file, overwritten or resumed, kept its old
-    // mode (an executable copied over a non-executable one stayed so, as sync
-    // does with every changed file), and group/other write bits are usually
-    // masked off: set the mode explicitly in those cases.
-    NeedMode:= ((Flags and LIBSSH2_FXF_EXCL) = 0) or ((OpenMode and $12) <> 0);
+    // The open's mode applies only to a file it creates, minus the server's
+    // umask: an overwritten or resumed file keeps its old mode (sync left
+    // executables non-executable that way), and group/other write is masked.
+    Created:= (Flags and LIBSSH2_FXF_EXCL) <> 0;
+    ApplyModeAfter:= not Created or ((OpenMode and (S_IWGRP or S_IWOTH)) <> 0);
 {$ENDIF}
 
     BytesToRead:= WRITE_BUFFER_SIZE;
@@ -941,9 +940,8 @@ begin
     FreeMem(FBuffer);
     Result:= FileClose(TargetHandle) and Result;
     libssh2_session_set_blocking(FSession, 1);
-    // After making the target writable above, put a mode back even if the
-    // transfer failed.
-    if MadeWritable or (Result and NeedMode) then SetRemoteMode(OpenMode);
+    // A target made writable above gets a mode back even if the transfer failed
+    if MadeWritable or (Result and ApplyModeAfter) then SetRemoteMode(OpenMode);
 {$IFDEF UNIX}
     // Only restore ownership, and only when we are root: for a normal user this
     // setstat always fails on the server, wasting a round-trip on every file.
@@ -1023,10 +1021,9 @@ begin
 
   if Restore then TotalBytesToRead:= RetrStream.Seek(0, soEnd);
 
-  // Stat what the open below will read. For a link being followed that is its
-  // target, and the caller only knows the link's own size (the length of the
-  // target path): trusting that stopped the download after a few bytes and
-  // reported success. The same attributes give the mode applied afterwards.
+  // Size and mode of what the open will read. For a followed link the caller
+  // only knows the link's own size, and reading just that much truncated the
+  // download without an error.
   HaveAttrs:= libssh2_sftp_stat(FSFTPSession, PAnsiChar(FileName), @DownloadAttrs) = 0;
   if HaveAttrs and ((DownloadAttrs.flags and LIBSSH2_SFTP_ATTR_SIZE) <> 0) then
     FileSize:= DownloadAttrs.filesize;
