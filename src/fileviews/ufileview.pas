@@ -145,6 +145,10 @@ type
     FLastMarkIgnoreAccents: Boolean;
     FLastLoadedFileSource: IFileSource;
     FLastLoadedPath: String;
+    // A remote location restored from the configuration, checked by its first
+    // listing: if it cannot be reached the view falls back to a local folder
+    FUnverifiedSource: IFileSource;
+    FUnverifiedPath: String;
     FLoadingFileListLongTime: Boolean;
     FMethods: TFormCommands;
     FForceReload: Boolean;
@@ -213,7 +217,9 @@ type
        Assigns the built lists to the file view and displays new the file list.
     }
     procedure SetFileList(var NewAllDisplayFiles: TDisplayFiles;
-                          var NewFilteredDisplayFiles: TDisplayFiles);
+                          var NewFilteredDisplayFiles: TDisplayFiles;
+                          ListFailed: Boolean);
+    procedure LeaveUnreachableLocation({%H-}Data: PtrInt);
     procedure SetFlatView(AFlatView: Boolean);
 
     procedure ActivateEvent(Sender: TObject);
@@ -619,7 +625,7 @@ implementation
 
 uses
   Clipbrd, Dialogs, LCLProc, LCLType, Forms, dmCommonData,
-  uShellExecute, fMaskInputDlg, uMasks, DCOSUtils, uOSUtils, DCStrUtils,
+  uShellExecute, fMaskInputDlg, uMasks, DCOSUtils, uOSUtils, uSysFolders, DCStrUtils,
   uDCUtils, uDebug, uLng, uShowMsg, uFileSystemFileSource, uFileSourceUtil,
   uFileViewNotebook, uSearchTemplate, uKeyboard, uFileFunctions,
   fMain, uSearchResultFileSource, uFileSourceProperty, uVfsModule, uFileViewWithPanels,
@@ -720,6 +726,7 @@ var
   i: Integer;
   DbgWorkersThread: TFunctionThread;
 begin
+  Application.RemoveAsyncCalls(Self);
   Clear;
 
   if Assigned(FWorkersThread) then
@@ -2594,7 +2601,7 @@ var
   HistoryNode, EntryNode, FSNode, PathsNode: TXmlNode;
   SortingsNode, SortingSubNode, SortFunctionNode: TXmlNode;
   FileSourceClass: TFileSourceClass;
-  sFSType, sPath, sFilename: String;
+  sFSType, sPath, sFilename, sAddress: String;
   aFileSource: IFileSource = nil;
   ActiveFSIndex: Integer = -1;
   ActivePathIndex: Integer = -1;
@@ -2648,11 +2655,23 @@ begin
         FSNode := EntryNode.FindNode('FileSource');
         if Assigned(FSNode) then
         begin
-          if AConfig.TryGetAttr(FSNode, 'Type', sFSType) then
+          sFSType := '';
+          sAddress := '';
+          if AConfig.TryGetAttr(FSNode, 'Address', sAddress) or
+             AConfig.TryGetAttr(FSNode, 'Type', sFSType) then
           begin
             // Create file source based on saved configuration or create empty and
             // allow it to read its configuration from FSNode.
-            if sFSType = 'FileSystem' then
+            aFileSource := nil;
+            // A file source reached by an address (wfx://<plugin>) is recreated
+            // from it, and skipped if its plugin is not installed. Nothing
+            // connects until the location is listed.
+            if Length(sAddress) > 0 then
+            begin
+              sPath := sAddress + '/';
+              aFileSource := ParseFileSource(sPath);
+            end
+            else if sFSType = 'FileSystem' then
               aFileSource := TFileSystemFileSource.GetFileSource
             else begin
               FileSourceClass := gVfsModuleList.FindFileSource(sFSType);
@@ -2739,12 +2758,19 @@ begin
     end;
     if TFileSystemFileSource.ClassNameIs(aFileSource.ClassName) then
     begin
-      // Go to upper directory if current doesn't exist
+      // Go to upper directory if current doesn't exist. When nothing of it
+      // exists (a drive that is gone) go home: DC's working directory is
+      // wherever it was started from, e.g. /run or C:\Windows\System32.
       sPath := GetDeepestExistingPath(FHistory.CurrentPath);
-      if Length(sPath) = 0 then sPath := mbGetCurrentDir;
+      if Length(sPath) = 0 then sPath := GetHomeDir;
       if not mbCompareFileNames(sPath, FHistory.CurrentPath) then
         FHistory.Add(aFileSource, sPath);
     end;
+  end
+  else if Assigned(aFileSource) and (fspUsesConnections in aFileSource.Properties) then
+  begin
+    FUnverifiedSource := aFileSource;
+    FUnverifiedPath := FHistory.CurrentPath;
   end;
 
   if Assigned(aFileSource) then
@@ -2867,6 +2893,13 @@ begin
       FSNode := AConfig.AddNode(EntryNode, 'FileSource');
       if TFileSystemFileSource.ClassNameIs(FHistory.FileSource[i].ClassName) then
         AConfig.SetAttr(FSNode, 'Type', 'FileSystem')
+      else if Length(FHistory.FileSource[i].CurrentAddress) > 0 then
+      begin
+        // The address only, no type: older versions skip an entry without
+        // a type, while with an unknown one they add its paths to the
+        // entry before it.
+        AConfig.SetAttr(FSNode, 'Address', FHistory.FileSource[i].CurrentAddress);
+      end
       else begin
         AConfig.SetAttr(FSNode, 'Type', FHistory.FileSource[i].ClassName);
       end;
@@ -3342,7 +3375,7 @@ begin
 end;
 
 procedure TFileView.SetFileList(var NewAllDisplayFiles: TDisplayFiles;
-  var NewFilteredDisplayFiles: TDisplayFiles);
+  var NewFilteredDisplayFiles: TDisplayFiles; ListFailed: Boolean);
 var
   ARequests: TFileViewRequests;
 begin
@@ -3376,6 +3409,37 @@ begin
   // Regardless if it is there or not it should be cleared so that it doesn't
   // get selected on further reloads.
   RequestedActiveFile := '';
+
+  // First listing of a restored remote location: if it could not be read
+  // (no connection, cancelled login), leave it. Not from here, where the
+  // list is still being applied.
+  if Assigned(FUnverifiedSource) then
+  begin
+    if ListFailed and FileSource.Equals(FUnverifiedSource) and
+       (CurrentPath = FUnverifiedPath) then
+      Application.QueueAsyncCall(@LeaveUnreachableLocation, 0);
+    FUnverifiedSource := nil;
+  end;
+end;
+
+procedure TFileView.LeaveUnreachableLocation(Data: PtrInt);
+var
+  Index: Integer;
+  sPath: String = '';
+begin
+  // The last local folder of this tab, or home. The remote location stays in
+  // the history right before it, so going back tries to connect again.
+  for Index := FHistory.CurrentFileSourceIndex - 1 downto 0 do
+  begin
+    if TFileSystemFileSource.ClassNameIs(FHistory.FileSource[Index].ClassName) and
+       (FHistory.PathsCount[Index] > 0) then
+    begin
+      sPath := GetDeepestExistingPath(FHistory.Path[Index, FHistory.PathsCount[Index] - 1]);
+      Break;
+    end;
+  end;
+  if Length(sPath) = 0 then sPath := GetHomeDir;
+  AddFileSource(TFileSystemFileSource.GetFileSource, sPath);
 end;
 
 procedure TFileView.EnableWatcher(Enable: Boolean);
