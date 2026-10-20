@@ -72,7 +72,8 @@ type
   end;
 
   TSetFileListMethod = procedure (var NewAllDisplayFiles: TDisplayFiles;
-                                  var NewFilteredDisplayFiles: TDisplayFiles) of object;
+                                  var NewFilteredDisplayFiles: TDisplayFiles;
+                                  ListFailed: Boolean) of object;
   TUpdateFileMethod = procedure (const UpdatedFile: TDisplayFile;
                                  const UserData: Pointer) of object;
   TAbortFileMethod = procedure (AStart: Integer; AList: TFPList) of object;
@@ -86,6 +87,8 @@ type
     FExistingDisplayFilesHashed: TStringHashListUtf8;
     FSetFileListMethod: TSetFileListMethod;
     FListOperation: TFileSourceListOperation;
+    // The folder could not be read (as opposed to being empty)
+    FListFailed: Boolean;
     FListOperationLock: TCriticalSection;
 
     // Data captured from the file view before start.
@@ -466,6 +469,7 @@ begin
         FListOperation.Execute;
         if FListOperation.Result = fsorFinished then
           FileSourceFiles := FListOperation.ReleaseFiles;
+        FListFailed := FListOperation.ListFailed;
       finally
         FListOperationLock.Acquire;
         try
@@ -880,7 +884,7 @@ procedure TFileListBuilder.DoSetFileList;
 begin
   DoneWorking;
   if not Aborted and Assigned(FSetFileListMethod) then
-    FSetFileListMethod(FAllDisplayFiles, FFilteredDisplayFiles);
+    FSetFileListMethod(FAllDisplayFiles, FFilteredDisplayFiles, FListFailed);
 end;
 
 { TFilePropertiesRetriever }
