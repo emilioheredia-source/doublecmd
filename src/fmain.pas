@@ -652,6 +652,7 @@ type
       Shift: TShiftState; X, Y: Integer);
     procedure frmMainClose(Sender: TObject; var CloseAction: TCloseAction);
     procedure frmMainAfterShow(Sender: TObject);
+    procedure AskToReconnectTabs;
     procedure frmMainShow(Sender: TObject);
     procedure mnuDropClick(Sender: TObject);
     procedure mnuSplitterPercentClick(Sender: TObject);
@@ -2516,6 +2517,40 @@ begin
     DCDebug('ActiveFrame = nil');
   end;
   HiddenToTray := False;
+  AskToReconnectTabs;
+end;
+
+procedure TfrmMain.AskToReconnectTabs;
+var
+  Index, Side: Integer;
+  Locations: String = '';
+  Connect: Boolean;
+  Views: TFPList;
+  ANotebook: TFileViewNotebook;
+begin
+  // Tabs restored from a connection start on a local folder (see
+  // TFileView.LoadConfiguration): ask once, now that the window is shown,
+  // whether to connect them again. Afterwards nothing is pending.
+  Views := TFPList.Create;
+  try
+    for Side := 0 to 1 do
+    begin
+      if Side = 0 then ANotebook := nbLeft else ANotebook := nbRight;
+      for Index := 0 to ANotebook.PageCount - 1 do
+        if ANotebook.View[Index].PendingReconnect <> '' then
+        begin
+          Views.Add(ANotebook.View[Index]);
+          Locations += LineEnding + '    ' + ANotebook.View[Index].PendingReconnect;
+        end;
+    end;
+    if Views.Count = 0 then Exit;
+    Connect := msgYesNo(Format(rsMsgReconnectTabs,
+                               [LineEnding + Locations, LineEnding + LineEnding, LineEnding]));
+    for Index := 0 to Views.Count - 1 do
+      TFileView(Views[Index]).Reconnect(Connect);
+  finally
+    Views.Free;
+  end;
 end;
 
 procedure TfrmMain.frmMainShow(Sender: TObject);
