@@ -635,7 +635,8 @@ end;
 
 function TWfxPluginFileSource.GetProperties: TFileSourceProperties;
 begin
-  Result := [fspUsesConnections, fspListOnMainThread, fspSearchable];
+  // Saveable: tabs keep their plugin location (see TFileView.SaveConfiguration)
+  Result := [fspUsesConnections, fspListOnMainThread, fspSearchable, fspSaveableLoadable];
   with FWfxModule do
   begin
     if Assigned(FsLinksToLocalFiles) and FsLinksToLocalFiles() then
