@@ -92,6 +92,7 @@ resourcestring
   rsMsgSelectExecutableFile = 'Select executable file for';
   rsMsgWithActionWith = 'with';
   rsMsgFollowSymlink = 'Follow symlink "%s"?';
+  rsMsgReconnectTabs = 'When Double Commander was closed, these tabs were on connections:%s%sConnect to them again?%s(No: they stay on their last local folders.)';
   rsMsgFileSizeTooBig = 'The file size of "%s" is too big for destination file system!';
   rsMsgCloseAllInActiveTabs = 'Remove all inactive tabs?';
   rsMsgErrRegExpSyntax = 'Syntax error in regular expression!';

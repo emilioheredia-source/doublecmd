@@ -287,12 +287,16 @@ begin
   end;
 end;
 
-function ShowPasswordDialog(out Password: String): Boolean;
+function ShowPasswordDialog(Connection: TConnection; out Password: String): Boolean;
 var
-  APassword: UnicodeString;
+  APassword, ATitle, AText: UnicodeString;
 begin
   SetLength(APassword, MAX_PATH); APassword[1] := #0;
-  Result := RequestProc(PluginNumber, RT_Password, nil, nil, PWideChar(APassword), MAX_PATH);
+  // Say which connection asks: without it the bare "Password" box gives no
+  // clue, e.g. when a restored tab reconnects
+  ATitle := UTF8ToUTF16(Connection.ConnectionName);
+  AText := UTF8ToUTF16(Format(rsPasswordFor, [Connection.UserName, Connection.Host]));
+  Result := RequestProc(PluginNumber, RT_Password, PWideChar(ATitle), PWideChar(AText), PWideChar(APassword), MAX_PATH);
   if Result then
     Password := UTF16ToUTF8(PWideChar(APassword)) // truncate to #0
   else
@@ -400,7 +404,7 @@ begin
           APassword:= Connection.Password
         else if Length(Connection.CachedPassword) > 0 then
           APassword:= Connection.CachedPassword
-        else if not ShowPasswordDialog(APassword) then
+        else if not ShowPasswordDialog(Connection, APassword) then
         begin
           FreeAndNil(FtpSend);
           Exit;
