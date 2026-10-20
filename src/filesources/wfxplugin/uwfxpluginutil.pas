@@ -33,6 +33,8 @@ type
     FWfxModule: TWfxModule;
     // Names of the links to directories followed on the way to the current one
     FFollowedDirLinks: array of String;
+    function IsDirLinkLoop(aFile: TFile): Boolean;
+    procedure AddFollowedDirectory(aFile: TFile; CurrentNode: TFileTreeNode);
   protected
     procedure AddLinkTarget(aFile: TFile; CurrentNode: TFileTreeNode); override;
     procedure AddFilesInDirectory(srcPath: String; CurrentNode: TFileTreeNode); override;
@@ -78,6 +80,7 @@ type
     ShowCompareFilesUIByFileObject: TShowCompareFilesUIByFileObjectFunction;
 
     procedure ShowError(sMessage: String);
+    function CopiedFile(aNode: TFileTreeNode): TFile;
     procedure LogMessage(sMessage: String; logOptions: TLogOptions; logMsgType: TLogMsgType);
 
     function ProcessNode(aFileTreeNode: TFileTreeNode; CurrentTargetPath: String): Integer;
@@ -215,29 +218,11 @@ end;
 { TWfxTreeBuilder }
 
 procedure TWfxTreeBuilder.AddLinkTarget(aFile: TFile; CurrentNode: TFileTreeNode);
-const
-  MaxFollowedDirLinks = 8;
-var
-  Index: Integer;
 begin
-  // A link to a directory may point at one of its own parents ("a -> .."),
-  // and a plugin does not say where links point, so such a loop cannot be
-  // recognised by its target. Following a link with the name of one already
-  // followed on this path, or going too deep, is taken as a loop: that link
-  // is copied as a link.
-  if aFile.IsLinkToDirectory then
+  if aFile.IsLinkToDirectory and IsDirLinkLoop(aFile) then
   begin
-    if Length(FFollowedDirLinks) >= MaxFollowedDirLinks then
-    begin
-      AddLink(aFile, CurrentNode);
-      Exit;
-    end;
-    for Index:= 0 to High(FFollowedDirLinks) do
-      if FFollowedDirLinks[Index] = aFile.Name then
-      begin
-        AddLink(aFile, CurrentNode);
-        Exit;
-      end;
+    AddLink(aFile, CurrentNode);
+    Exit;
   end;
 
   // Add as normal file/directory
@@ -254,14 +239,35 @@ begin
     else begin
       aFile.Attributes:= aFile.Attributes or S_IFDIR;
     end;
-    Index:= Length(FFollowedDirLinks);
-    SetLength(FFollowedDirLinks, Index + 1);
-    FFollowedDirLinks[Index]:= aFile.Name;
-    try
-      AddDirectory(aFile, CurrentNode);
-    finally
-      SetLength(FFollowedDirLinks, Index);
-    end;
+    AddFollowedDirectory(aFile, CurrentNode);
+  end;
+end;
+
+function TWfxTreeBuilder.IsDirLinkLoop(aFile: TFile): Boolean;
+const
+  MaxFollowedDirLinks = 8;
+var
+  LinkName: String;
+begin
+  // A plugin does not say where a link points, so "a -> .." cannot be
+  // recognised by its target. A name already followed on this path, or too
+  // many links deep, is taken as a loop.
+  Result := Length(FFollowedDirLinks) >= MaxFollowedDirLinks;
+  for LinkName in FFollowedDirLinks do
+    if LinkName = aFile.Name then Exit(True);
+end;
+
+procedure TWfxTreeBuilder.AddFollowedDirectory(aFile: TFile; CurrentNode: TFileTreeNode);
+var
+  Depth: Integer;
+begin
+  Depth := Length(FFollowedDirLinks);
+  SetLength(FFollowedDirLinks, Depth + 1);
+  FFollowedDirLinks[Depth] := aFile.Name;
+  try
+    AddDirectory(aFile, CurrentNode);
+  finally
+    SetLength(FFollowedDirLinks, Depth);
   end;
 end;
 
@@ -333,6 +339,14 @@ begin
   end;
 end;
 
+function TWfxPluginOperationHelper.CopiedFile(aNode: TFileTreeNode): TFile;
+begin
+  // A followed link is copied as what it points to, its sub node
+  Result := aNode.TheFile;
+  if Result.IsLink and (FMode <> wpohmMove) and (aNode.SubNodesCount > 0) then
+    Result := aNode.SubNodes[0].TheFile;
+end;
+
 function TWfxPluginOperationHelper.ProcessNode(aFileTreeNode: TFileTreeNode;
   CurrentTargetPath: String): Integer;
 var
@@ -384,14 +398,7 @@ begin
 
     if ProcessedOk = FS_FILE_USERABORT then AbortOperation();
 
-    // A followed link was copied as what it points to: take that one's time
-    if ProcessedOk = FS_FILE_OK then
-    begin
-      if aFile.IsLink and (FMode <> wpohmMove) and (CurrentSubNode.SubNodesCount > 0) then
-        CopyProperties(CurrentSubNode.SubNodes[0].TheFile, TargetName)
-      else
-        CopyProperties(aFile, TargetName);
-    end;
+    if ProcessedOk = FS_FILE_OK then CopyProperties(CopiedFile(CurrentSubNode), TargetName);
 
     if ProcessedOk = FS_FILE_OK then
       begin
