@@ -9,7 +9,7 @@ uses
   Classes, SysUtils, Types,
   IntegerList,
   LazFileUtils,
-  DCClassesUtf8, DCDateTimeUtils,
+  DCClassesUtf8, DCDateTimeUtils, DCStrUtils, DCOSUtils,
   uFile;
 
 type
@@ -28,6 +28,7 @@ type
     srsDoNothing,
 
     srsNextAction,
+    srsKeepLink,
     srsNoAction,
     srsDeleted
   );
@@ -97,6 +98,10 @@ type
     copyToRightCount: Integer;
     deleteLeftCount: Integer;
     deleteRightCount: Integer;
+    // Type conflicts (a folder on one side, a file or link on the other)
+    // left alone, and those a chosen copy will replace on the other side
+    conflictKeepCount: Integer;
+    conflictReplaceCount: Integer;
 
     function copySize: Int64;
     function copyCount: Integer;
@@ -117,6 +122,14 @@ type
     _action: TSyncRecState;
     _option: TSyncDirsCompareOption;
     _filesOnSide: TDoubleFiles;
+    // A folder whose listing failed on that side: it has no file records and
+    // its action stays "do nothing", so nothing inside it is touched
+    _unreadable: array [TDoubleSide] of Boolean;
+    // A directory on one side, a file or link on the other. The action starts
+    // at "do nothing"; a copy chosen by the user replaces the other side.
+    _typeConflict: Boolean;
+  private
+    function typeConflictAction(const expectAction: TSyncRecState): TSyncRecState;
   private
     function getFileOnSide(const side: TDoubleSide): TFile;
     procedure setFileOnSide(const side: TDoubleSide; const f: TFile);
@@ -134,6 +147,14 @@ type
     function hasFilesOnBothSides: Boolean;
     function hasFileOnOnlyOneSide: Boolean;
     function hasFileOnAnySide: Boolean;
+
+    procedure markUnreadable(const side: TDoubleSide);
+    function isUnreadable: Boolean;
+    function isUnreadableOnSide(const side: TDoubleSide): Boolean;
+    procedure markTypeConflict;
+    function isTypeConflict: Boolean;
+    // Unreadable or a type conflict: always shown, counted separately
+    function isFixed: Boolean;
 
     procedure updateState; virtual;
     function getProperAction(const expectAction: TSyncRecState): TSyncRecState; virtual;
@@ -158,6 +179,9 @@ type
   { TSyncFileRec }
 
   TSyncFileRec = class( TSyncRec )
+  private
+    function bothSidesAreLinks: Boolean;
+    function linksAreEquivalent: Boolean;
   public
     function isDir: Boolean; override;
     procedure updateState; override;
@@ -244,6 +268,8 @@ type
     notEqual: Integer;
     leftUnique: Integer;
     rightUnique: Integer;
+    unreadable: Integer;
+    typeConflict: Integer;
   end;
 
   { TFlatDirFileList }
@@ -362,6 +388,10 @@ end;
 
 function TSyncRec.getProperAction( const expectAction: TSyncRecState ): TSyncRecState;
 begin
+  if self.isUnreadable then
+    Exit( srsNoAction );
+  if self.isTypeConflict then
+    Exit( typeConflictAction( expectAction ) );
   Result:= expectAction;
   case expectAction of
     srsDoNothing:           // expect Clear Action
@@ -482,11 +512,117 @@ begin
   Result:= self.hasLeftFile or self.hasRightFile;
 end;
 
+procedure TSyncRec.markUnreadable(const side: TDoubleSide);
+begin
+  _unreadable[side]:= True;
+  _state:= srsDoNothing;
+  _action:= srsDoNothing;
+end;
+
+function TSyncRec.isUnreadable: Boolean;
+begin
+  Result:= _unreadable[dsLeft] or _unreadable[dsRight];
+end;
+
+function TSyncRec.isUnreadableOnSide(const side: TDoubleSide): Boolean;
+begin
+  Result:= _unreadable[side];
+end;
+
+procedure TSyncRec.markTypeConflict;
+begin
+  _typeConflict:= True;
+  _state:= srsNotEq;
+  _action:= srsDoNothing;
+end;
+
+function TSyncRec.isTypeConflict: Boolean;
+begin
+  Result:= _typeConflict;
+end;
+
+function TSyncRec.isFixed: Boolean;
+begin
+  Result:= self.isUnreadable or self.isTypeConflict;
+end;
+
+// A type conflict has no automatic action: "copy default" leaves it alone,
+// Space cycles through nothing / left to right / right to left, and "keep
+// the link" copies the link over the folder or file on the other side.
+function TSyncRec.typeConflictAction( const expectAction: TSyncRecState ): TSyncRecState;
+begin
+  case expectAction of
+    srsUnknown:
+      Result:= srsDoNothing;
+    srsNextAction:
+      case _action of
+        srsDoNothing:   Result:= srsCopyToRight;
+        srsCopyToRight: Result:= srsCopyToLeft;
+        else            Result:= srsDoNothing;
+      end;
+    srsNotEq:
+      case _action of
+        srsCopyToRight: Result:= srsCopyToLeft;
+        srsCopyToLeft:  Result:= srsCopyToRight;
+        else            Result:= srsNoAction;
+      end;
+    srsKeepLink:
+      if self.leftFile.IsLink and NOT self.rightFile.IsLink then
+        Result:= srsCopyToRight
+      else if self.rightFile.IsLink and NOT self.leftFile.IsLink then
+        Result:= srsCopyToLeft
+      else
+        Result:= srsNoAction;
+    srsCopyToLeft,
+    srsCopyToRight,
+    srsDoNothing:
+      Result:= expectAction;
+    else
+      Result:= srsNoAction;
+  end;
+end;
+
 { TSyncFileRec }
 
 function TSyncFileRec.isDir: Boolean;
 begin
   Result:= False;
+end;
+
+function TSyncFileRec.bothSidesAreLinks: Boolean;
+begin
+  Result:= self.leftFile.IsLink and self.rightFile.IsLink;
+end;
+
+// Two links are the same link when they point at the same place. A link's
+// own time is not compared: SFTP cannot set it (setstat follows the link).
+function TSyncFileRec.linksAreEquivalent: Boolean;
+
+  // The length of the target text; a plugin that cannot report the text
+  // reports a link's size, which over SFTP is that length too
+  function linkLength(const f: TFile): Int64;
+  begin
+    if f.LinkProperty.LinkTo <> EmptyStr then
+      Result:= Length(f.LinkProperty.LinkTo)
+    else
+      Result:= f.Size;
+  end;
+
+var
+  leftTarget, rightTarget: String;
+begin
+  leftTarget:= self.leftFile.LinkProperty.LinkTo;
+  rightTarget:= self.rightFile.LinkProperty.LinkTo;
+  if leftTarget = rightTarget then
+    Exit(True);
+  // One side does not expose the target (a WFX plugin, e.g. SFTP): equal
+  // lengths are the best available evidence of equal targets
+  if (leftTarget = EmptyStr) or (rightTarget = EmptyStr) then
+    Exit(linkLength(self.leftFile) = linkLength(self.rightFile));
+  // Different texts that resolve to the same place
+  Result:= mbCompareFileNames(
+    GetAbsoluteFileName(self.leftFile.Path, leftTarget),
+    GetAbsoluteFileName(self.rightFile.Path, rightTarget));
 end;
 
 procedure TSyncFileRec.updateState;
@@ -511,17 +647,23 @@ procedure TSyncFileRec.updateState;
     end;
   begin
     _state:= srsNotEq;
-    // by datetime
-    compareDate;
-    // by size
-    if _state = srsEqual then begin
-      if self.leftFile.Size <> self.rightFile.Size then
-        _state:= srsNotEq;
-    end;
-    // by content
-    if _state = srsEqual then begin
-      if cfByContent in _option.flags then
-        _state:= srsUnknown;
+    // links: by target, never by time, size or content
+    if self.bothSidesAreLinks then begin
+      if self.linksAreEquivalent then
+        _state:= srsEqual;
+    end else begin
+      // by datetime
+      compareDate;
+      // by size
+      if _state = srsEqual then begin
+        if self.leftFile.Size <> self.rightFile.Size then
+          _state:= srsNotEq;
+      end;
+      // by content
+      if _state = srsEqual then begin
+        if cfByContent in _option.flags then
+          _state:= srsUnknown;
+      end;
     end;
     // asymmetric
     if NOT (_state in [srsUnknown,srsEqual]) then begin
@@ -531,7 +673,12 @@ procedure TSyncFileRec.updateState;
     _action:= _state;
   end;
 begin
-  if self.hasFilesOnBothSides then begin
+  if self.isTypeConflict then begin
+    // Stays a conflict even after one side was removed: the folder side was
+    // never scanned, so a copy chosen for it must take the folder whole
+    _state:= srsNotEq;
+    _action:= srsDoNothing;
+  end else if self.hasFilesOnBothSides then begin
     compareTwoSides;
   end else begin
     inherited;
@@ -551,6 +698,8 @@ procedure TSyncDirRec.updateState;
 begin
   _state:= srsDoNothing;
   _action:= srsDoNothing;
+  if self.isUnreadable then
+    Exit;
   if NOT (cfEmptyDirs in _option.flags) then
     Exit;
   if self.hasFileOnOnlyOneSide then
@@ -573,6 +722,8 @@ end;
 function TSyncDirRec.isDeletable( const side: TDoubleSide ): Boolean;
 begin
   Result:= False;
+  if self.isUnreadable then
+    Exit;
   if NOT (cfEmptyDirs in _option.flags) then
     Exit;
   Result:= inherited isDeletable( side );
@@ -837,6 +988,9 @@ begin
     rec:= self.fileSyncRec( i );
     if rec.isFile then
       continue;
+    // Always shown: it is why the result is partial
+    if rec.isUnreadable then
+      continue;
     if rec.state <> srsDoNothing then
       continue;
     if i + 1 < self.Count then begin
@@ -930,8 +1084,15 @@ begin
   Result:= Default( TSyncDirsFlatCount );
   for i:= 0 to self.Count-1 do begin
     rec:= self.fileSyncRec(i);
-    if rec.isDir then
+    if rec.isDir then begin
+      if rec.isUnreadable then
+        Inc( Result.unreadable );
       continue;
+    end;
+    if rec.isTypeConflict then begin
+      Inc( Result.typeConflict );
+      continue;
+    end;
 
     Inc( Result.total);
 

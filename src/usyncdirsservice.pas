@@ -14,6 +14,7 @@ uses
   uFile, uFileProperty,
   uFileSource, uFileSourceManager, uFileSourceUtil, uFileSystemFileSource,
   uFileSourceOperation, uFileSourceCopyOperation, uFileSourceOperationTypes,
+  uFileSourceListOperation,
   uSyncDirsModel;
 
 const
@@ -29,6 +30,7 @@ const
     '',
 
     'ERR(NextAction)',
+    'ERR(KeepLink)',
     'ERR(NoAction)',
     'ERR(DEL)'
   );
@@ -151,11 +153,18 @@ type
     property rightFS: IFileSource read _fileSources[dsRight];
   end;
 
+  { TSyncDirsUnreadableAnswer }
+
+  // What to do about a folder that could not be listed. On uaAbort the
+  // callback also cancels the compare.
+  TSyncDirsUnreadableAnswer = ( uaRetry, uaSkip, uaSkipAll, uaAbort );
+
   { ISyncDirsTreeBuilderCallback }
 
   ISyncDirsTreeBuilderCallback = interface
     function treeBuilderCheckRunning( const processMessages: Boolean ): Boolean;
     function treeBuilderMaskFilt( const f: TFile ): Boolean;
+    function treeBuilderUnreadable( const side: TDoubleSide; const path: String ): TSyncDirsUnreadableAnswer;
     procedure onTreeBuilderUpdateProgress( const percent: Integer );
   end;
 
@@ -169,9 +178,12 @@ type
     _fileSources: TDoubleFileSources;
     _basePaths: TDoublePaths;
     _selectedList: TStringListEx;
+    _skipAllUnreadable: Boolean;
   private
     procedure fillSelectedList( const selectedFiles: TDoubleFiles );
     function isSelectedFile( const f: TFile ): Boolean;
+    function listSide( const side: TDoubleSide; const dirSyncRec: TSyncDirRec; out files: TFiles ): Boolean;
+    function listBothSides( const dirSyncRec: TSyncDirRec; out leftFiles: TFiles; out rightFiles: TFiles ): Boolean;
   public
     constructor Create(
       const callback: ISyncDirsTreeBuilderCallback;
@@ -303,6 +315,9 @@ class procedure TSyncDirsUtil.filterFlatListWithFlags(
   begin
     if rec.state = srsDeleted then
       Exit(False);
+    // A type conflict is always shown: it is why the result is partial
+    if rec.isTypeConflict then
+      Exit(True);
 
     Result:=
       ((rec.hasFileOnOnlyOneSide and (ffSingle in filterFlags)) or
@@ -321,6 +336,8 @@ class procedure TSyncDirsUtil.filterFlatListWithFlags(
   begin
     if syncRec.state = srsDeleted then begin
       Result:= False;
+    end else if syncRec.isUnreadable then begin
+      Result:= True;
     end else if syncRec.state = srsDoNothing then begin
       Result:= True;
     end else begin
@@ -738,6 +755,9 @@ begin
       continue;
     if dirSyncRec.relPath = EmptyStr then
       continue;
+    // Not listed, so it only looks empty
+    if dirSyncRec.isUnreadable then
+      continue;
     if dirSyncRec.isEmpty(side) then begin
       Result:= doRemoveDir;
       if NOT Result then
@@ -826,6 +846,88 @@ begin
   Result:= _selectedList.IndexOf(f.FullPath) >= 0;
 end;
 
+// Lists one side of a folder. A failed listing, as opposed to an empty
+// folder, is retried once on its own (which also brings back a dropped
+// connection); then the user decides. A failure used to come back as an
+// empty folder, so everything on the other side looked unique and was
+// marked to be copied, or deleted.
+function TSyncDirsTreeBuilder.listSide( const side: TDoubleSide;
+  const dirSyncRec: TSyncDirRec; out files: TFiles ): Boolean;
+var
+  path: String;
+  operation: TFileSourceOperation;
+  retried: Boolean = False;
+begin
+  files:= nil;
+  path:= _basePaths[side] + dirSyncRec.relPath;
+  repeat
+    operation:= _fileSources[side].CreateListOperation( path );
+    if operation = nil then begin
+      files:= TFiles.Create( path );
+      Exit( True );
+    end;
+    try
+      operation.Execute;
+      if NOT TFileSourceListOperation(operation).ListFailed then begin
+        files:= TFileSourceListOperation(operation).ReleaseFiles;
+        Exit( True );
+      end;
+    finally
+      operation.Free;
+    end;
+    if NOT retried then begin
+      retried:= True;
+      continue;
+    end;
+    if _skipAllUnreadable then
+      Exit( False );
+    case _callback.treeBuilderUnreadable( side, path ) of
+      uaRetry: ;
+      uaSkipAll: begin
+        _skipAllUnreadable:= True;
+        Exit( False );
+      end;
+      else
+        Exit( False );
+    end;
+  until False;
+end;
+
+// Both sides are listed before anything is compared: a folder is either
+// compared as a whole or, when a side cannot be read, skipped as a whole and
+// marked so. The root exists on both sides; a subfolder only where its
+// parent listed it, and the other side is not asked for it.
+function TSyncDirsTreeBuilder.listBothSides( const dirSyncRec: TSyncDirRec;
+  out leftFiles: TFiles; out rightFiles: TFiles ): Boolean;
+
+  function existsOnSide( const side: TDoubleSide ): Boolean;
+  begin
+    Result:= (dirSyncRec.relPath = EmptyStr) or dirSyncRec.hasFileOnSide( side );
+  end;
+
+  function listIfExists( const side: TDoubleSide; out files: TFiles ): Boolean;
+  begin
+    if existsOnSide( side ) then
+      Result:= listSide( side, dirSyncRec, files )
+    else begin
+      files:= TFiles.Create( _basePaths[side] + dirSyncRec.relPath );
+      Result:= True;
+    end;
+    if NOT Result then
+      dirSyncRec.markUnreadable( side );
+  end;
+
+begin
+  rightFiles:= nil;
+  Result:= listIfExists( dsLeft, leftFiles ) and
+           _callback.treeBuilderCheckRunning( False ) and
+           listIfExists( dsRight, rightFiles );
+  if NOT Result then begin
+    FreeAndNil( leftFiles );
+    FreeAndNil( rightFiles );
+  end;
+end;
+
 constructor TSyncDirsTreeBuilder.Create(
   const callback: ISyncDirsTreeBuilderCallback;
   const sortService: TSyncDirsSortService;
@@ -855,10 +957,10 @@ procedure TSyncDirsTreeBuilder.build( const FFullTree: TTwoLevelTree; const sele
     const dirItem: TTwoLevelTreeDirItem;
     const parentDirIndex: Integer;
     const dirs: TStringList;
-    const side: TDoubleSide);
+    const side: TDoubleSide;
+    files: TFiles );
   var
     dir: String;
-    files: TFiles;
     fileIndex: Integer;
     f: TFile;
     rec: TSyncRec;
@@ -872,8 +974,6 @@ procedure TSyncDirsTreeBuilder.build( const FFullTree: TTwoLevelTree; const sele
     dir:= dirSyncRec.relPath;
     currentFileSource := _fileSources[side];
 
-    dirFullPath := _basePaths[side] + dir;
-    files := currentFileSource.GetFiles(dirFullPath);
     if (cfOnlySelected in _compareOption.flags) and (dir=EmptyStr) then begin
       for fileIndex:= files.Count - 1 downto 0 do begin
         if NOT isSelectedFile(files[fileIndex]) then
@@ -887,7 +987,11 @@ procedure TSyncDirsTreeBuilder.build( const FFullTree: TTwoLevelTree; const sele
         if f.Name = EmptyStr then
           f.Name := currentFileSource.GetDisplayFileName(f);
         filename := NormalizeFileName(f.Name);
-        if f.IsDirectory or f.IsLinkToDirectory then begin
+        // A link to a directory is a file record like a link to a file:
+        // compared by its target, copied or deleted as a link, never walked
+        // into. Walking into it reached the same files twice and turned the
+        // link into a real copy of the directory on the other side.
+        if f.IsDirectory and not f.IsLink then begin
           if (f.NameNoExt <> '.') and (f.NameNoExt <> '..') then
           begin
             if _callback.treeBuilderMaskFilt(f) then begin
@@ -909,6 +1013,35 @@ procedure TSyncDirsTreeBuilder.build( const FFullTree: TTwoLevelTree; const sele
       end;
     finally
       files.Free;
+    end;
+  end;
+
+  // A name that is a directory on one side and a file or link on the other
+  // becomes one "type differs" record that the sync leaves alone unless the
+  // user picks a direction: the directory is not walked into, since copying
+  // into it would write through a link (or fail on the file), and replacing
+  // either side means deleting data the user has to decide about.
+  procedure markTypeConflicts(
+    const dirItem: TTwoLevelTreeDirItem;
+    const dirs: TStringList;
+    const side: TDoubleSide );
+  var
+    i: Integer;
+    recIndex: Integer;
+    rec: TSyncRec;
+  begin
+    for i:= dirs.Count - 1 downto 0 do begin
+      recIndex:= dirItem.indexOfFile( dirs[i] );
+      if recIndex < 0 then
+        continue;
+      rec:= dirItem.fileSyncRec( recIndex );
+      if rec.hasFileOnSide( side ) then
+        continue;
+      rec.filesOnSide[side]:= TFile( dirs.Objects[i] );   // the record owns it now
+      rec.markTypeConflict;
+      dirs.Delete( i );
+      dirItem.dirSyncRec.incDirCount( side, -1 );
+      dirItem.dirSyncRec.incFileCount( side, 1 );
     end;
   end;
 
@@ -940,6 +1073,8 @@ procedure TSyncDirsTreeBuilder.build( const FFullTree: TTwoLevelTree; const sele
     currentDirIndex: Integer;
     leftDirs: TStringListEx;
     rightDirs: TStringListEx;
+    leftFiles: TFiles;
+    rightFiles: TFiles;
 
     procedure addFiles;
     var
@@ -998,8 +1133,14 @@ procedure TSyncDirsTreeBuilder.build( const FFullTree: TTwoLevelTree; const sele
     try
       if NOT _callback.treeBuilderCheckRunning(True) then
         Exit;
-      processOneSide(dirItem, currentDirIndex, leftDirs, dsLeft);
-      processOneSide(dirItem, currentDirIndex, rightDirs, dsRight);
+      if NOT listBothSides(dirSyncRec, leftFiles, rightFiles) then begin
+        dirSyncRec.updateState;
+        Exit;
+      end;
+      processOneSide(dirItem, currentDirIndex, leftDirs, dsLeft, leftFiles);
+      processOneSide(dirItem, currentDirIndex, rightDirs, dsRight, rightFiles);
+      markTypeConflicts(dirItem, leftDirs, dsLeft);
+      markTypeConflicts(dirItem, rightDirs, dsRight);
       dirSyncRec.updateState;
       _sortedService.sortDirItem(dirItem);
       if not (cfSubdirs in _compareOption.flags) then
@@ -1040,6 +1181,12 @@ begin
   Result:= Default( TSyncDirsSyncCount );
   for i:= 0 to _filteredList.Count-1 do begin
     rec := _filteredList.fileSyncRec( i );
+    if rec.isTypeConflict then begin
+      if rec.action = srsDoNothing then
+        Inc(Result.conflictKeepCount)
+      else if rec.hasFilesOnBothSides then
+        Inc(Result.conflictReplaceCount);
+    end;
     case rec.action of
       srsCopyToLeft:
         begin
@@ -1219,6 +1366,8 @@ var
     copyToRightFiles: TFiles;
     deleteLeftFiles: TFiles;
     deleteRightFiles: TFiles;
+    replaceLeftFiles: TFiles;
+    replaceRightFiles: TFiles;
     parentDirRec: TSyncDirRec;
 
     function doProcessFiles: Boolean;
@@ -1228,11 +1377,19 @@ var
       repeat
         case rec.action of
           srsCopyToRight:
-            if sfCopyToRight in syncFlags then
+            if sfCopyToRight in syncFlags then begin
+              // A type conflict: what is on the other side goes first, then
+              // the item is copied whole (a folder side was never scanned)
+              if rec.isTypeConflict then
+                prepareRemoveFile( nil, replaceRightFiles );
               prepareCopyFile( nil, copyToRightFiles );
+            end;
           srsCopyToLeft:
-            if sfCopyToLeft in syncFlags then
+            if sfCopyToLeft in syncFlags then begin
+              if rec.isTypeConflict then
+                prepareRemoveFile( replaceLeftFiles, nil );
               prepareCopyFile( copyToLeftFiles, nil );
+            end;
           srsDeleteRight:
             if sfDeleteRight in syncFlags then
               prepareRemoveFile( nil, deleteRightFiles );
@@ -1251,6 +1408,16 @@ var
         if index < _filteredList.Count then
           rec:= _filteredList.fileSyncRec(index);
       until (index = _filteredList.Count) or rec.isDir;
+
+      if replaceLeftFiles.Count > 0 then begin
+        if NOT _fileProcessor.fileProcessorWithUIDeleteFiles(self.leftFS, replaceLeftFiles) then
+          Exit;
+      end;
+
+      if replaceRightFiles.Count > 0 then begin
+        if NOT _fileProcessor.fileProcessorWithUIDeleteFiles(self.rightFS, replaceRightFiles) then
+          Exit;
+      end;
 
       if copyToLeftFiles.Count > 0 then begin
         if NOT doCopyFile( copyToLeftFiles, parentDirRec, dsLeft ) then
@@ -1281,6 +1448,8 @@ var
     copyToRightFiles:= TFiles.Create('');
     deleteLeftFiles:= TFiles.Create('');
     deleteRightFiles:= TFiles.Create('');
+    replaceLeftFiles:= TFiles.Create('');
+    replaceRightFiles:= TFiles.Create('');
 
     try
       Result:= doProcessFiles;
@@ -1289,6 +1458,8 @@ var
       copyToRightFiles.Free;
       deleteLeftFiles.Free;
       deleteRightFiles.Free;
+      replaceLeftFiles.Free;
+      replaceRightFiles.Free;
     end;
   end;
 
