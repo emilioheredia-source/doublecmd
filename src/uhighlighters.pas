@@ -121,9 +121,16 @@ type
 
   TSynCustomHighlighterHelper = class helper for TSynCustomHighlighter
   public
+{$if lcl_fullversion < 4990000}
     function LanguageName: String;
+{$endif}
     function Other: Boolean;
   end;
+
+{$if lcl_fullversion >= 5990000}
+  TSynLineStyle = TLazTextAttrLineStyle;
+  TSynFrameEdges = TLazTextAttrFrameEdges;
+{$endif}
 
 {$if lcl_fullversion < 4990000}
   TLazEditTextAttribute = TSynHighlighterAttributes;
@@ -365,6 +372,7 @@ end;
 
 { TSynCustomHighlighterHelper }
 
+{$if lcl_fullversion < 4990000}
 function TSynCustomHighlighterHelper.LanguageName: String;
 begin
   if Self is TSynUniSyn then
@@ -372,6 +380,7 @@ begin
   else
     Result:= Self.GetLanguageName;
 end;
+{$endif}
 
 function TSynCustomHighlighterHelper.Other: Boolean;
 begin
