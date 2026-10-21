@@ -34,7 +34,7 @@ uses
   uFileView, uFileSource, uFileSourceCopyOperation, uFile, uFileSourceOperation,
   uFileSourceOperationMessageBoxesUI, uFormCommands, uHotkeyManager, uClassesEx,
   uFileSourceOperationOptions, uFileSourceDeleteOperation, KASProgressBar,
-  uMasks, uSearchTemplate, uFileSystemUtil,
+  uMasks, uSearchTemplate, uFileSystemUtil, fSyncDirsPerformDlg,
   uSyncDirsModel, uSyncDirsService;
 
 const
@@ -247,13 +247,14 @@ type
     function confirmSkippedItems(const syncCount: TSyncDirsSyncCount): Boolean;
     procedure UpdateExcludeFieldsState;
     function createExclusionTemplate: TSearchTemplate;
+    procedure takeRunOptions(const dialog: TfrmSyncDirsPerformDlg);
     procedure SetPanelWatchers(AEnabled: Boolean);
     procedure ApplyCopyOptions(const operation: TFileSourceOperation);
     procedure RememberCopyOptions(const operation: TFileSourceOperation);
     procedure ResetDeleteOptions;
     procedure ApplyDeleteOptions(const operation: TFileSourceOperation);
     procedure RememberDeleteOptions(const operation: TFileSourceOperation);
-    function trashAvailableFor(const sides: array of TDoubleSide): Boolean;
+    function trashAvailableOn(const side: TDoubleSide): Boolean;
     procedure SetProgressBytes(AProgressBar: TKASProgressBar; CurrentBytes: Int64; TotalBytes: Int64);
     procedure SetProgressFiles(AProgressBar: TKASProgressBar; CurrentFiles: Int64; TotalFiles: Int64);
 
@@ -364,7 +365,7 @@ procedure ShowSyncDirsDlg(FileView1, FileView2: TFileView);
 implementation
 
 uses
-  fMain, uDebug, fDiffer, fSyncDirsPerformDlg, fSyncDirsSelectPropertiesDlg,
+  fMain, uDebug, fDiffer, fSyncDirsSelectPropertiesDlg,
   uGlobs, LCLType, LazUTF8, LazFileUtils,
   uFileSystemFileSource, DCDateTimeUtils,
   uDCUtils, uFileSourceOperationTypes, uShowForm, uAdministrator,
@@ -544,6 +545,7 @@ var
   synchronizer: TSyncDirsSynchronizer;
   syncCount: TSyncDirsSyncCount;
   syncFlags: TSyncDirsSyncFlags;
+  dialog: TfrmSyncDirsPerformDlg;
 begin
   synchronizer:= TSyncDirsSynchronizer.Create( self, self, FFilteredList, FCmpFileSources, FCmpFilePaths );
   syncCount:= synchronizer.count;
@@ -558,7 +560,8 @@ begin
   FCopyStatistics.TotalBytes:= syncCount.copySize;
   FDeleteStatistics.TotalFiles:= syncCount.deleteCount;
 
-  with TfrmSyncDirsPerformDlg.Create(Self) do
+  dialog:= TfrmSyncDirsPerformDlg.Create(Self);
+  with dialog do
   try
     edLeftPath.Text := getAddressPath(dsLeft);
     edRightPath.Text := getAddressPath(dsRight);;
@@ -596,24 +599,7 @@ begin
     if ShowModal = mrOk then
     begin
       EnableControls(False);
-      // Each run starts with fresh operation options; from here on they are
-      // carried from one batch to the next by the Apply*/Remember* pairs
-      // A link is always synced as a link; see TSyncDirsTreeBuilder.build
-      SymLinkOption:= fsooslDontFollow;
-      if chkConfirmOverwrites.Checked then
-        FileExistsOption := fsoofeNone
-      else begin
-        FileExistsOption := fsoofeOverwrite;
-      end;
-      VerifyOption := chkVerify.Checked;
-      OverwriteReadOnly := chkOverwriteReadOnly.Checked;
-      gSyncDirsOverwriteReadOnly := OverwriteReadOnly;
-      SkipAllErrors := False;
-      DirExistsOption := gOperationOptionDirectoryExists;
-      SetPropertyError := gOperationOptionSetPropertyError;
-      SkipFlags := Default(TFileSystemOperationHelperSkipFlags);
-      ResetDeleteOptions;
-      FDeleteToTrash := chkDeleteToTrash.Checked;
+      takeRunOptions(dialog);
 
       if chkRightToLeft.Checked then
         Include( syncFlags, sfCopyToLeft );
@@ -1612,15 +1598,33 @@ begin
   Result:= pnlProgress.Visible;
 end;
 
-// Whether the local trash can take what is deleted on these sides
-function TfrmSyncDirsDlg.trashAvailableFor(const sides: array of TDoubleSide): Boolean;
-var
-  side: TDoubleSide;
+// Each run starts with fresh operation options, from the confirmation and
+// the global settings; from here on they are carried from one batch to the
+// next by the Apply*/Remember* pairs
+procedure TfrmSyncDirsDlg.takeRunOptions(const dialog: TfrmSyncDirsPerformDlg);
 begin
-  Result:= True;
-  for side in sides do
-    Result:= Result and FCmpFileSources[side].IsClass(TFileSystemFileSource)
-                    and mbCheckTrash(FCmpFilePaths[side]);
+  // A link is always synced as a link; see TSyncDirsTreeBuilder.build
+  SymLinkOption := fsooslDontFollow;
+  if dialog.chkConfirmOverwrites.Checked then
+    FileExistsOption := fsoofeNone
+  else
+    FileExistsOption := fsoofeOverwrite;
+  VerifyOption := dialog.chkVerify.Checked;
+  OverwriteReadOnly := dialog.chkOverwriteReadOnly.Checked;
+  gSyncDirsOverwriteReadOnly := OverwriteReadOnly;
+  SkipAllErrors := False;
+  DirExistsOption := gOperationOptionDirectoryExists;
+  SetPropertyError := gOperationOptionSetPropertyError;
+  SkipFlags := Default(TFileSystemOperationHelperSkipFlags);
+  ResetDeleteOptions;
+  FDeleteToTrash := dialog.chkDeleteToTrash.Checked;
+end;
+
+// Whether the local trash can take what is deleted on this side
+function TfrmSyncDirsDlg.trashAvailableOn(const side: TDoubleSide): Boolean;
+begin
+  Result:= FCmpFileSources[side].IsClass(TFileSystemFileSource) and
+           mbCheckTrash(FCmpFilePaths[side]);
 end;
 
 procedure TfrmSyncDirsDlg.DeleteSelectedFiles(ALeft, ARight: Boolean);
@@ -1636,23 +1640,27 @@ var
   // delete only
   function confirmed: Boolean;
   var
-    sides: array of TDoubleSide;
+    trashAvailable: Boolean;
+    dialogSource: IFileSource;
     deleteMode: TDeleteMode;
     queueId: TOperationsManagerQueueIdentifier;
   begin
-    sides:= [];
-    if ALeft then Insert(dsLeft, sides, Length(sides));
-    if ARight then Insert(dsRight, sides, Length(sides));
-    if NOT trashAvailableFor(sides) then begin
+    trashAvailable:= (NOT ALeft or trashAvailableOn(dsLeft)) and
+                     (NOT ARight or trashAvailableOn(dsRight));
+    if NOT trashAvailable then begin
       FDeleteToTrash:= False;
       Exit(MessageDlg(Message, mtWarning, [mbYes, mbNo], 0, mbYes) = mrYes);
     end;
+    if ALeft then
+      dialogSource:= FCmpFileSources[dsLeft]
+    else
+      dialogSource:= FCmpFileSources[dsRight];
     if FDeleteToTrash then
       deleteMode:= dmTrash
     else
       deleteMode:= dmDelete;
     Result:= ShowDeleteDialog(Self, Message, Message, EmptyStr,
-               FCmpFileSources[sides[0]], queueId, True, False, deleteMode);
+               dialogSource, queueId, True, False, deleteMode);
     FDeleteToTrash:= (deleteMode = dmTrash);
   end;
 
