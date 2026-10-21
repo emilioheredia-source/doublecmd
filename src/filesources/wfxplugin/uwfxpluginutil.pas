@@ -80,7 +80,10 @@ type
     ShowCompareFilesUIByFileObject: TShowCompareFilesUIByFileObjectFunction;
 
     procedure ShowError(sMessage: String);
+    function RetryOnError(const sMessage: String): Boolean;
+    function CopyErrorMessage(aFile: TFile; const TargetName: String; ErrorCode: Integer): String;
     function CopiedFile(aNode: TFileTreeNode): TFile;
+    function ProcessItem(aNode: TFileTreeNode; const TargetName: String): Integer;
     procedure LogMessage(sMessage: String; logOptions: TLogOptions; logMsgType: TLogMsgType);
 
     function ProcessNode(aFileTreeNode: TFileTreeNode; CurrentTargetPath: String): Integer;
@@ -339,6 +342,50 @@ begin
   end;
 end;
 
+// The error dialog for a file that failed, with Retry. True to try again.
+function TWfxPluginOperationHelper.RetryOnError(const sMessage: String): Boolean;
+begin
+  Result := False;
+  if gSkipFileOpError or FSkipAllErrors then
+  begin
+    if log_errors in gLogOptions then
+      logWrite(FOperationThread, sMessage, lmtError, True);
+    Exit;
+  end;
+  case AskQuestion(sMessage, '', [fsourRetry, fsourSkip, fsourSkipAll, fsourAbort],
+                   fsourRetry, fsourSkip) of
+    fsourRetry:
+      Result := True;
+    fsourSkip: ; // Do nothing
+    fsourSkipAll:
+      begin
+        FSkipAllErrors := True;
+        if log_errors in gLogOptions then
+          logWrite(FOperationThread, sMessage, lmtError, True);
+      end;
+    else
+      AbortOperation;
+  end;
+end;
+
+function TWfxPluginOperationHelper.CopyErrorMessage(aFile: TFile;
+  const TargetName: String; ErrorCode: Integer): String;
+begin
+  Result := Format(rsMsgLogError + FLogCaption,
+                   [aFile.FullPath + ' -> ' + TargetName + ' - ' + GetErrorMsg(ErrorCode)]);
+end;
+
+function TWfxPluginOperationHelper.ProcessItem(aNode: TFileTreeNode;
+  const TargetName: String): Integer;
+begin
+  if aNode.TheFile.IsLink then
+    Result := ProcessLink(aNode, TargetName)
+  else if aNode.TheFile.IsDirectory then
+    Result := ProcessDirectory(aNode, TargetName)
+  else
+    Result := ProcessFile(aNode, TargetName);
+end;
+
 function TWfxPluginOperationHelper.CopiedFile(aNode: TFileTreeNode): TFile;
 begin
   // A followed link is copied as what it points to, its sub node
@@ -355,6 +402,7 @@ var
   ProcessedOk: Integer;
   CurrentFileIndex: Integer;
   CurrentSubNode: TFileTreeNode;
+  DoneBytesBefore: Int64;
 begin
   Result := FS_FILE_OK;
 
@@ -386,30 +434,27 @@ begin
 
     UpdateStatistics(FStatistics^);
 
-    if aFile.IsLink then
-      ProcessedOk := ProcessLink(CurrentSubNode, TargetName)
-    else if aFile.IsDirectory then
-      ProcessedOk := ProcessDirectory(CurrentSubNode, TargetName)
-    else
-      ProcessedOk := ProcessFile(CurrentSubNode, TargetName);
+    // A failed item can be retried (a dropped connection, a file in use);
+    // the byte count is put back so a retry does not count it twice
+    DoneBytesBefore := FStatistics^.DoneBytes;
+    repeat
+      FStatistics^.DoneBytes := DoneBytesBefore;
+      ProcessedOk := ProcessItem(CurrentSubNode, TargetName);
+      if ProcessedOk = FS_FILE_USERABORT then AbortOperation();
+    until (ProcessedOk = FS_FILE_OK) or
+          not RetryOnError(CopyErrorMessage(aFile, TargetName, ProcessedOk));
 
     if ProcessedOk <> FS_FILE_OK then
       Result := ProcessedOk;
 
-    if ProcessedOk = FS_FILE_USERABORT then AbortOperation();
-
-    if ProcessedOk = FS_FILE_OK then CopyProperties(CopiedFile(CurrentSubNode), TargetName);
-
     if ProcessedOk = FS_FILE_OK then
       begin
+        CopyProperties(CopiedFile(CurrentSubNode), TargetName);
         LogMessage(Format(rsMsgLogSuccess+FLogCaption, [aFile.FullPath + ' -> ' + TargetName]),
                    [log_vfs_op], lmtSuccess);
       end
     else
       begin
-        ShowError(Format(rsMsgLogError + FLogCaption,
-                         [aFile.FullPath + ' -> ' + TargetName +
-                          ' - ' + GetErrorMsg(ProcessedOk)]));
         LogMessage(Format(rsMsgLogError+FLogCaption, [aFile.FullPath + ' -> ' + TargetName]),
                    [log_vfs_op], lmtError);
       end;
