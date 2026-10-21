@@ -4,7 +4,7 @@
    Directories synchronization utility (specially for DC)
 
    Copyright (C) 2013 Anton Panferov (ast.a_s@mail.ru)
-   Copyright (C) 2014-2024 Alexander Koblov (alexx2000@mail.ru)
+   Copyright (C) 2014-2026 Alexander Koblov (alexx2000@mail.ru)
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -23,24 +23,24 @@
 unit fSyncDirsDlg;
 
 {$mode objfpc}{$H+}
+{$modeswitch nestedprocvars}
 
 interface
 
 uses
-  Classes, SysUtils, FileUtil, Forms, Controls, Graphics, Dialogs, StdCtrls,
-  ExtCtrls, Buttons, ComCtrls, Grids, Menus, ActnList, EditBtn, DCClassesUtf8,
+  Classes, SysUtils, IntegerList, FileUtil, Forms, Controls, Graphics, Dialogs, StdCtrls,
+  ExtCtrls, Buttons, ComCtrls, Grids, Menus, ActnList, EditBtn,
+  DCOSUtils,
   uFileView, uFileSource, uFileSourceCopyOperation, uFile, uFileSourceOperation,
   uFileSourceOperationMessageBoxesUI, uFormCommands, uHotkeyManager, uClassesEx,
-  uFileSourceDeleteOperation, uFileSourceOperationOptions, KASProgressBar;
+  uFileSourceOperationOptions, uFileSourceDeleteOperation, KASProgressBar,
+  uMasks, uSearchTemplate,
+  uSyncDirsModel, uSyncDirsService;
 
 const
   HotkeysCategory = 'Synchronize Directories';
 
 type
-
-  TSyncRecState = (srsUnknown, srsEqual, srsNotEq, srsCopyLeft, srsCopyRight, srsDeleteLeft,
-    srsDeleteRight, srsDeleteBoth, srsDoNothing);
-
   { TDrawGrid }
 
   TDrawGrid = class(Grids.TDrawGrid)
@@ -50,10 +50,19 @@ type
 
   { TfrmSyncDirsDlg }
 
-  TfrmSyncDirsDlg = class(TForm, IFormCommands)
+  TfrmSyncDirsDlg = class(
+    TForm,
+    IFormCommands,
+    ISyncDirsFileProcessorWithUI,
+    ISyncDirsCheckContentThreadCallback,
+    ISyncDirsTreeBuilderCallback,
+    ISyncDirsCommonCallback )
+
     actDeleteLeft: TAction;
     actDeleteRight: TAction;
     actDeleteBoth: TAction;
+    actCopyPropertiesLeftToRight: TAction;
+    actCopyPropertiesRightToLeft: TAction;
     actSelectDeleteLeft: TAction;
     actSelectDeleteRight: TAction;
     actSelectDeleteBoth: TAction;
@@ -62,35 +71,32 @@ type
     actSelectCopyLeftToRight: TAction;
     actSelectCopyRightToLeft: TAction;
     actSelectCopyDefault: TAction;
-    actSelectKeepLink: TAction;
     ActionList: TActionList;
     btnAbort: TBitBtn;
     btnCompare: TButton;
     btnSynchronize: TButton;
     btnClose: TButton;
+    chkEmptyDir: TCheckBox;
     chkAsymmetric: TCheckBox;
     chkSubDirs: TCheckBox;
-    chkEmptyDirs: TCheckBox;
     chkByContent: TCheckBox;
     chkIgnoreDate: TCheckBox;
     chkOnlySelected: TCheckBox;
     cbExtFilter: TComboBox;
-    cbExcludeDirs: TComboBox;
-    cbExcludeFiles: TComboBox;
-    lblExcludeDirs: TLabel;
-    lblExcludeFiles: TLabel;
-    pnlExclude: TPanel;
     edPath1: TDirectoryEdit;
     edPath2: TDirectoryEdit;
     HeaderDG: TDrawGrid;
-    lblProgress: TLabel;
-    lblProgressDelete: TLabel;
+    lblFileSizeProgress: TLabel;
+    lblFileCountProgress: TLabel;
     MainDrawGrid: TDrawGrid;
     GroupBox1: TGroupBox;
     ImageList1: TImageList;
     Label1: TLabel;
     LeftPanel1: TPanel;
     LeftPanel2: TPanel;
+    miCopyPropertiesRightToLeft: TMenuItem;
+    miCopyPropertiesLeftToRight: TMenuItem;
+    miSeparator4: TMenuItem;
     miDeleteBoth: TMenuItem;
     miDeleteRight: TMenuItem;
     miDeleteLeft: TMenuItem;
@@ -104,18 +110,17 @@ type
     miSelectCopyLeftToRight: TMenuItem;
     miSelectCopyRightToLeft: TMenuItem;
     miSelectCopyDefault: TMenuItem;
-    miSelectKeepLink: TMenuItem;
     miSelectClear: TMenuItem;
     MenuItemCompare: TMenuItem;
     MenuItemViewRight: TMenuItem;
     MenuItemViewLeft: TMenuItem;
     pnlFilter: TPanel;
     pnlProgress: TPanel;
-    pnlCopyProgress: TPanel;
-    pnlDeleteProgress: TPanel;
+    pnlFileSizeProgress: TPanel;
+    pnlFileCountProgress: TPanel;
     pmGridMenu: TPopupMenu;
-    ProgressBar: TKASProgressBar;
-    ProgressBarDelete: TKASProgressBar;
+    pbFileSizeProgress: TKASProgressBar;
+    pbFileCountProgress: TKASProgressBar;
     sbCopyRight: TSpeedButton;
     sbEqual: TSpeedButton;
     sbNotEqual: TSpeedButton;
@@ -131,10 +136,8 @@ type
     procedure btnAbortClick(Sender: TObject);
     procedure btnCloseClick(Sender: TObject);
     procedure btnSearchTemplateClick(Sender: TObject);
-    procedure cbExtFilterChange(Sender: TObject);
     procedure btnCompareClick(Sender: TObject);
     procedure btnSynchronizeClick(Sender: TObject);
-    procedure chkSubDirsClick(Sender: TObject);
     procedure edPath1AcceptDirectory(Sender: TObject; var Value: String);
     procedure RestoreProperties(Sender: TObject);
     procedure FormClose(Sender: TObject; var CloseAction: TCloseAction);
@@ -146,7 +149,7 @@ type
       aRect: TRect; aState: TGridDrawState);
     procedure MainDrawGridKeyDown(Sender: TObject; var Key: Word;
       Shift: TShiftState);
-    procedure MainDrawGridMouseDown(Sender: TObject; Button: TMouseButton;
+    procedure MainDrawGridMouseUp(Sender: TObject; Button: TMouseButton;
       Shift: TShiftState; X, Y: Integer);
     procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure HeaderDGHeaderClick(Sender: TObject; IsColumn: Boolean;
@@ -164,66 +167,106 @@ type
     { private declarations }
     FCancel: Boolean;
     FScanning: Boolean;
-    FComparing: Boolean;
-    FFoundItems: TStringListEx;
-    FVisibleItems: TStringListEx;
+    FSortService: TSyncDirsSortService;
+    FFullTree: TTwoLevelTree;
+    FFilteredList: TFlatDirFileList;
     FSortIndex: Integer;
     FSortDesc: Boolean;
-    FNtfsShift: Boolean;
-    FFileExists: TSyncRecState;
-    // Folders the last compare could not read (skipped, left untouched)
-    FUnreadableCount: Integer;
-    // Names that are a directory on one side and not on the other (left alone)
-    FTypeConflictCount: Integer;
-    FSelectedItems: TStringListEx;
-    FFileSourceL, FFileSourceR: IFileSource;
-    FCmpFileSourceL, FCmpFileSourceR: IFileSource;
-    FCmpFilePathL, FCmpFilePathR: string;
-    FAddressL, FAddressR: string;
-    // The two source panels, kept so their directory watchers can be
-    // suspended during bulk copy/delete (avoids the per-file reload storm).
-    FFileView1, FFileView2: TFileView;
+    FCompareOption: TSyncDirsCompareOption;
+    FMaskList: TMaskList;
+    FTemplate: TSearchTemplate;
+    FSelectedFiles: TDoubleFiles;
+    FFileSources: TDoubleFileSources;
+    FCmpFileSources: TDoubleFileSources;
+    FCmpFilePaths: TDoublePaths;
+    FAddresses: TDoublePaths;
     hCols: array [0..6] of record Left, Width: Integer end;
-    CheckContentThread: TObject;
-    Ftotal, Fequal, Fnoneq, FuniqueL, FuniqueR: Integer;
+    FFilteredCount: TSyncDirsFlatCount;
     FOperation: TFileSourceOperation;
+    FileExistsOption: TFileSourceOperationOptionFileExists;
+    SymLinkOption: TFileSourceOperationOptionSymLink;
+    VerifyOption: Boolean;
     FCopyStatistics: TFileSourceCopyOperationStatistics;
     FDeleteStatistics: TFileSourceDeleteOperationStatistics;
     FFileSourceOperationMessageBoxesUI: TFileSourceOperationMessageBoxesUI;
-    // Delete options carried over between consecutive delete operations,
-    // so the user's "All"-type answers are remembered for the whole run
-    FDeleteSkipErrors: Boolean;
-    FDeleteReadOnlyOption: TFileSourceOperationOptionGeneral;
-    FDeleteDirectlyOption: TFileSourceOperationOptionGeneral;
-    // Whether deletions go to trash; preset from the global setting, can be
-    // toggled per run in the synchronize confirmation dialog
-    FDeleteToTrash: Boolean;
-    procedure ClearFoundItems;
-    procedure ResetDeleteOptions;
-    procedure ApplyDeleteOptions(AOperation: TFileSourceDeleteOperation);
-    procedure RememberDeleteOptions(AOperation: TFileSourceDeleteOperation);
+
+    FFileSizeProgressName: String;
+    FFileSizeProgressTotal: Int64;
+    FFileSizeProgressDone: Int64;
+    FFileCountProgressName: String;
+    FFileCountProgressTotal: Integer;
+    FFileCountProgressDone: Integer;
+
+    function createCompareOption: TSyncDirsCompareOption;
+    function createFilterFlags: TFilterFlags;
+    function createSelectionIndexes: TIntegerList;
+
+    procedure toggleSelectionAction;
+    procedure setSelectionAction(const newAction: TSyncRecState);
+
+    procedure doCopyProperties(const targetSide: TDoubleSide);
+
+    procedure updateFileCountProgress;
+
     procedure Compare;
     procedure FillFoundItemsDG;
     procedure InitVisibleItems;
     procedure RecalcHeaderCols;
     procedure ScanDirs;
-    procedure UpdateExcludeFieldsState;
     procedure SetSortIndex(AValue: Integer);
-    procedure SortFoundItems;
-    procedure SortFoundItems(sl: TStringList);
     procedure UpdateStatusBar;
-    procedure StopCheckContentThread;
-    procedure UpdateSelection(R: Integer);
     procedure EnableControls(AEnabled: Boolean);
-    procedure SetSyncRecState(AState: TSyncRecState; AKeepLink: Boolean = False);
-    procedure DeleteFiles(ALeft, ARight: Boolean);
-    function DeleteFiles(FileSource: IFileSource; var Files: TFiles): Boolean;
-    procedure SetPanelWatchers(AEnabled: Boolean);
-    procedure ForceRemoteDir(FileSource: IFileSource; const ABasePath, ARelativeDir: String);
-    procedure UpdateList(ALeft, ARight: TFiles; ARemoveLeft, ARemoveRight: Boolean);
+    procedure DeleteSelectedFiles(ALeft, ARight: Boolean);
     procedure SetProgressBytes(AProgressBar: TKASProgressBar; CurrentBytes: Int64; TotalBytes: Int64);
     procedure SetProgressFiles(AProgressBar: TKASProgressBar; CurrentFiles: Int64; TotalFiles: Int64);
+
   private
+    function fileProcessorWithUICopyFiles(
+      const sourceFS: IFileSource;
+      const targetFS: IFileSource;
+      var files: TFiles;
+      const targetPath: String): Boolean;
+    function fileProcessorWithUIDeleteFiles(
+      const FileSource: IFileSource;
+      var Files: TFiles): Boolean;
+    function fileProcessorWithUICopyProperties(
+      const targetFS: IFileSource;
+      const sourceFile: TFile;
+      const targetFile: TFile;
+      const attrs: TCopyAttributesOptions ): Boolean;
+    function fileProcessorWithUIDeleteFile(
+      const FileSource: IFileSource;
+      const f: TFile): Boolean;
+
+  private
+    FCheckContentThread: TSyncDirsCheckContentThread;
+    FCheckContentThreadTimerCount: Integer;
+    FCheckContentThreadComparing: Boolean;
+  private
+    procedure onCheckContentThreadStart;
+    procedure onCheckContentThreadFinish;
+    procedure onCheckContentThreadReapplyFilter;
+    procedure onCheckContentThreadCountUpdated( const equalInc: Integer; const notEqInc: Integer );
+
+    procedure checkContentThreadStart;
+    procedure checkContentThreadStop;
+    procedure checkContentThreadUpdateGrid;
+    procedure checkContentThreadSetProgressBytes(const AProgressBar: TKASProgressBar; const CurrentBytes: Int64; const TotalBytes: Int64);
+
+  private
+    function treeBuilderCheckRunning( const processMessages: Boolean ): Boolean;
+    function treeBuilderMaskFilt( const f: TFile ): Boolean;
+    procedure onTreeBuilderUpdateProgress( const percent: Integer );
+
+  private
+    function commonCheckRunning: Boolean;
+
+  private
+    property leftFS: IFileSource read FFileSources[dsLeft] write FFileSources[dsLeft];
+    property rightFS: IFileSource read FFileSources[dsRight] write FFileSources[dsRight];
+    property leftAddress: String read FAddresses[dsLeft] write FAddresses[dsLeft];
+    property rightAddress: String read FAddresses[dsRight] write FAddresses[dsRight];
+
     property SortIndex: Integer read FSortIndex write SetSortIndex;
     property Commands: TFormCommands read FCommands implements IFormCommands;
   protected
@@ -245,12 +288,13 @@ type
     procedure cm_SelectCopyReverse(const {%H-}Params:array of string);
     procedure cm_SelectCopyLeftToRight(const {%H-}Params:array of string);
     procedure cm_SelectCopyRightToLeft(const {%H-}Params:array of string);
-    procedure cm_SelectKeepLink(const {%H-}Params:array of string);
-
 
     procedure cm_DeleteLeft(const {%H-}Params:array of string);
     procedure cm_DeleteRight(const {%H-}Params:array of string);
     procedure cm_DeleteBoth(const {%H-}Params:array of string);
+
+    procedure cm_CopyPropertiesLeftToRight(const {%H-}Params:array of string);
+    procedure cm_CopyPropertiesRightToLeft(const {%H-}Params:array of string);
   end;
 
 resourcestring
@@ -261,109 +305,55 @@ resourcestring
   rsDeleteRight = 'Right: Delete %d file(s)';
   rsFilesFound = 'Files found: %d  (Identical: %d, Different: %d, '
     + 'Unique left: %d, Unique right: %d)';
-  rsSyncCannotRead = 'Cannot read folder "%s".'
-    + ' Skipping it leaves the folder untouched on both sides.';
-  rsSyncUnreadable = '<could not be read>';
-  rsSyncFoldersUnreadable = '%d folder(s) could not be read';
-  rsSyncUnreadableWarning = '%d folder(s) could not be read. They are left'
-    + ' untouched on both sides and will not be synchronized. Continue?';
-  rsSyncTypeConflicts = '%d item(s) differ in type (red)';
-  rsSyncTypeConflictWarning = '%d item(s) are a folder on one side and a file or'
-    + ' link on the other (shown in red) and have no action set. They are left'
-    + ' untouched on both sides and will not be synchronized. Continue?';
-  rsSyncTypeConflictReplace = '%d item(s) shown in red will replace an item of a'
-    + ' different type on the other side. What is there now is deleted first'
-    + ' (to the trash if selected) - for a folder, everything in it - and the'
-    + ' item is then copied over whole. Continue?';
 
 procedure ShowSyncDirsDlg(FileView1, FileView2: TFileView);
 
 implementation
 
 uses
-  fMain, uDebug, fDiffer, fSyncDirsPerformDlg, uGlobs, LCLType, LazUTF8, LazFileUtils,
-  uOSForms,
-  uFileSystemFileSource, DCDateTimeUtils, SyncObjs,
-  fDeleteDlg, uTrash, uOperationsManager,
-  uDCUtils, uFileSourceUtil, uFileSourceOperationTypes, uShowForm, uAdministrator,
-  uOSUtils, uLng, uMasks, Math, uClipboard, IntegerList, fMaskInputDlg, uSearchTemplate,
-  LCLVersion, SysConst, DCStrUtils, DCOSUtils, uTypes, uFileSystemDeleteOperation,
-  uFileSystemCopyOperation, uFileSystemUtil, uFindFiles, uFileSourceListOperation,
-  uShowMsg, uWfxPluginFileSource, WfxPlugin;
+  fMain, uDebug, fDiffer, fSyncDirsPerformDlg, fSyncDirsSelectPropertiesDlg,
+  uGlobs, LCLType, LazUTF8, LazFileUtils,
+  uFileSystemFileSource, DCDateTimeUtils,
+  uDCUtils, uFileSourceOperationTypes, uShowForm, uAdministrator,
+  uOSUtils, uLng, Math, uClipboard, fMaskInputDlg,
+  LCLVersion, uTypes, uFileSystemCopyOperation, uFileSystemDeleteOperation, uFindFiles,
+  uFileSourceManager, uFileSourceProperty, uShowMsg;
 
 {$R *.lfm}
 
 const
   GRID_COLUMN_FMT = 'HeaderDG_Column%d_Width';
 
-type
-
-  { TFileSyncRec }
-
-  TFileSyncRec = class
-  private
-    FRelPath: string;
-    FState: TSyncRecState;
-    FAction: TSyncRecState;
-    FFileR, FFileL: TFile;
-    FForm: TfrmSyncDirsDlg;
-    // A folder whose listing failed on that side. The record has no files and
-    // its action is fixed at "do nothing", so nothing inside it is touched.
-    FUnreadableL, FUnreadableR: Boolean;
-    // A directory on one side, a file or link on the other. The action starts
-    // at "do nothing"; a copy chosen by the user replaces the other side.
-    FTypeConflict: Boolean;
-  public
-    constructor Create(AForm: TfrmSyncDirsDlg; RelPath: string);
-    destructor Destroy; override;
-    procedure UpdateState(ignoreDate: Boolean);
-    function Unreadable: Boolean; inline;
-    // Unreadable or type conflict: always shown, counted separately
-    function Fixed: Boolean; inline;
-  end;
-
-  { TCheckContentThread }
-
-  TCheckContentThread = class(TThread)
-  private
-    FDone: Boolean;
-    FTimer: Integer;
-    FOwner: TfrmSyncDirsDlg;
-    FMutex: TCriticalSection;
-    FStatistics: TFileSourceCopyOperationStatistics;
-  private
-    procedure DoStart;
-    procedure DoFinish;
-    procedure UpdateGrid;
-    procedure ReapplyFilter;
-  protected
-    procedure Execute; override;
-    function RetrieveStatistics: TFileSourceCopyOperationStatistics;
-    procedure UpdateStatistics(var NewStatistics: TFileSourceCopyOperationStatistics);
-    procedure SetProgressBytes(AProgressBar: TKASProgressBar; CurrentBytes: Int64; TotalBytes: Int64);
-  public
-    constructor Create(Owner: TfrmSyncDirsDlg);
-    destructor Destroy; override;
-    property Done: Boolean read FDone;
-  end;
-
 procedure ShowSyncDirsDlg(FileView1, FileView2: TFileView);
-var
-  Dlg: TfrmSyncDirsDlg;
+  function isSupported: Boolean;
+  var
+    leftFS: IFileSource;
+    rightFS: IFileSource;
+  begin
+    Result:= False;
+    leftFS:= FileView1.FileSource;
+    rightFS:= FileView2.FileSource;
+    if NOT (fspSynchronizable in leftFS.GetProperties) then
+      Exit;
+    if NOT (fspSynchronizable in rightFS.GetProperties) then
+      Exit;
+    if NOT TSyncDirsUtil.supportsSyncDirs(leftFS,rightFS) then
+      Exit;
+    Result:= True;
+  end;
+
 begin
   if not Assigned(FileView1) then
     raise Exception.Create('ShowSyncDirsDlg: FileView1=nil');
   if not Assigned(FileView2) then
     raise Exception.Create('ShowSyncDirsDlg: FileView2=nil');
-  Dlg := TfrmSyncDirsDlg.Create(Application, FileView1, FileView2);
-  { Center on the same monitor as the main DC window. }
-  if Assigned(frmMain) then
-  with GetFrmMainMonitor do
-    Dlg.SetBounds(
-      Left + (Width  - Dlg.Width)  div 2,
-      Top  + (Height - Dlg.Height) div 2,
-      Dlg.Width, Dlg.Height);
-  Dlg.Show;
+  if NOT isSupported then begin
+    msgWarning(rsMsgErrNotSupported);
+    Exit;
+  end;
+
+  with TfrmSyncDirsDlg.Create(Application, FileView1, FileView2) do
+    Show;
 end;
 
 { TDrawGrid }
@@ -378,9 +368,10 @@ begin
     MouseToCell(X, Y, {%H-}C, {%H-}R);
     if (R >= 0) and (R < RowCount) then
     begin
-      if not IsCellSelected[Col, R] then
-        MoveExtend(False, Col, R, False)
-      else begin
+      if not IsCellSelected[Col, R] then begin
+        self.Row:= R;
+        self.ClearSelections;
+      end else begin
         C:= Row;
         PInteger(@Row)^:= R;
         InvalidateRow(C);
@@ -388,317 +379,6 @@ begin
       end;
     end;
   end;
-end;
-
-{ TCheckContentThread }
-
-procedure TCheckContentThread.DoStart;
-begin
-  with FOwner do
-  begin
-    Timer.Enabled:= True;
-    HeaderDG.Enabled:= False;
-    GroupBox1.Enabled:= False;
-    MainDrawGrid.Enabled:= False;
-    pnlCopyProgress.Visible:= True;
-    ProgressBar.SetProgress(0, 100);
-    pnlDeleteProgress.Visible:= False;
-    lblProgress.Caption:= rsDiffComparing;
-  end;
-  FOwner.pnlProgress.Visible:= True;
-end;
-
-procedure TCheckContentThread.DoFinish;
-begin
-  FOwner.FComparing:= False;
-  FOwner.Timer.Enabled:= False;
-  FOwner.HeaderDG.Enabled:= True;
-  FOwner.TopPanel.Enabled:= True;
-  FOwner.GroupBox1.Enabled:= True;
-  FOwner.MainDrawGrid.Enabled:= True;
-  FOwner.pnlProgress.Visible:= False;
-end;
-
-procedure TCheckContentThread.UpdateGrid;
-begin
-  FOwner.MainDrawGrid.Invalidate;
-  FOwner.UpdateStatusBar;
-end;
-
-procedure TCheckContentThread.ReapplyFilter;
-begin
-  FOwner.FillFoundItemsDG;
-  FOwner.UpdateStatusBar;
-end;
-
-procedure TCheckContentThread.Execute;
-const
-  BUF_LEN = 1024 * 1024;
-var
-  Buffer1, Buffer2: PByte;
-  Statistics: TFileSourceCopyOperationStatistics;
-
-  function CompareFiles(const FileName1, FileName2: String; Size: Int64): Boolean;
-  var
-    DoneBytes, Count: Int64;
-    File1, File2: TFileStreamEx;
-  begin
-    File1 := TFileStreamEx.Create(FileName1, fmOpenRead or fmShareDenyWrite);
-    try
-      File2 := TFileStreamEx.Create(FileName2, fmOpenRead or fmShareDenyWrite);
-      try
-        DoneBytes := 0;
-
-        repeat
-          if Size - DoneBytes <= BUF_LEN then
-            Count := Size - DoneBytes
-          else begin
-            Count := BUF_LEN;
-          end;
-
-          File1.ReadBuffer(Buffer1^, Count);
-          File2.ReadBuffer(Buffer2^, Count);
-
-          if (Count <> BUF_LEN) then
-            Result := CompareByte(Buffer1^, Buffer2^, Count) = 0
-          else begin
-            Result := CompareDWord(Buffer1^, Buffer2^, Count div SizeOf(Dword)) = 0;
-          end;
-
-          Statistics.DoneBytes += Count;
-          DoneBytes := DoneBytes + Count;
-
-          UpdateStatistics(Statistics);
-
-        until Terminated or not Result or (DoneBytes >= Size);
-      finally
-        File2.Free;
-      end;
-    finally
-      File1.Free;
-    end;
-  end;
-
-var
-  B: Boolean;
-  I, J: Integer;
-  R: TFileSyncRec;
-begin
-  Synchronize(@DoStart);
-  Buffer1:= GetMem(BUF_LEN);
-  Buffer2:= GetMem(BUF_LEN);
-  try
-    if (Buffer1 = nil) or (Buffer2 = nil) then
-      raise EOutOfMemory.Create(SOutOfMemory);
-
-    with FOwner do
-    begin
-      Statistics.DoneBytes:= 0;
-      Statistics.TotalBytes:= 0;
-      for I := 0 to FFoundItems.Count - 1 do
-      begin
-        for J := 0 to TStringList(FFoundItems.Objects[I]).Count - 1 do
-        begin
-          if Terminated then Exit;
-          R := TFileSyncRec(TStringList(FFoundItems.Objects[I]).Objects[J]);
-          if Assigned(R) and (R.FState = srsUnknown) then
-          begin
-            Statistics.TotalBytes+= R.FFileL.Size;
-          end;
-        end;
-      end;
-      UpdateStatistics(Statistics);
-    end;
-
-    with FOwner do
-    for I := 0 to FFoundItems.Count - 1 do
-    begin
-      for J := 0 to TStringList(FFoundItems.Objects[I]).Count - 1 do
-      begin
-        if Terminated then Exit;
-        R := TFileSyncRec(TStringList(FFoundItems.Objects[I]).Objects[J]);
-        if Assigned(R) and (R.FState = srsUnknown) then
-        begin
-          try
-            B:= CompareFiles(R.FFileL.FullPath, R.FFileR.FullPath, R.FFileL.Size);
-            if Terminated then Exit;
-            if B then
-            begin
-              Inc(Fequal);
-              Dec(Fnoneq);
-              R.FState := srsEqual
-            end
-            else begin
-              R.FState := srsNotEq;
-            end;
-            if R.FAction = srsUnknown then
-            begin
-              // Mirror asymmetric logic from TFileSyncRec.Recalc:
-              // in asymmetric mode srsNotEq means left wins → srsCopyRight.
-              if chkAsymmetric.Checked and (R.FState = srsNotEq) then
-                R.FAction := srsCopyRight
-              else
-                R.FAction := R.FState;
-            end;
-          except
-            on E: Exception do
-              DCDebug('[SyncDirs::CmpContentThread] ' + E.Message);
-          end;
-        end;
-      end;
-    end;
-    FDone := True;
-    Synchronize(@ReapplyFilter);
-  finally
-    Synchronize(@DoFinish);
-    if Assigned(Buffer1) then FreeMem(Buffer1);
-    if Assigned(Buffer2) then FreeMem(Buffer2);
-  end;
-end;
-
-function TCheckContentThread.RetrieveStatistics: TFileSourceCopyOperationStatistics;
-begin
-  FMutex.Acquire;
-  try
-    Result := Self.FStatistics;
-  finally
-    FMutex.Release;
-  end;
-end;
-
-procedure TCheckContentThread.UpdateStatistics(var NewStatistics: TFileSourceCopyOperationStatistics);
-begin
-  FMutex.Acquire;
-  try
-    FStatistics := NewStatistics;
-  finally
-    FMutex.Release;
-  end;
-end;
-
-procedure TCheckContentThread.SetProgressBytes(AProgressBar: TKASProgressBar;
-  CurrentBytes: Int64; TotalBytes: Int64);
-var
-  BarText : String;
-begin
-  BarText := cnvFormatFileSize(CurrentBytes, uoscOperation) + '/' + cnvFormatFileSize(TotalBytes, uoscOperation);
-  AProgressBar.SetProgress(CurrentBytes, TotalBytes, BarText );
-end;
-
-constructor TCheckContentThread.Create(Owner: TfrmSyncDirsDlg);
-begin
-  FOwner := Owner;
-  FMutex := TCriticalSection.Create;
-  inherited Create(False);
-end;
-
-destructor TCheckContentThread.Destroy;
-begin
-  inherited Destroy;
-  FMutex.Free;
-end;
-
-{ TFileSyncRec }
-
-constructor TFileSyncRec.Create(AForm: TfrmSyncDirsDlg; RelPath: string);
-begin
-  FForm:= AForm;
-  FRelPath := RelPath;
-end;
-
-function TFileSyncRec.Unreadable: Boolean;
-begin
-  Result := FUnreadableL or FUnreadableR;
-end;
-
-function TFileSyncRec.Fixed: Boolean;
-begin
-  Result := Unreadable or FTypeConflict;
-end;
-
-destructor TFileSyncRec.Destroy;
-begin
-  FreeAndNil(FFileL);
-  FreeAndNil(FFileR);
-  inherited Destroy;
-end;
-
-procedure TFileSyncRec.UpdateState(ignoreDate: Boolean);
-var
-  FileTimeDiff: Integer;
-
-  function LinkLength(AFile: TFile): Int64;
-  begin
-    if AFile.LinkProperty.LinkTo <> EmptyStr then
-      Result := Length(AFile.LinkProperty.LinkTo)
-    else
-      Result := AFile.Size;
-  end;
-
-  function AreEquivalentLinks: Boolean;
-  var
-    LeftTarget, RightTarget: String;
-    LeftResolved, RightResolved: String;
-  begin
-    Result := False;
-
-    if not (FFileL.IsLink and FFileR.IsLink) then Exit;
-
-    LeftTarget := FFileL.LinkProperty.LinkTo;
-    RightTarget := FFileR.LinkProperty.LinkTo;
-
-    // Fast path: identical link text means semantically identical link.
-    if LeftTarget = RightTarget then Exit(True);
-
-    if (LeftTarget = EmptyStr) or (RightTarget = EmptyStr) then
-    begin
-      // One side doesn't expose the link target (e.g. WFX/SFTP plugin).
-      // SFTP file size for a symlink equals the byte length of its target
-      // string, so equal lengths strongly imply equal targets. Where the
-      // target is known its length is used instead of the size, which is 0
-      // for a local link to a directory.
-      Result := LinkLength(FFileL) = LinkLength(FFileR);
-      Exit;
-    end;
-
-    // Also accept different textual forms that resolve to the same target.
-    LeftResolved := GetAbsoluteFileName(FFileL.Path, LeftTarget);
-    RightResolved := GetAbsoluteFileName(FFileR.Path, RightTarget);
-
-    Result := mbCompareFileNames(LeftResolved, RightResolved);
-  end;
-begin
-  FState := srsNotEq;
-  if Assigned(FFileR) and not Assigned(FFileL) then
-    FState := FForm.FFileExists
-  else
-  if not Assigned(FFileR) and Assigned(FFileL) then
-    FState := srsCopyRight
-  else begin
-    FileTimeDiff := FileTimeCompare(FFileL.ModificationTime, FFileR.ModificationTime, FForm.FNtfsShift);
-    if (((FileTimeDiff = 0) or ignoreDate) and (FFileL.Size = FFileR.Size))
-       or AreEquivalentLinks then
-      FState := srsEqual
-    else
-    if not ignoreDate then
-      if FileTimeDiff > 0 then
-        FState := srsCopyRight
-      else
-      if FileTimeDiff < 0 then
-        FState := srsCopyLeft;
-  end;
-  if FForm.chkAsymmetric.Checked then
-  begin
-    // In asymmetric/mirror mode left is unconditionally authoritative.
-    // srsCopyLeft means right is newer — left still wins (overwrite right).
-    // srsNotEq means ambiguous diff (e.g. content check) — left still wins.
-    if FState in [srsCopyLeft, srsNotEq] then
-      FAction := srsCopyRight
-    else
-      FAction := FState;
-  end
-  else
-    FAction := FState;
 end;
 
 { TfrmSyncDirsDlg }
@@ -717,24 +397,6 @@ begin
   Close
 end;
 
-// A named search template carries its own exclusions, so the inline fields
-// would be silently ignored. Grey them out rather than let them look active.
-procedure TfrmSyncDirsDlg.UpdateExcludeFieldsState;
-var
-  bTemplate: Boolean;
-begin
-  bTemplate:= IsMaskSearchTemplate(cbExtFilter.Text);
-  cbExcludeDirs.Enabled:= not bTemplate;
-  cbExcludeFiles.Enabled:= not bTemplate;
-  lblExcludeDirs.Enabled:= not bTemplate;
-  lblExcludeFiles.Enabled:= not bTemplate;
-end;
-
-procedure TfrmSyncDirsDlg.cbExtFilterChange(Sender: TObject);
-begin
-  UpdateExcludeFieldsState;
-end;
-
 procedure TfrmSyncDirsDlg.btnSearchTemplateClick(Sender: TObject);
 var
   sMask: String;
@@ -746,7 +408,6 @@ begin
     bTemplate:= IsMaskSearchTemplate(sMask);
     cbExtFilter.Enabled:= not bTemplate;
     cbExtFilter.Text:= sMask;
-    UpdateExcludeFieldsState;
   end;
 end;
 
@@ -754,8 +415,8 @@ procedure TfrmSyncDirsDlg.btnAbortClick(Sender: TObject);
 begin
   if Assigned(FOperation) then
     FOperation.Stop
-  else if FComparing then
-    StopCheckContentThread
+  else if FCheckContentThreadComparing then
+    checkContentThreadStop
   else begin
     pnlProgress.Hide;
   end;
@@ -765,429 +426,130 @@ procedure TfrmSyncDirsDlg.btnCompareClick(Sender: TObject);
 begin
   if not IsMaskSearchTemplate(cbExtFilter.Text) then
     InsertFirstItem(Trim(cbExtFilter.Text), cbExtFilter);
-  if Trim(cbExcludeDirs.Text) <> EmptyStr then
-    InsertFirstItem(Trim(cbExcludeDirs.Text), cbExcludeDirs);
-  if Trim(cbExcludeFiles.Text) <> EmptyStr then
-    InsertFirstItem(Trim(cbExcludeFiles.Text), cbExcludeFiles);
   StatusBar1.Panels[0].Text := Format(rsComparingPercent, [0]);
-  StopCheckContentThread;
+  checkContentThreadStop;
   Compare;
 end;
 
 procedure TfrmSyncDirsDlg.btnSynchronizeClick(Sender: TObject);
+  function getAddressPath(const side: TDoubleSide): String;
+  begin
+    Result:= FCmpFileSources[side].CurrentAddress + FCmpFilePaths[side];
+  end;
 var
-  OperationType: TFileSourceOperationType;
-  FileExistsOption: TFileSourceOperationOptionFileExists;
-  // A link is always synced as a link; see ScanDirs
-  SymLinkOption: TFileSourceOperationOptionSymLink = fsooslDontFollow;
-  SkipAllErrors: Boolean = False;
-  OverwriteReadOnly: Boolean;
-  DirExistsOption: TFileSourceOperationOptionDirectoryExists;
-  SetPropertyError: TFileSourceOperationOptionSetPropertyError;
-  SkipFlags: TFileSystemOperationHelperSkipFlags;
-
-  { Copy operations are created anew for every directory batch; apply the
-    options remembered so far to each new operation and read them back after
-    it finishes, so "All"-type answers hold for the whole run }
-
-  procedure ApplyCopyOptions(AOperation: TFileSourceCopyOperation);
-  begin
-    AOperation.SymLinkOption := SymLinkOption;
-    AOperation.FileExistsOption := FileExistsOption;
-    AOperation.DirExistsOption := DirExistsOption;
-    AOperation.SkipAllErrors := SkipAllErrors;
-    AOperation.OverwriteReadOnly := OverwriteReadOnly;
-    if AOperation is TFileSystemCopyOperation then
-    begin
-      TFileSystemCopyOperation(AOperation).SetPropertyError := SetPropertyError;
-      TFileSystemCopyOperation(AOperation).SkipFlags := SkipFlags;
-    end;
-  end;
-
-  procedure RememberCopyOptions(AOperation: TFileSourceCopyOperation);
-  begin
-    SymLinkOption := AOperation.SymLinkOption;
-    FileExistsOption := AOperation.FileExistsOption;
-    DirExistsOption := AOperation.DirExistsOption;
-    SkipAllErrors := AOperation.SkipAllErrors;
-    if AOperation is TFileSystemCopyOperation then
-    begin
-      SetPropertyError := TFileSystemCopyOperation(AOperation).SetPropertyError;
-      SkipFlags := TFileSystemCopyOperation(AOperation).SkipFlags;
-    end;
-  end;
-
-  function CopyFiles(src, dst: IFileSource; fs: TFiles;
-    const ABasePath, ARelPath: string): Boolean;
-  var
-    Dest: string;
-  begin
-    Dest := ABasePath + ARelPath;
-    if not GetCopyOperationType(Src, Dst, OperationType) then
-    begin
-      MessageDlg(rsMsgErrNotSupported, mtError, [mbOK], 0);
-      Exit(False);
-    end
-    else begin
-      Fs.Path:= fs[0].Path;
-      // Create the destination directory, including any missing parent levels.
-      // A new subtree several levels deep carries no sync record of its own
-      // (only empty directories get one), so the levels above this batch may
-      // not exist yet. A single-level CreateDirectory fails there, and every
-      // file in the batch then fails to open its target.
-      ForceRemoteDir(Dst, ABasePath, ARelPath);
-      // Determine operation type
-      case OperationType of
-        fsoCopy:
-          begin
-            // Copy within the same file source.
-            FOperation := Src.CreateCopyOperation(
-                           Fs,
-                           Dest) as TFileSourceCopyOperation;
-          end;
-        fsoCopyOut:
-          begin
-            // CopyOut to filesystem.
-            FOperation := Src.CreateCopyOutOperation(
-                           Dst,
-                           Fs,
-                           Dest) as TFileSourceCopyOperation;
-          end;
-        fsoCopyIn:
-          begin
-            // CopyIn from filesystem.
-            FOperation := Dst.CreateCopyInOperation(
-                           Src,
-                           Fs,
-                           Dest) as TFileSourceCopyOperation;
-          end;
-      end;
-      if not Assigned(FOperation) then
-      begin
-        MessageDlg(rsMsgErrNotSupported, mtError, [mbOK], 0);
-        Exit(False);
-      end;
-      FOperation.Elevate:= ElevateAction;
-      ApplyCopyOptions(TFileSourceCopyOperation(FOperation));
-      FOperation.AddUserInterface(FFileSourceOperationMessageBoxesUI);
-      try
-        FOperation.Execute;
-        Result := FOperation.Result = fsorFinished;
-        RememberCopyOptions(TFileSourceCopyOperation(FOperation));
-        FCopyStatistics.DoneBytes+= TFileSourceCopyOperation(FOperation).RetrieveStatistics.TotalBytes;
-        SetProgressBytes(ProgressBar, FCopyStatistics.DoneBytes, FCopyStatistics.TotalBytes);
-      finally
-        FreeAndNil(FOperation);
-      end;
-    end;
-  end;
-
-var
-  i,
-  DeleteLeftCount, DeleteRightCount,
-  CopyLeftCount, CopyRightCount: Integer;
-  CopyLeftSize, CopyRightSize: Int64;
-  fsr: TFileSyncRec;
-  DeleteLeft, DeleteRight,
-  CopyLeft, CopyRight: Boolean;
-  DeleteLeftFiles, DeleteRightFiles,
-  CopyLeftFiles, CopyRightFiles,
-  ReplaceLeftFiles, ReplaceRightFiles: TFiles;
-  Dest: string;
-  ConflictKeepCount, ConflictReplaceCount: Integer;
+  synchronizer: TSyncDirsSynchronizer;
+  syncCount: TSyncDirsSyncCount;
+  syncFlags: TSyncDirsSyncFlags;
 begin
-  DeleteLeftCount := 0; DeleteRightCount := 0;
-  CopyLeftCount := 0; CopyRightCount := 0;
-  CopyLeftSize := 0;  CopyRightSize := 0;
-  ConflictKeepCount := 0; ConflictReplaceCount := 0;
+  synchronizer:= TSyncDirsSynchronizer.Create( self, self, FFilteredList, FCmpFileSources, FCmpFilePaths );
+  syncCount:= synchronizer.count;
+  syncFlags:= [];
 
-  for i := 0 to FVisibleItems.Count - 1 do
-    if Assigned(FVisibleItems.Objects[i]) then
-    begin
-      fsr := TFileSyncRec(FVisibleItems.Objects[i]);
-      if fsr.FTypeConflict then
-      begin
-        if fsr.FAction = srsDoNothing then
-          Inc(ConflictKeepCount)
-        else if (fsr.FAction = srsCopyLeft) and Assigned(fsr.FFileL) or
-                (fsr.FAction = srsCopyRight) and Assigned(fsr.FFileR) then
-          Inc(ConflictReplaceCount);
-      end;
-      case fsr.FAction of
-      srsCopyLeft:
-        begin
-          Inc(CopyLeftCount);
-          Inc(CopyLeftSize, fsr.FFileR.Size);
-        end;
-      srsCopyRight:
-        begin
-          Inc(CopyRightCount);
-          Inc(CopyRightSize, fsr.FFileL.Size);
-        end;
-      srsDeleteLeft:
-        begin
-          Inc(DeleteLeftCount);
-        end;
-      srsDeleteRight:
-        begin
-          Inc(DeleteRightCount);
-        end;
-      srsDeleteBoth:
-        begin
-          Inc(DeleteLeftCount);
-          Inc(DeleteRightCount);
-        end;
-      end;
-    end;
   FCopyStatistics.DoneBytes:= 0;
   FDeleteStatistics.DoneFiles:= 0;
-  FCopyStatistics.TotalBytes:= CopyLeftSize + CopyRightSize;
-  FDeleteStatistics.TotalFiles:= DeleteLeftCount + DeleteRightCount;
-
-  if (FUnreadableCount > 0) and
-     (MessageDlg(Format(rsSyncUnreadableWarning, [FUnreadableCount]),
-                 mtWarning, [mbYes, mbNo], 0, mbNo) <> mrYes) then
-    Exit;
-  if (ConflictKeepCount > 0) and
-     (MessageDlg(Format(rsSyncTypeConflictWarning, [ConflictKeepCount]),
-                 mtWarning, [mbYes, mbNo], 0, mbNo) <> mrYes) then
-    Exit;
-  if (ConflictReplaceCount > 0) and
-     (MessageDlg(Format(rsSyncTypeConflictReplace, [ConflictReplaceCount]),
-                 mtWarning, [mbYes, mbNo], 0, mbNo) <> mrYes) then
-    Exit;
+  FCopyStatistics.TotalBytes:= syncCount.copySize;
+  FDeleteStatistics.TotalFiles:= syncCount.deleteCount;
 
   with TfrmSyncDirsPerformDlg.Create(Self) do
   try
-    edLeftPath.Text := FCmpFileSourceL.CurrentAddress + FCmpFilePathL;
-    edRightPath.Text := FCmpFileSourceR.CurrentAddress + FCmpFilePathR;
-    if (CopyLeftCount > 0) and
-        GetCopyOperationType(FFileSourceR, FFileSourceL, OperationType) then
+    edLeftPath.Text := getAddressPath(dsLeft);
+    edRightPath.Text := getAddressPath(dsRight);;
+    if syncCount.copyToLeftCount > 0 then
     begin
       chkRightToLeft.Enabled := True;
       chkRightToLeft.Checked := True;
       edLeftPath.Enabled := True;
     end;
-    if (CopyRightCount > 0) and
-        GetCopyOperationType(FFileSourceL, FFileSourceR, OperationType) then
+    if syncCount.copyToRightCount > 0 then
     begin
       chkLeftToRight.Enabled := True;
       chkLeftToRight.Checked := True;
       edRightPath.Enabled := True;
     end;
-    chkDeleteLeft.Enabled := DeleteLeftCount > 0;
+    chkDeleteLeft.Enabled := syncCount.deleteLeftCount > 0;
     chkDeleteLeft.Checked := chkDeleteLeft.Enabled;
-    chkDeleteRight.Enabled := DeleteRightCount > 0;
+    chkDeleteRight.Enabled := syncCount.deleteRightCount > 0;
     chkDeleteRight.Checked := chkDeleteRight.Enabled;
-    chkDeleteLeft.Caption := Format(rsDeleteLeft, [DeleteLeftCount]);
-    chkDeleteRight.Caption := Format(rsDeleteRight, [DeleteRightCount]);
-    chkOverwriteReadOnly.Checked := gSyncDirsOverwriteReadOnly;
-    chkDeleteToTrash.Checked := gUseTrash;
-    chkDeleteToTrash.Enabled := chkDeleteLeft.Enabled or chkDeleteRight.Enabled or
-      (ConflictReplaceCount > 0);
+    chkDeleteLeft.Caption := Format(rsDeleteLeft, [syncCount.deleteLeftCount]);
+    chkDeleteRight.Caption := Format(rsDeleteRight, [syncCount.deleteRightCount]);
     chkLeftToRight.Caption :=
-      Format(rsLeftToRightCopy, [CopyRightCount, cnvFormatFileSize(CopyRightSize, fsfFloat, gFileSizeDigits), IntToStrTS(CopyRightSize)]);
+      Format(rsLeftToRightCopy, [syncCount.copyToRightCount, cnvFormatFileSize(syncCount.copyToRightSize, fsfFloat, gFileSizeDigits), IntToStrTS(syncCount.copyToRightSize)]);
     chkRightToLeft.Caption :=
-      Format(rsRightToLeftCopy, [CopyLeftCount, cnvFormatFileSize(CopyLeftSize, fsfFloat, gFileSizeDigits), IntToStrTS(CopyLeftSize)]);
+      Format(rsRightToLeftCopy, [syncCount.copyToLeftCount, cnvFormatFileSize(syncCount.copyToLeftSize, fsfFloat, gFileSizeDigits), IntToStrTS(syncCount.copyToLeftSize)]);
+    chkVerify.Visible := TSyncDirsUtil.supportsVerify(FCmpFileSources);
+    chkVerify.Checked := gOperationOptionVerify;
+
     if ShowModal = mrOk then
     begin
       EnableControls(False);
-      // Each run starts with fresh operation options; from here on they are
-      // carried from one directory batch to the next by Apply*/Remember*
+      SymLinkOption:= fsooslNone;
       if chkConfirmOverwrites.Checked then
         FileExistsOption := fsoofeNone
       else begin
         FileExistsOption := fsoofeOverwrite;
       end;
-      OverwriteReadOnly := chkOverwriteReadOnly.Checked;
-      gSyncDirsOverwriteReadOnly := OverwriteReadOnly;
-      DirExistsOption := gOperationOptionDirectoryExists;
-      SetPropertyError := gOperationOptionSetPropertyError;
-      SkipFlags := Default(TFileSystemOperationHelperSkipFlags);
-      ResetDeleteOptions;
-      FDeleteToTrash := chkDeleteToTrash.Checked;
-      CopyLeft := chkRightToLeft.Checked;
-      CopyRight := chkLeftToRight.Checked;
-      DeleteLeft := chkDeleteLeft.Checked;
-      DeleteRight := chkDeleteRight.Checked;
+      VerifyOption := chkVerify.Checked;
 
-      lblProgress.Caption := rsOperCopying;
-      lblProgressDelete.Caption := rsOperDeleting;
-      ProgressBar.Position:=0;
-      ProgressBarDelete.Position:=0;
-      pnlCopyProgress.Visible:= CopyLeft or CopyRight;
-      pnlDeleteProgress.Visible:= DeleteLeft or DeleteRight or
-        (ConflictReplaceCount > 0);
+      if chkRightToLeft.Checked then
+        Include( syncFlags, sfCopyToLeft );
+      if chkLeftToRight.Checked then
+        Include( syncFlags, sfCopyToRight );
+      if chkDeleteLeft.Checked then
+        Include( syncFlags, sfDeleteLeft );
+      if chkDeleteRight.Checked then
+        Include( syncFlags, sfDeleteRight );
+      if chkDeleteLeftAllEmptyDirs.Checked then
+        Include( syncFlags, sfDeleteLeftAllEmptyDirs );
+      if chkDeleteRightAllEmptyDirs.Checked then
+        Include( syncFlags, sfDeleteRightAllEmptyDirs );
 
-      SetPanelWatchers(False);
-      try
-      i := 0;
-      while i < FVisibleItems.Count do
-      begin
-        CopyLeftFiles := TFiles.Create('');
-        CopyRightFiles := TFiles.Create('');
-        DeleteLeftFiles := TFiles.Create('');
-        DeleteRightFiles := TFiles.Create('');
-        ReplaceLeftFiles := TFiles.Create('');
-        ReplaceRightFiles := TFiles.Create('');
-        if FVisibleItems.Objects[i] <> nil then
-          repeat
-            fsr := TFileSyncRec(FVisibleItems.Objects[i]);
-            Dest := fsr.FRelPath;
-            case fsr.FAction of
-            srsCopyRight:
-              if CopyRight and fsr.FTypeConflict then
-              begin
-                // Replace whatever is on the right, then copy the item whole:
-                // the folder side was never scanned, so it has no rows inside
-                if Assigned(fsr.FFileR) then
-                  ReplaceRightFiles.Add(fsr.FFileR.Clone);
-                CopyRightFiles.Add(fsr.FFileL.Clone);
-              end
-              else if CopyRight then
-              begin
-                // An empty source folder has no file to carry it into being on
-                // the target, so recreate the directory tree directly. Routing
-                // it through the copy operation would also pull in files the
-                // mask excludes, so only real directories take this path.
-                if fsr.FFileL.IsDirectory then
-                  ForceRemoteDir(FCmpFileSourceR, FCmpFilePathR, fsr.FRelPath + fsr.FFileL.Name)
-                else
-                  CopyRightFiles.Add(fsr.FFileL.Clone);
-              end;
-            srsCopyLeft:
-              if CopyLeft and fsr.FTypeConflict then
-              begin
-                if Assigned(fsr.FFileL) then
-                  ReplaceLeftFiles.Add(fsr.FFileL.Clone);
-                CopyLeftFiles.Add(fsr.FFileR.Clone);
-              end
-              else if CopyLeft then
-              begin
-                if fsr.FFileR.IsDirectory then
-                  ForceRemoteDir(FCmpFileSourceL, FCmpFilePathL, fsr.FRelPath + fsr.FFileR.Name)
-                else
-                  CopyLeftFiles.Add(fsr.FFileR.Clone);
-              end;
-            srsDeleteRight:
-              if DeleteRight then DeleteRightFiles.Add(fsr.FFileR.Clone);
-            srsDeleteLeft:
-              if DeleteLeft then DeleteLeftFiles.Add(fsr.FFileL.Clone);
-            srsDeleteBoth:
-              begin
-                if DeleteRight then DeleteRightFiles.Add(fsr.FFileR.Clone);
-                if DeleteLeft then DeleteLeftFiles.Add(fsr.FFileL.Clone);
-              end;
-            end;
-            i := i + 1;
-          until (i = FVisibleItems.Count) or (FVisibleItems.Objects[i] = nil);
-        i := i + 1;
-        // The item of the other type goes before the copy that replaces it
-        if ReplaceLeftFiles.Count > 0 then
-        begin
-          if not DeleteFiles(FCmpFileSourceL, ReplaceLeftFiles) then
-          begin
-            CopyLeftFiles.Free; CopyRightFiles.Free;
-            DeleteLeftFiles.Free; DeleteRightFiles.Free;
-            ReplaceRightFiles.Free;
-            Break;
-          end;
-        end else ReplaceLeftFiles.Free;
-        if ReplaceRightFiles.Count > 0 then
-        begin
-          if not DeleteFiles(FCmpFileSourceR, ReplaceRightFiles) then
-          begin
-            CopyLeftFiles.Free; CopyRightFiles.Free;
-            DeleteLeftFiles.Free; DeleteRightFiles.Free;
-            Break;
-          end;
-        end else ReplaceRightFiles.Free;
-        if CopyLeftFiles.Count > 0 then
-        begin
-          if not CopyFiles(FCmpFileSourceR, FCmpFileSourceL, CopyLeftFiles,
-            FCmpFilePathL, Dest) then Break;
-        end else CopyLeftFiles.Free;
-        if CopyRightFiles.Count > 0 then
-        begin
-          if not CopyFiles(FCmpFileSourceL, FCmpFileSourceR, CopyRightFiles,
-            FCmpFilePathR, Dest) then Break;
-        end else CopyRightFiles.Free;
-        if DeleteLeftFiles.Count > 0 then
-        begin
-          if not DeleteFiles(FCmpFileSourceL, DeleteLeftFiles) then Break;
-        end
-        else DeleteLeftFiles.Free;
-        if DeleteRightFiles.Count > 0 then
-        begin
-          if not DeleteFiles(FCmpFileSourceR, DeleteRightFiles) then Break;
-        end
-        else DeleteRightFiles.Free;
-        if not pnlProgress.Visible then Break;
-      end;
-      finally
-        SetPanelWatchers(True);
-      end;
+      lblFileSizeProgress.Caption := rsOperCopying;
+      lblFileCountProgress.Caption := rsOperDeleting;
+      pbFileSizeProgress.Position:=0;
+      pbFileCountProgress.Position:=0;
+      pnlFileSizeProgress.Visible:= (sfCopyToLeft in syncFlags) or (sfCopyToRight in syncFlags);
+      pnlFileCountProgress.Visible:= (sfDeleteLeft in syncFlags) or (sfDeleteRight in syncFlags) or
+                                  (sfDeleteLeftAllEmptyDirs in syncFlags) or (sfDeleteRightAllEmptyDirs in syncFlags);
+
+      synchronizer.sync( syncFlags );
+
       EnableControls(True);
       btnCompare.Click;
     end;
   finally
+    synchronizer.Free;
     Free;
   end;
 end;
 
-procedure TfrmSyncDirsDlg.chkSubDirsClick(Sender: TObject);
-begin
-  // Mirroring empty folders only makes sense while subdirectories are scanned.
-  chkEmptyDirs.Enabled := chkSubDirs.Checked;
-end;
-
-procedure TfrmSyncDirsDlg.ForceRemoteDir(FileSource: IFileSource;
-  const ABasePath, ARelativeDir: String);
-// Create ARelativeDir (possibly several levels deep) under ABasePath on
-// FileSource, making each missing parent level first. DC's CreateDirectory
-// creates a single level and needs its parent to already exist, so the path is
-// built top-down. ABasePath is the sync root and already exists; attempts on
-// already-existing levels just return False and are ignored, so the call is
-// safe to make unconditionally before every copy batch.
+procedure TfrmSyncDirsDlg.edPath1AcceptDirectory(Sender: TObject; var Value: String);
 var
-  Rest, Segment, Current: String;
-  DelimPos: Integer;
-begin
-  Current := ExcludeTrailingPathDelimiter(ABasePath);
-  Rest := ARelativeDir;
-  while Rest <> '' do
-  begin
-    DelimPos := Pos(PathDelim, Rest);
-    if DelimPos = 0 then
-    begin
-      Segment := Rest;
-      Rest := '';
-    end
-    else begin
-      Segment := Copy(Rest, 1, DelimPos - 1);
-      Delete(Rest, 1, DelimPos);
-    end;
-    if Segment <> '' then
-    begin
-      Current := Current + PathDelim + Segment;
-      FileSource.CreateDirectory(Current);
-    end;
-  end;
-end;
-
-procedure TfrmSyncDirsDlg.edPath1AcceptDirectory(Sender: TObject;
-  var Value: String);
+  side: TDoubleSide;
 begin
   if Sender = edPath1 then
-  begin
-    FFileSourceL := TFileSystemFileSource.GetFileSource;
-    FAddressL := '';
-  end
-  else if Sender = edPath2 then
-  begin
-    FFileSourceR := TFileSystemFileSource.GetFileSource;
-    FAddressR := '';
-  end;
+    side:= dsLeft
+  else
+    side:= dsRight;
+  FFileSources[side] := TFileSystemFileSource.GetFileSource;
+  FAddresses[side] := '';
+end;
+
+procedure TfrmSyncDirsDlg.MainDrawGridMouseUp(Sender: TObject;
+  Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+var
+  c, r: Integer;
+begin
+  if Button <> mbLeft then
+    Exit;
+
+  MainDrawGrid.MouseToCell(X, Y, c, r);
+  if (r < 0) or (r >= FFilteredList.Count)
+  or (x - 2 < hCols[3].Left)
+  or (x - 2 > hCols[3].Left + hCols[3].Width)
+  then
+    Exit;
+
+  toggleSelectionAction;
 end;
 
 procedure TfrmSyncDirsDlg.RestoreProperties(Sender: TObject);
@@ -1207,11 +569,11 @@ procedure TfrmSyncDirsDlg.FormClose(Sender: TObject;
 var
   Index: Integer;
 begin
-  StopCheckContentThread;
+  checkContentThreadStop;
   CloseAction := caFree;
   { settings }
+  gSyncDirsEmptyDirs            := chkEmptyDir.Checked;
   gSyncDirsSubdirs              := chkSubDirs.Checked;
-  gSyncDirsEmptyDirs            := chkEmptyDirs.Checked;
   gSyncDirsAsymmetric           := chkAsymmetric.Checked;
   gSyncDirsIgnoreDate           := chkIgnoreDate.Checked;
   gSyncDirsShowFilterCopyRight  := sbCopyRight.Down;
@@ -1228,13 +590,7 @@ begin
   end;
   if chkByContent.Enabled then
     gSyncDirsByContent          := chkByContent.Checked;
-  gSyncDirsExcludeDirs          := Trim(cbExcludeDirs.Text);
-  gSyncDirsExcludeFiles         := Trim(cbExcludeFiles.Text);
   glsSyncMaskHistory.Assign(cbExtFilter.Items);
-  // Exclusion history is shared with the Find files dialog: the same folder
-  // and file patterns get skipped in both places.
-  glsSearchExcludeDirectories.Assign(cbExcludeDirs.Items);
-  glsSearchExcludeFiles.Assign(cbExcludeFiles.Items);
 
   with HeaderDG.Columns do
   begin
@@ -1255,10 +611,10 @@ begin
     FCancel := True;
     CanClose := False;
   end
-  else if FComparing then
+  else if FCheckContentThreadComparing then
   begin
     CanClose := False;
-    StopCheckContentThread;
+    checkContentThreadStop;
   end;
 end;
 
@@ -1280,12 +636,11 @@ begin
   {$ENDIF}
   MainDrawGrid.SelectedColor:= gColors.SyncDirs^.SelectedColor;
 
-  lblProgress.Caption    := rsOperCopying;
-  lblProgressDelete.Caption   := rsOperDeleting;
+  lblFileSizeProgress.Caption    := rsOperCopying;
+  lblFileCountProgress.Caption   := rsOperDeleting;
   { settings }
+  chkEmptyDir.Checked    := gSyncDirsEmptyDirs;
   chkSubDirs.Checked     := gSyncDirsSubdirs;
-  chkEmptyDirs.Checked   := gSyncDirsEmptyDirs;
-  chkEmptyDirs.Enabled   := gSyncDirsSubdirs;
   chkAsymmetric.Checked  := gSyncDirsAsymmetric;
   chkByContent.Checked   := gSyncDirsByContent and chkByContent.Enabled;
   chkIgnoreDate.Checked  := gSyncDirsIgnoreDate;
@@ -1306,11 +661,6 @@ begin
   end;
   cbExtFilter.Items.Assign(glsSyncMaskHistory);
   cbExtFilter.Text       := gSyncDirsFileMask;
-  cbExcludeDirs.Items.Assign(glsSearchExcludeDirectories);
-  cbExcludeDirs.Text     := gSyncDirsExcludeDirs;
-  cbExcludeFiles.Items.Assign(glsSearchExcludeFiles);
-  cbExcludeFiles.Text    := gSyncDirsExcludeFiles;
-  UpdateExcludeFieldsState;
 
   HMSync := HotMan.Register(Self, HotkeysCategory);
   HMSync.RegisterActionList(ActionList);
@@ -1323,108 +673,102 @@ end;
 
 procedure TfrmSyncDirsDlg.FormResize(Sender: TObject);
 begin
-  ProgressBar.Width:= ClientWidth div 3;
-  ProgressBarDelete.Width:= ProgressBar.Width;
+  pbFileSizeProgress.Width:= ClientWidth div 3;
+  pbFileCountProgress.Width:= pbFileSizeProgress.Width;
 end;
 
 procedure TfrmSyncDirsDlg.MainDrawGridDblClick(Sender: TObject);
 var
   r, x: Integer;
-  sr: TFileSyncRec;
+  rec: TSyncRec;
 begin
   r := MainDrawGrid.Row;
-  if (r < 0) or (r >= FVisibleItems.Count) then Exit;
+  if (r < 0) or (r >= FFilteredList.Count) then Exit;
   x := MainDrawGrid.ScreenToClient(Mouse.CursorPos).X;
   if (x > hCols[3].Left) and (x < hCols[3].Left + hCols[3].Width) then Exit;
-  sr := TFileSyncRec(FVisibleItems.Objects[r]);
-  if not Assigned(sr)
-  or not Assigned(sr.FFileR) or not Assigned(sr.FFileL) or (sr.FState = srsEqual)
-  then
+  rec := FFilteredList.fileSyncRec(r);
+  if rec.isDir or NOT rec.hasFilesOnBothSides or (rec.state = srsEqual) then
     Exit;
-  PrepareToolData(FFileSourceL, sr.FFileL, FFileSourceR, sr.FFileR, @ShowDifferByGlobList);
+  PrepareToolData(self.leftFS, rec.leftFile, self.rightFS, rec.rightFile, @ShowDifferByGlobList);
 end;
 
 procedure TfrmSyncDirsDlg.MainDrawGridDrawCell(Sender: TObject; aCol,
   aRow: Integer; aRect: TRect; aState: TGridDrawState);
+const
+  LEFT_FILE_INDENTATION = 8;
 var
-  r: TFileSyncRec;
+  rec: TSyncRec;
   x: Integer;
   s: string;
 begin
-  if (FVisibleItems = nil) or (aRow >= FVisibleItems.Count) then Exit;
+  if (FFilteredList = nil) or (aRow >= FFilteredList.Count) then Exit;
   with MainDrawGrid.Canvas do
   begin
-    r := TFileSyncRec(FVisibleItems.Objects[aRow]);
-    if r = nil then
+    rec := FFilteredList.fileSyncRec(aRow);
+    if rec.isDir then
     begin
-      Brush.Color := clBtnFace;
+      if gdSelected in aState then begin
+        Brush.Color:= gColors.SyncDirs^.DirSelectedColor
+      end else begin
+        {$IFDEF DARWIN}
+        Brush.Color := clInfoBk;
+        {$ELSE}
+        Brush.Color := clBtnFace;
+        {$ENDIF}
+      end;
       FillRect(aRect);
       Font.Bold := True;
       Font.Color := clWindowText;
       with hCols[0] do
         TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
-          Left + 2, aRect.Top + 2, FVisibleItems[aRow]);
-    end else if r.Unreadable then
-    begin
-      Font.Color := clRed;
-      with hCols[0] do
-        TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
-          Left + 2, aRect.Top + 2, FVisibleItems[aRow]);
-      TextOut(hCols[6].Left + 2, aRect.Top + 2, FVisibleItems[aRow]);
-      if r.FUnreadableL then
-        with hCols[1] do
-          TextRect(Rect(Left, aRect.Top, hCols[2].Left + hCols[2].Width, aRect.Bottom),
-            Left + 2, aRect.Top + 2, rsSyncUnreadable);
-      if r.FUnreadableR then
-        with hCols[4] do
-          TextRect(Rect(Left, aRect.Top, hCols[5].Left + hCols[5].Width, aRect.Bottom),
-            Left + 2, aRect.Top + 2, rsSyncUnreadable);
+          Left + 2, aRect.Top + 2, FFilteredList.path(aRow));
     end else begin
       with gColors.SyncDirs^ do
       begin
-        case r.FState of
+        case rec.state of
         srsNotEq:       Font.Color := UnknownColor;
-        srsCopyLeft:    Font.Color := RightColor;
-        srsCopyRight:   Font.Color := LeftColor;
+        srsCopyToLeft:    Font.Color := RightColor;
+        srsCopyToRight:   Font.Color := LeftColor;
         srsDeleteLeft:  Font.Color := LeftColor;
         srsDeleteRight: Font.Color := RightColor;
         else Font.Color := clWindowText;
         end;
       end;
-      if r.FTypeConflict then Font.Color := clRed;
-      if Assigned(r.FFileL) then
+      if rec.hasLeftFile then
       begin
         with hCols[0] do
           TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
-            Left + 2, aRect.Top + 2, FVisibleItems[aRow]);
-        s := IntToStrTS(r.FFileL.Size);
+            Left + 2 + LEFT_FILE_INDENTATION, aRect.Top + 2, FFilteredList.path(aRow));
+        s := IntToStrTS(rec.leftFile.Size);
         with hCols[1] do begin
           x := Left + Width - 8 - TextWidth(s);
           TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
             x, aRect.Top + 2, s);
         end;
-        s := FormatDateTime(gDateTimeFormatSync, r.FFileL.ModificationTime);
+        s := FormatDateTime(gDateTimeFormatSync, rec.leftFile.ModificationTime);
         with hCols[2] do
           TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
             Left + 2, aRect.Top + 2, s)
       end;
-      if Assigned(r.FFileR) then
+      if rec.hasRightFile then
       begin
-        TextOut(hCols[6].Left + 2, aRect.Top + 2, FVisibleItems[aRow]);
-        s := IntToStrTS(r.FFileR.Size);
+        TextOut(hCols[6].Left + 2, aRect.Top + 2, FFilteredList.path(aRow));
+        s := IntToStrTS(rec.rightFile.Size);
         with hCols[5] do begin
           x := Left + Width - 8 - TextWidth(s);
           TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
             x, aRect.Top + 2, s);
         end;
-        s := FormatDateTime(gDateTimeFormatSync, r.FFileR.ModificationTime);
+        s := FormatDateTime(gDateTimeFormatSync, rec.rightFile.ModificationTime);
         with hCols[4] do
           TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
             Left + 2, aRect.Top + 2, s)
       end;
+    end;
+    if rec.isFile or (rec.state<>srsDoNothing) then begin
       ImageList1.Draw(MainDrawGrid.Canvas,
         hCols[3].Left + (hCols[3].Width - ImageList1.Width) div 2 - 2,
-        (aRect.Top + aRect.Bottom - ImageList1.Height - 1) div 2, Ord(r.FAction));
+        (aRect.Top + aRect.Bottom - ImageList1.Height - 1) div 2, Ord(rec.action));
     end;
   end;
 end;
@@ -1436,9 +780,11 @@ var
 begin
   case Key of
     VK_SPACE:
-      UpdateSelection(MainDrawGrid.Row);
+      begin
+        toggleSelectionAction;
+        Key:= 0;
+      end;
     VK_A:
-    begin
       if (Shift = [ssModifier]) then
       begin
         ASelection.Top:= 0;
@@ -1446,33 +792,16 @@ begin
         ASelection.Right:= MainDrawGrid.ColCount - 1;
         ASelection.Bottom:= MainDrawGrid.RowCount - 1;
         MainDrawGrid.Selection:= ASelection;
+        Key:= 0;
       end;
-    end;
-    VK_C:
-      if (Shift = [ssModifier]) then
-      begin
-        CopyToClipboard;
-      end;
+    VK_C,
     VK_INSERT:
       if (Shift = [ssModifier]) then
       begin
         CopyToClipboard;
+        Key:= 0;
       end;
   end;
-end;
-
-procedure TfrmSyncDirsDlg.MainDrawGridMouseDown(Sender: TObject;
-  Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-var
-  c, r: Integer;
-begin
-  MainDrawGrid.MouseToCell(X, Y, c, r);
-  if (r < 0) or (r >= FVisibleItems.Count)
-  or (x - 2 < hCols[3].Left)
-  or (x - 2 > hCols[3].Left + hCols[3].Width)
-  then
-    Exit;
-  UpdateSelection(R);
 end;
 
 procedure TfrmSyncDirsDlg.FormKeyDown(Sender: TObject; var Key: Word;
@@ -1483,8 +812,10 @@ begin
     Key := 0;
     if FScanning then
       FCancel := True
-    else if FComparing then
-      StopCheckContentThread
+    else if FCheckContentThreadComparing then
+      checkContentThreadStop
+    else if pnlProgress.Visible then
+      self.btnAbortClick(nil)
     else
       Close;
   end;
@@ -1513,27 +844,79 @@ procedure TfrmSyncDirsDlg.MenuItemViewClick(Sender: TObject);
 var
   r: Integer;
   f: TFile = nil;
-  sr: TFileSyncRec;
+  rec: TSyncRec;
 begin
   r := MainDrawGrid.Row;
-  if (r < 0) or (r >= FVisibleItems.Count) then Exit;
-  sr := TFileSyncRec(FVisibleItems.Objects[r]);
-  if Assigned(sr) then
+  if (r < 0) or (r >= FFilteredList.Count) then Exit;
+  rec := FFilteredList.fileSyncRec(r);
+  if rec.isFile then
   begin
     if Sender = MenuItemViewLeft then
-      f := sr.FFileL
+      f := rec.leftFile
     else if Sender = MenuItemViewRight then begin
-      f := sr.FFileR;
+      f := rec.rightFile;
     end;
     if Assigned(f) then ShowViewerByGlob(f.FullPath);
   end;
 end;
 
 procedure TfrmSyncDirsDlg.pmGridMenuPopup(Sender: TObject);
+  procedure calcSelection;
+  var
+    fromIndex: Integer;
+    toIndex: Integer;
+  begin
+    if MainDrawGrid.HasMultiSelection then
+      Exit;
+    if MainDrawGrid.Selection.Height>0 then
+      Exit;
+
+    fromIndex:= MainDrawGrid.Row;
+    toIndex:= FFilteredList.lastFileInCurrentDir( fromIndex );
+    MainDrawGrid.Selection:= TGridRect.Create(0,fromIndex,3,toIndex);
+  end;
+
+  procedure enableMenuItems;
+  var
+    indexes: TIntegerList;
+    hasBothWithinSameRec: Boolean;
+    leftCount: Integer;
+    rightCount: Integer;
+    hasLeft: Boolean;
+    hasRight: Boolean;
+    hasBoth: Boolean;
+    enableCopyProperties: Boolean;
+  begin
+    indexes:= self.createSelectionIndexes;
+    FFilteredList.countLeftRight(indexes, leftCount, rightCount);
+    hasBothWithinSameRec:= FFilteredList.countBothSides(indexes) > 0;
+    indexes.Free;
+
+    hasLeft:= (leftCount > 0);
+    hasRight:= (rightCount > 0);
+    hasBoth:= hasLeft AND hasRight;
+
+    enableCopyProperties:= hasBothWithinSameRec;
+    if enableCopyProperties then
+      enableCopyProperties:= TSyncDirsUtil.supportsCopyProperties(FFileSources);
+
+    miSelectCopyLeftToRight.Enabled:= hasLeft;
+    miSelectCopyRightToLeft.Enabled:= hasRight;
+    MenuItemViewLeft.Enabled:= hasLeft;
+    MenuItemViewRight.Enabled:= hasRight;
+    MenuItemCompare.Enabled:= hasBothWithinSameRec;
+    miCopyPropertiesLeftToRight.Enabled:= enableCopyProperties;
+    miCopyPropertiesRightToLeft.Enabled:= enableCopyProperties;
+    miSelectDeleteLeft.Enabled := hasLeft;
+    miSelectDeleteRight.Enabled := hasRight;
+    miSelectDeleteBoth.Enabled := hasBoth;
+    miDeleteLeft.Enabled := hasLeft;
+    miDeleteRight.Enabled := hasRight;
+    miDeleteBoth.Enabled := hasBoth;
+  end;
 begin
-  miSelectDeleteLeft.Visible := not chkAsymmetric.Checked;
-  miSelectDeleteBoth.Visible := not chkAsymmetric.Checked;
-  miSelectKeepLink.Visible := FTypeConflictCount > 0;
+  calcSelection;
+  enableMenuItems;
 end;
 
 procedure TfrmSyncDirsDlg.TimerTimer(Sender: TObject);
@@ -1546,40 +929,112 @@ begin
     if (FOperation is TFileSourceCopyOperation) then
     begin
       CopyStatistics:= TFileSourceCopyOperation(FOperation).RetrieveStatistics;
-      SetProgressBytes(ProgressBar, FCopyStatistics.DoneBytes +
-                       CopyStatistics.DoneBytes, FCopyStatistics.TotalBytes);
+      SetProgressBytes(
+        pbFileSizeProgress,
+        FCopyStatistics.DoneBytes + CopyStatistics.DoneBytes,
+        FCopyStatistics.TotalBytes);
     end
     else if (FOperation is TFileSourceDeleteOperation) then
     begin
       DeleteStatistics:= TFileSourceDeleteOperation(FOperation).RetrieveStatistics;
-      SetProgressFiles(ProgressBarDelete, FDeleteStatistics.DoneFiles +
-                       DeleteStatistics.DoneFiles, FDeleteStatistics.TotalFiles);
+      SetProgressFiles(
+        pbFileCountProgress,
+        FDeleteStatistics.DoneFiles + DeleteStatistics.DoneFiles,
+        FDeleteStatistics.TotalFiles);
     end;
   end
-  else if Assigned(CheckContentThread) then
+  else if FFileCountProgressName <> EmptyStr then
   begin
-    with TCheckContentThread(CheckContentThread) do
-    begin
-      Inc(FTimer);
-      CopyStatistics:= RetrieveStatistics;
-      if (FTimer mod 5 = 0) then UpdateGrid;
-      SetProgressBytes(ProgressBar, CopyStatistics.DoneBytes, CopyStatistics.TotalBytes);
-    end;
+    updateFileCountProgress;
+  end
+  else if Assigned(FCheckContentThread) then
+  begin
+    Inc(FCheckContentThreadTimerCount);
+    CopyStatistics:= FCheckContentThread.RetrieveStatistics;
+    if (FCheckContentThreadTimerCount mod 5 = 0) then checkContentThreadUpdateGrid;
+    checkContentThreadSetProgressBytes(pbFileSizeProgress, CopyStatistics.DoneBytes, CopyStatistics.TotalBytes);
+  end;
+end;
+
+function TfrmSyncDirsDlg.createCompareOption: TSyncDirsCompareOption;
+var
+  flags: TSyncDirsCompareFlags;
+begin
+  flags:= [];
+  if self.chkOnlySelected.Checked then
+    Include( flags, TSyncDirsCompareFlag.cfOnlySelected );
+  if self.chkEmptyDir.Checked then
+    Include( flags, TSyncDirsCompareFlag.cfEmptyDirs );
+  if self.chkAsymmetric.Checked then
+    Include( flags, TSyncDirsCompareFlag.cfAsymmetric );
+  if self.chkSubDirs.Checked then
+    Include( flags, TSyncDirsCompareFlag.cfSubdirs );
+  if self.chkByContent.Checked then
+    Include( flags, TSyncDirsCompareFlag.cfByContent );
+  if self.chkIgnoreDate.Checked then
+    Include( flags, TSyncDirsCompareFlag.cfIgnoreDate );
+
+  if TSyncDirsUtil.isBothFileSystemFileSource(FFileSources) then begin
+    if gNtfsHourTimeDelay and NtfsHourTimeDelay(self.edPath1.Text, self.edPath2.Text) then
+      Include( flags, TSyncDirsCompareFlag.cfNtfsShift );
+  end;
+
+  Result:= TSyncDirsCompareOption.Create( flags );
+end;
+
+function TfrmSyncDirsDlg.createFilterFlags: TFilterFlags;
+begin
+  Result:= [];
+  if self.sbCopyRight.Down then
+    Include( Result, TSyncDirsFilterFlag.ffCopyRight );
+  if self.sbCopyLeft.Down then
+    Include( Result, TSyncDirsFilterFlag.ffCopyLeft );
+  if self.sbEqual.Down then
+    Include( Result, TSyncDirsFilterFlag.ffEqual );
+  if self.sbNotEqual.Down then
+    Include( Result, TSyncDirsFilterFlag.ffNotEqual );
+  if self.sbUnknown.Down then
+    Include( Result, TSyncDirsFilterFlag.ffUnknown );
+  if self.sbDuplicates.Down then
+    Include( Result, TSyncDirsFilterFlag.ffDuplicate );
+  if self.sbSingles.Down then
+    Include( Result, TSyncDirsFilterFlag.ffSingle );
+end;
+
+function TfrmSyncDirsDlg.createSelectionIndexes: TIntegerList;
+var
+  i: Integer;
+begin
+  Result:= TIntegerList.Create;
+  for i:= 0 to self.MainDrawGrid.RowCount-1 do begin
+    if MainDrawGrid.IsCellSelected[0,i] then
+      Result.Add( i );
   end;
 end;
 
 procedure TfrmSyncDirsDlg.SetSortIndex(AValue: Integer);
+  function getSortIndicator: String;
+  begin
+    {$IF DEFINED(MSWINDOWS) or DEFINED(DARWIN)}
+    if FSortDesc then Result:= '↓' else Result:= '↑';
+    {$ELSE}
+    if FSortDesc then Result:= '↑' else Result:= '↓';
+    {$ENDIF}
+  end;
+
 var
   s: string;
 begin
+  FSortService.sortIndex := AValue;
   if AValue = FSortIndex then
   begin
     s := HeaderDG.Columns[AValue].Title.Caption;
     UTF8Delete(s, 1, 1);
     FSortDesc := not FSortDesc;
-    if FSortDesc then s := '↑' + s else s := '↓' + s;
+    FSortService.sortDesc := FSortDesc;
+    s := getSortIndicator() + s;
     HeaderDG.Columns[AValue].Title.Caption := s;
-    SortFoundItems;
+    FSortService.sortTree(FFullTree);
     FillFoundItemsDG;
   end else begin
     if FSortIndex >= 0 then
@@ -1590,76 +1045,38 @@ begin
     end;
     FSortIndex := AValue;
     FSortDesc := False;
+    FSortService.sortDesc := FSortDesc;
     with HeaderDG.Columns[FSortIndex].Title do
-      Caption := '↓' + Caption;
-    SortFoundItems;
+      Caption := getSortIndicator() + Caption;
+    FSortService.sortTree(FFullTree);
     FillFoundItemsDG;
   end;
-end;
-
-procedure TfrmSyncDirsDlg.ClearFoundItems;
-var
-  i, j: Integer;
-begin
-  for i := 0 to FFoundItems.Count - 1 do
-    with TStringList(FFoundItems.Objects[i]) do
-    begin
-      for j := 0 to Count - 1 do
-        Objects[j].Free;
-      Clear;
-    end;
-  FFoundItems.Clear;
 end;
 
 procedure TfrmSyncDirsDlg.Compare;
 begin
   TopPanel.Enabled := False;
   try
-    ClearFoundItems;
+    FFullTree.Clear;
+    FCompareOption.Free;
+    FCompareOption:= self.createCompareOption;
     MainDrawGrid.RowCount := 0;
     ScanDirs;
     MainDrawGrid.SetFocus;
   finally
-    TopPanel.Enabled := not FComparing;
+    TopPanel.Enabled := not FCheckContentThreadComparing;
   end;
 end;
 
 procedure TfrmSyncDirsDlg.FillFoundItemsDG;
-
-  procedure CalcStat;
-  var
-    i: Integer;
-    r: TFileSyncRec;
-  begin
-    Ftotal := 0;
-    Fequal := 0;
-    Fnoneq := 0;
-    FuniqueL := 0;
-    FuniqueR := 0;
-    for i := 0 to FVisibleItems.Count - 1 do
-    begin
-      r := TFileSyncRec(FVisibleItems.Objects[i]);
-      // Unreadable folders are reported separately, see UpdateStatusBar
-      if Assigned(r) and not r.Fixed then
-      begin
-        Inc(Ftotal);
-        if Assigned(r.FFileL) and not Assigned(r.FFileR) then Inc(FuniqueL) else
-        if Assigned(r.FFileR) and not Assigned(r.FFileL) then Inc(FuniqueR);
-        if r.FState = srsEqual then Inc(Fequal) else
-        if r.FState = srsNotEq then Inc(Fnoneq) else
-        if Assigned(r.FFileL) and Assigned(r.FFileR) then Inc(Fnoneq);
-      end;
-    end;
-  end;
-
 begin
   InitVisibleItems;
   MainDrawGrid.ColCount := 1;
-  MainDrawGrid.RowCount := FVisibleItems.Count;
+  MainDrawGrid.RowCount := FFilteredList.Count;
   MainDrawGrid.Invalidate;
-  CalcStat;
+  FFilteredCount:= FFilteredList.flatCount;
   UpdateStatusBar;
-  if FVisibleItems.Count > 0 then
+  if FFullTree.Count > 0 then
   begin
     btnCompare.Default := False;
     btnSynchronize.Enabled := True;
@@ -1672,62 +1089,8 @@ begin
 end;
 
 procedure TfrmSyncDirsDlg.InitVisibleItems;
-var
-  i, j: Integer;
-  AFilter: record
-    copyLeft, copyRight, eq, neq, unkn: Boolean;
-    dup, single: Boolean;
-  end;
-  r: TFileSyncRec;
-
 begin
-  if Assigned(FVisibleItems) then
-    FVisibleItems.Clear
-  else begin
-    FVisibleItems := TStringListEx.Create;
-    FVisibleItems.CaseSensitive := FileNameCaseSensitive;
-  end;
-  { init filter }
-  with AFilter do
-  begin
-    copyLeft := sbCopyLeft.Down;
-    copyRight := sbCopyRight.Down;
-    eq := sbEqual.Down;
-    neq := sbNotEqual.Down;
-    unkn := sbUnknown.Down;
-    dup := sbDuplicates.Down;
-    single := sbSingles.Down;
-  end;
-  for i := 0 to FFoundItems.Count - 1 do
-  begin
-    if FFoundItems[i] <> '' then
-      FVisibleItems.Add(AppendPathDelim(FFoundItems[i]));
-    with TStringList(FFoundItems.Objects[i]) do
-      for j := 0 to Count - 1 do
-      begin
-        { check filter }
-        r := TFileSyncRec(Objects[j]);
-        // Unreadable folders are always shown: they are why the result is partial
-        if r.Fixed or
-           (((Assigned(r.FFileL) <> Assigned(r.FFileR)) and AFilter.single or
-           (Assigned(r.FFileL) = Assigned(r.FFileR)) and AFilter.dup)
-           and
-           ((r.FState = srsCopyLeft) and AFilter.copyLeft or
-            (r.FState = srsCopyRight) and AFilter.copyRight or
-            (r.FState = srsDeleteLeft) and AFilter.copyRight or
-            (r.FState = srsDeleteRight) and AFilter.copyLeft or
-            (r.FState = srsEqual) and AFilter.eq or
-            (r.FState = srsNotEq) and AFilter.neq or
-            (r.FState = srsUnknown) and AFilter.unkn))
-        then
-          FVisibleItems.AddObject(Strings[j], Objects[j]);
-      end;
-  end;
-  { remove empty dirs after filtering }
-  for i := FVisibleItems.Count - 1 downto 0 do
-    if (FVisibleItems.Objects[i] = nil)
-    and ((i + 1 >= FVisibleItems.Count) or (FVisibleItems.Objects[i + 1] = nil)) then
-      FVisibleItems.Delete(i);
+  TSyncDirsUtil.filterFlatListWithFlags(FFullTree, FFilteredList, self.createFilterFlags);
 end;
 
 procedure TfrmSyncDirsDlg.RecalcHeaderCols;
@@ -1745,707 +1108,72 @@ begin
 end;
 
 procedure TfrmSyncDirsDlg.ScanDirs;
-
 var
-  MaskList: TMaskList;
-  Template: TSearchTemplate;
-  // Non-nil only when Template was built here from the dialog's exclude fields;
-  // a template taken from gSearchTemplateList belongs to the list, not to us.
-  OwnTemplate: TSearchTemplate = nil;
-  SearchRec: TSearchTemplateRec;
-  LeftFirst: Boolean = True;
-  RightFirst: Boolean = True;
-  BaseDirL, BaseDirR: string;
-  ignoreDate, Subdirs, ByContent, EmptyDirs: Boolean;
-  LastMessagesTime: QWord = 0;
-  // Share of the whole tree already scanned, 0..1. The tree's size is not
-  // known in advance, so each directory hands its share on to its
-  // subdirectories in equal parts, and a directory adds its share once
-  // nothing below it is left to scan. Counting directories discovered vs.
-  // done instead kept the two almost equal during the depth-first walk,
-  // so the percentage sat at 99% for most of a long scan.
-  ScanProgress: Double = 0;
-  ScanShownPercent: Integer = 0;
-  // "Skip all" answered for a folder that could not be read
-  SkipAllUnreadable: Boolean = False;
-  // Which side failed, for the ScanDir that just returned -1
-  UnreadableL, UnreadableR: Boolean;
+  builder: TSyncDirsTreeBuilder = nil;
+  basePaths: TDoublePaths;
 
-  // Lists one side of a directory. A failed listing - as opposed to an empty
-  // folder - is retried once on its own, which also re-establishes a dropped
-  // connection, and then the user decides. Listing failures used to come back
-  // as an empty folder, so everything on the other side looked unique and was
-  // marked to be copied or even deleted. False: skip this folder (with FCancel
-  // set: abort the compare).
-  function ListSide(sideLeft: Boolean; const dir: String; out fs: TFiles): Boolean;
+  procedure setBaseDir(const text: String; const side: TDoubleSide);
   var
-    FileSource: IFileSource;
-    Operation: TFileSourceOperation;
-    Path, Address: String;
-    Retried: Boolean = False;
+    path: String;
+    address: String;
   begin
-    fs := nil;
-    if sideLeft then
-    begin
-      FileSource := FFileSourceL;
-      Path := BaseDirL + dir;
-      Address := FAddressL;
-    end
-    else begin
-      FileSource := FFileSourceR;
-      Path := BaseDirR + dir;
-      Address := FAddressR;
-    end;
-    repeat
-      Operation := FileSource.CreateListOperation(Path);
-      if not Assigned(Operation) then
-      begin
-        fs := TFiles.Create(Path);
-        Exit(True);
-      end;
-      try
-        Operation.Execute;
-        if not TFileSourceListOperation(Operation).ListFailed then
-        begin
-          fs := TFileSourceListOperation(Operation).ReleaseFiles;
-          Exit(True);
-        end;
-      finally
-        Operation.Free;
-      end;
-      if not Retried then
-      begin
-        Retried := True;
-        Continue;
-      end;
-      if SkipAllUnreadable then Exit(False);
-      case MsgBox(Format(rsSyncCannotRead, [Address + Path]),
-                  [msmbRetry, msmbSkip, msmbSkipAll, msmbAbort],
-                  msmbRetry, msmbAbort) of
-        mmrRetry:
-          ;
-        mmrSkipAll:
-          begin
-            SkipAllUnreadable := True;
-            Exit(False);
-          end;
-        mmrAbort:
-          begin
-            FCancel := True;
-            Exit(False);
-          end;
-        else
-          Exit(False);
-      end;
-    until False;
-  end;
-
-  // Tell plugin file systems that a whole tree is about to be listed, as Total
-  // Commander does (FS_STATUS_OP_SYNC_SEARCH), so they may fetch ahead: over
-  // SFTP the compare otherwise waits out several round trips per directory.
-  procedure NotifySyncSearch(StartEnd: Integer);
-  var
-    Wfx: IWfxPluginFileSource;
-  begin
-    if Supports(FFileSourceL, IWfxPluginFileSource, Wfx) then
-      Wfx.WfxModule.WfxStatusInfo(BaseDirL, StartEnd, FS_STATUS_OP_SYNC_SEARCH);
-    if Supports(FFileSourceR, IWfxPluginFileSource, Wfx) then
-      Wfx.WfxModule.WfxStatusInfo(BaseDirR, StartEnd, FS_STATUS_OP_SYNC_SEARCH);
-  end;
-
-  // A folder skipped because it could not be read: one row with no files and
-  // no action, so neither side of it is copied or deleted.
-  procedure AddUnreadableRecord(it: TStringList; const dir, name: string);
-  var
-    r: TFileSyncRec;
-  begin
-    r := TFileSyncRec.Create(Self, dir);
-    r.FUnreadableL := UnreadableL;
-    r.FUnreadableR := UnreadableR;
-    r.FState := srsDoNothing;
-    r.FAction := srsDoNothing;
-    it.AddObject(name, r);
-    Inc(FUnreadableCount);
-  end;
-
-  // Returns the number of sync records produced by this directory's whole
-  // subtree, or -1 when the directory could not be read and was skipped
-  // (UnreadableL/R tell which side). A one-sided directory whose subtree
-  // count is zero is an empty folder (of matching files) and, when enabled,
-  // is mirrored as a unit. HasLeft/HasRight say on which sides the directory
-  // exists; the other side is not listed, since that listing would fail.
-  function ScanDir(dir: string; Share: Double; HasLeft: Boolean = True;
-    HasRight: Boolean = True): Integer;
-
-    procedure AddRecord(it: TStringList; const fn: String; f: TFile; sideLeft: Boolean);
-    var
-      j: Integer;
-      r: TFileSyncRec;
-    begin
-      j := it.IndexOf(fn);
-      if j < 0 then
-        r := TFileSyncRec.Create(Self, dir)
-      else
-        r := TFileSyncRec(it.Objects[j]);
-      if sideLeft then
-      begin
-        r.FFileL := f.Clone;
-        r.UpdateState(ignoreDate);
-      end else begin
-        r.FFileR := f.Clone;
-        r.UpdateState(ignoreDate);
-        // Links are compared by their targets, not by the content behind them
-        if ByContent and (r.FState = srsEqual) and (r.FFileR.Size > 0) and
-           not r.FFileR.IsLink and not (Assigned(r.FFileL) and r.FFileL.IsLink) then
-        begin
-          r.FAction := srsUnknown;
-          r.FState := srsUnknown;
-        end;
-      end;
-      it.AddObject(fn, r);
-    end;
-
-    // A name that is a directory on one side and a file or link on the other
-    // becomes one "type differs" record that the sync leaves alone unless the
-    // user picks a direction: the directory is not walked into, since copying
-    // into it would write through the link (or fail on the file), and
-    // replacing either side means deleting data the user has to decide about.
-    // A chosen copy deletes the other side first, then copies the item whole.
-    procedure MarkTypeConflicts(it, dirs: TStringList; sideLeft: Boolean);
-    var
-      i, j: Integer;
-      r: TFileSyncRec;
-    begin
-      for i := dirs.Count - 1 downto 0 do
-      begin
-        j := it.IndexOf(dirs[i]);
-        if j < 0 then Continue;
-        r := TFileSyncRec(it.Objects[j]);
-        if sideLeft then
-        begin
-          if Assigned(r.FFileL) then Continue;
-          r.FFileL := TFile(dirs.Objects[i]);
-        end
-        else begin
-          if Assigned(r.FFileR) then Continue;
-          r.FFileR := TFile(dirs.Objects[i]);
-        end;
-        dirs.Objects[i] := nil;  // ownership handed to the record
-        dirs.Delete(i);
-        r.FTypeConflict := True;
-        r.FState := srsNotEq;
-        r.FAction := srsDoNothing;
-        Inc(FTypeConflictCount);
-      end;
-    end;
-
-    procedure ProcessOneSide(it, dirs: TStringList; var ASide: Boolean; sideLeft: Boolean;
-      fs: TFiles);
-    var
-      i: Integer;
-      f: TFile;
-      fn: String;
-    begin
-      if chkOnlySelected.Checked and ASide then
-      begin
-        ASide:= False;
-        for I:= fs.Count - 1 downto 0 do
-        begin
-          if FSelectedItems.IndexOf(fs[I].Name) < 0 then
-            fs.Delete(I);
-        end;
-      end;
-      try
-        for i := 0 to fs.Count - 1 do
-        begin
-          f := fs.Items[i];
-          fn := NormalizeFileName(f.Name);
-          if f.IsDirectory and not f.IsLink then
-          begin
-            if (f.NameNoExt <> '.') and (f.NameNoExt <> '..') then
-            begin
-              if (Template = nil) or (CheckDirectoryName(Template.FileChecks, f.Name)) then
-                // Keep a clone of the directory's TFile (fs is freed below) so a
-                // one-sided directory can be turned into a single sync record
-                // instead of being recursed into. See ScanDir below.
-                dirs.AddObject(fn, f.Clone);
-            end;
-          end
-          else if f.IsLinkToDirectory then
-          begin
-            // A link to a directory is synced as a link, like a link to a
-            // file: compared by its target, copied or deleted as a link, and
-            // never walked into. Walking into it reached the same files twice
-            // (through the link and through its target) and turned the link
-            // into a real copy of the directory on the other side. Directory
-            // exclusions apply to it, file masks do not.
-            if (Template = nil) or (CheckDirectoryName(Template.FileChecks, f.Name)) then
-              AddRecord(it, fn, f, sideLeft);
-          end
-          else if (Template = nil) or Template.CheckFile(f) then
-          begin
-            if ((MaskList = nil) or MaskList.Matches(f.Name)) then
-              AddRecord(it, fn, f, sideLeft);
-          end;
-        end;
-      finally
-        fs.Free;
-      end;
-    end;
-
-    procedure AddOrphanDirRecord(it: TStringList; const dir: string; f: TFile);
-    var
-      r: TFileSyncRec;
-    begin
-      // A directory that exists on one side only. Record the whole folder as a
-      // single sync unit (FFileR set, FFileL nil -> UpdateState assigns
-      // srsDeleteRight in asymmetric mode) instead of recursing into it and
-      // deleting its files one by one. The delete operation removes the
-      // directory tree recursively, so the now-empty folder is gone too, and the
-      // whole subtree is one operation rather than one per file. Takes ownership
-      // of f.
-      r := TFileSyncRec.Create(Self, dir);
-      r.FFileR := f;
-      r.UpdateState(ignoreDate);
-      it.AddObject(NormalizeFileName(f.Name), r);
-    end;
-
-    procedure AddEmptyDirRecord(it: TStringList; const dir: string; f: TFile; sideLeft: Boolean);
-    var
-      r: TFileSyncRec;
-    begin
-      // A one-sided directory whose whole subtree holds no matching files.
-      // Record the folder itself as a single sync unit so the mirror recreates
-      // it on the other side; without this an empty folder has no file to carry
-      // it and is silently dropped. UpdateState turns a left-only record into
-      // srsCopyRight and a right-only one into srsCopyLeft. Takes ownership of f.
-      r := TFileSyncRec.Create(Self, dir);
-      if sideLeft then r.FFileL := f else r.FFileR := f;
-      r.UpdateState(ignoreDate);
-      it.AddObject(NormalizeFileName(f.Name), r);
-    end;
-
-  var
-    i, j: Integer;
-    it: TStringList;
-    dirsLeft, dirsRight: TStringListEx;
-    d: string;
-    itBase, sumChildren, childCount: Integer;
-    fsL: TFiles = nil;
-    fsR: TFiles = nil;
-    okL, okR: Boolean;
-    childShare: Double;
-  begin
-    Result := 0;
-    i := FFoundItems.IndexOf(dir);
-    if i < 0 then
-    begin
-      it := TStringListEx.Create;
-      it.CaseSensitive := FileNameCaseSensitive;
-      it.Sorted := True;
-      FFoundItems.AddObject(dir, it);
-    end else
-      it := TStringList(FFoundItems.Objects[i]);
-    if dir <> '' then dir := AppendPathDelim(dir);
-    dirsLeft := TStringListEx.Create;
-    dirsLeft.CaseSensitive := FileNameCaseSensitive;
-    dirsLeft.Sorted := True;
-    dirsRight := TStringListEx.Create;
-    dirsRight.CaseSensitive := FileNameCaseSensitive;
-    dirsRight.Sorted := True;
-    try
-      // Pump messages at most every 50 ms: each call may process queued
-      // inotify events and trigger file panel reloads, degrading the scan
-      // to O(n^2) over many directories (same issue as was fixed in
-      // TFileSourceOperation.AppProcessMessages)
-      if GetTickCount64 - LastMessagesTime >= 50 then
-      begin
-        LastMessagesTime := GetTickCount64;
-        // Update the displayed percentage only when pumping messages: a
-        // status bar update per scanned directory is measurably expensive
-        ScanShownPercent := Max(ScanShownPercent, Min(99, Trunc(ScanProgress * 100)));
-        StatusBar1.Panels[0].Text :=
-          Format(rsComparingPercent, [ScanShownPercent]);
-        Application.ProcessMessages;
-      end;
-      if FCancel then Exit;
-      // Records added below belong to this directory; remember the baseline so
-      // the subtree count excludes anything already present on a revisit.
-      itBase := it.Count;
-      sumChildren := 0;
-      // List both sides before comparing anything: a folder is either
-      // compared as a whole or, if a side cannot be read, skipped as a whole.
-      okL := not HasLeft or ListSide(True, dir, fsL);
-      okR := okL and not FCancel and (not HasRight or ListSide(False, dir, fsR));
-      if FCancel or not okR then
-      begin
-        fsL.Free;
-        fsR.Free;
-        UnreadableL := not okL;
-        UnreadableR := okL and not okR;
-        if not FCancel then Result := -1;
-        ScanProgress := ScanProgress + Share;
-        Exit;
-      end;
-      if fsL = nil then fsL := TFiles.Create(BaseDirL + dir);
-      if fsR = nil then fsR := TFiles.Create(BaseDirR + dir);
-      ProcessOneSide(it, dirsLeft, LeftFirst, True, fsL);
-      ProcessOneSide(it, dirsRight, RightFirst, False, fsR);
-      MarkTypeConflicts(it, dirsLeft, True);
-      MarkTypeConflicts(it, dirsRight, False);
-      SortFoundItems(it);
-      if not Subdirs then
-      begin
-        Result := it.Count - itBase;
-        ScanProgress := ScanProgress + Share;
-        Exit;
-      end;
-      // Split this directory's share among the subdirectories scanned below:
-      // all left ones, plus right-only ones unless mirroring deletes them.
-      j := dirsLeft.Count;
-      if not chkAsymmetric.Checked then
-        for i := 0 to dirsRight.Count - 1 do
-          if dirsLeft.IndexOf(dirsRight[i]) < 0 then Inc(j);
-      if j = 0 then
-        ScanProgress := ScanProgress + Share
-      else
-        childShare := Share / j;
-      // Directories present on both sides are recursed into to compare their
-      // contents (unchanged). A directory present on the right side only is, in
-      // asymmetric (mirror) mode, deleted as a whole: record it as one unit and
-      // do NOT recurse - this both removes the directory itself (the per-file
-      // path left empty folders behind) and collapses the whole subtree into a
-      // single delete operation (much faster). Left-only dirs, and right-only
-      // dirs in non-asymmetric mode, are copies and still recurse file by file.
-      for i := 0 to dirsLeft.Count - 1 do
-      begin
-        d := dirsLeft[i];
-        j := dirsRight.IndexOf(d);
-        if j >= 0 then
-        begin
-          // Present on both sides: drop the unused right-side clone, mark it
-          // consumed so the loop below skips it, and recurse to compare.
-          TObject(dirsRight.Objects[j]).Free;
-          dirsRight.Objects[j] := nil;
-        end;
-        childCount := ScanDir(dir + d, childShare, True, j >= 0);
-        if FCancel then Exit;
-        if childCount < 0 then
-        begin
-          // Unreadable: keeps the parent from counting as an empty folder
-          AddUnreadableRecord(it, dir, d);
-          Inc(sumChildren);
-          Continue;
-        end;
-        Inc(sumChildren, childCount);
-        // A left-only directory with an empty subtree: mirror it to the right.
-        if EmptyDirs and (j < 0) and (childCount = 0)
-           and TFile(dirsLeft.Objects[i]).IsDirectory then
-        begin
-          AddEmptyDirRecord(it, dir, TFile(dirsLeft.Objects[i]), True);
-          dirsLeft.Objects[i] := nil; // ownership handed to the record
-        end;
-      end;
-      for i := 0 to dirsRight.Count - 1 do
-      begin
-        if dirsRight.Objects[i] = nil then Continue; // two-sided, handled above
-        if chkAsymmetric.Checked then
-        begin
-          // Right-only directory in mirror mode: delete the whole folder as one
-          // unit. Ownership of the clone moves into the record.
-          AddOrphanDirRecord(it, dir, TFile(dirsRight.Objects[i]));
-          dirsRight.Objects[i] := nil;
-        end
-        else
-        begin
-          d := dirsRight[i];
-          childCount := ScanDir(dir + d, childShare, False, True);
-          if FCancel then Exit;
-          if childCount < 0 then
-          begin
-            AddUnreadableRecord(it, dir, d);
-            Inc(sumChildren);
-            Continue;
-          end;
-          Inc(sumChildren, childCount);
-          // A right-only directory with an empty subtree: mirror it to the left.
-          if EmptyDirs and (childCount = 0)
-             and TFile(dirsRight.Objects[i]).IsDirectory then
-          begin
-            AddEmptyDirRecord(it, dir, TFile(dirsRight.Objects[i]), False);
-            dirsRight.Objects[i] := nil; // ownership handed to the record
-          end;
-        end;
-      end;
-      Result := (it.Count - itBase) + sumChildren;
-    finally
-      // Free any directory clones we did not hand off to a sync record.
-      for i := 0 to dirsLeft.Count - 1 do
-        TObject(dirsLeft.Objects[i]).Free;
-      for i := 0 to dirsRight.Count - 1 do
-        TObject(dirsRight.Objects[i]).Free;
-      dirsLeft.Free;
-      dirsRight.Free;
-    end;
+    path:= AppendPathDelim(text);
+    address:= FAddresses[side];
+    if (address <> '') and (Copy(path, 1, Length(address)) = address) then
+      Delete(path, 1, Length(address));
+    basePaths[side]:= path;
   end;
 
 begin
   FScanning := True;
   try
-  FCancel := False;
-  FCmpFileSourceL := FFileSourceL;
-  FCmpFileSourceR := FFileSourceR;
-  BaseDirL := AppendPathDelim(edPath1.Text);
-  if IsMaskSearchTemplate(cbExtFilter.Text) then
-  begin
-    MaskList := nil;
-    Template:= gSearchTemplateList.TemplateByName[cbExtFilter.Text];
-  end
-  else begin
-    Template := nil;
-    if cbExtFilter.Text <> EmptyStr then
-      MaskList := TMaskList.Create(cbExtFilter.Text)
-    else
-      MaskList := TMaskList.Create( '*' );
-    // Exclusions typed straight into the dialog. Wrap them in a throwaway
-    // template so they run through the same FileChecks path a named template
-    // uses - ScanDir already consults Template for both files and folders.
-    // FilesMasks must be '*': an empty mask matches nothing, which would
-    // reject every file. The real mask stays with MaskList above.
-    if (Trim(cbExcludeDirs.Text) <> EmptyStr) or (Trim(cbExcludeFiles.Text) <> EmptyStr) then
+    FCancel := False;
+    if IsMaskSearchTemplate(cbExtFilter.Text) then
     begin
-      OwnTemplate := TSearchTemplate.Create;
-      SearchRec := OwnTemplate.SearchRecord;
-      SearchRec.FilesMasks := '*';
-      SearchRec.ExcludeDirectories := Trim(cbExcludeDirs.Text);
-      SearchRec.ExcludeFiles := Trim(cbExcludeFiles.Text);
-      OwnTemplate.SearchRecord := SearchRec;
-      Template := OwnTemplate;
+      FMaskList := nil;
+      FTemplate:= gSearchTemplateList.TemplateByName[cbExtFilter.Text];
+    end
+    else begin
+      FTemplate := nil;
+      if cbExtFilter.Text <> EmptyStr then
+        FMaskList := TMaskList.Create(cbExtFilter.Text)
+      else
+        FMaskList := TMaskList.Create( '*' );
     end;
-  end;
-  if (FAddressL <> '') and (Copy(BaseDirL, 1, Length(FAddressL)) = FAddressL) then
-    Delete(BaseDirL, 1, Length(FAddressL));
-  BaseDirR := AppendPathDelim(edPath2.Text);
-  if (FAddressR <> '') and (Copy(BaseDirR, 1, Length(FAddressR)) = FAddressR) then
-    Delete(BaseDirR, 1, Length(FAddressR));
-  FCmpFilePathL := BaseDirL;
-  FCmpFilePathR := BaseDirR;
-  ignoreDate := chkIgnoreDate.Checked;
-  Subdirs := chkSubDirs.Checked;
-  ByContent := chkByContent.Checked;
-  // Read live from the checkbox, like the options above: the global is only
-  // synced from the control when the dialog closes, so using it here would
-  // miss the box being ticked during the current session.
-  EmptyDirs := chkEmptyDirs.Checked;
-  if chkAsymmetric.Checked then
-    FFileExists:= srsDeleteRight
-  else begin
-    FFileExists:= srsCopyLeft;
-  end;
-  FUnreadableCount := 0;
-  FTypeConflictCount := 0;
-  NotifySyncSearch(FS_STATUS_START);
-  try
-    if ScanDir('', 1.0) < 0 then
-      AddUnreadableRecord(TStringList(FFoundItems.Objects[FFoundItems.IndexOf('')]), '', '.');
-  finally
-    NotifySyncSearch(FS_STATUS_END);
-  end;
-  MaskList.Free;
-  OwnTemplate.Free;
-  FillFoundItemsDG;
-  if FCancel then Exit;
-  if (FFoundItems.Count > 0) and chkByContent.Checked then
-  begin
-    CheckContentThread := TCheckContentThread.Create(Self);
-    FComparing := True;
-  end;
-  finally
-  FScanning := False;
-  end;
-end;
+    FCmpFileSources := FFileSources;
+    setBaseDir(edPath1.Text, dsLeft);
+    setBaseDir(edPath2.Text, dsRight);
+    FCmpFilePaths := basePaths;
 
-procedure TfrmSyncDirsDlg.SortFoundItems;
-var
-  i: Integer;
-begin
-  if FSortIndex < 0 then Exit;
-  for i := 0 to FFoundItems.Count - 1 do
-    SortFoundItems(TStringList(FFoundItems.Objects[i]));
-end;
+    builder:= TSyncDirsTreeBuilder.Create( self, FSortService, FCompareOption, FFileSources, basePaths );
+    builder.build( FFullTree, FSelectedFiles );
 
-procedure TfrmSyncDirsDlg.SortFoundItems(sl: TStringList);
-
-  function CompareFn(sl: TStringList; i, j: Integer): Integer;
-  var
-    r1, r2: TFileSyncRec;
-  begin
-    if FSortIndex in [1..5] then
-    begin
-      r1 := TFileSyncRec(sl.Objects[i]);
-      r2 := TFileSyncRec(sl.Objects[j]);
-    end;
-    case FSortIndex of
-    0:
-      Result := mbCompareStr(sl[i], sl[j]);
-    1:
-      if (Assigned(r1.FFileL) < Assigned(r2.FFileL))
-      or Assigned(r2.FFileL) and (r1.FFileL.Size < r2.FFileL.Size) then
-        Result := -1
-      else
-      if (Assigned(r1.FFileL) > Assigned(r2.FFileL))
-      or Assigned(r1.FFileL) and (r1.FFileL.Size > r2.FFileL.Size) then
-        Result := 1
-      else
-        Result := 0;
-    2:
-      if (Assigned(r1.FFileL) < Assigned(r2.FFileL))
-      or Assigned(r2.FFileL)
-      and (r1.FFileL.ModificationTime < r2.FFileL.ModificationTime) then
-        Result := -1
-      else
-      if (Assigned(r1.FFileL) > Assigned(r2.FFileL))
-      or Assigned(r1.FFileL)
-      and (r1.FFileL.ModificationTime > r2.FFileL.ModificationTime) then
-        Result := 1
-      else
-        Result := 0;
-    4:
-      if (Assigned(r1.FFileR) < Assigned(r2.FFileR))
-      or Assigned(r2.FFileR)
-      and (r1.FFileR.ModificationTime < r2.FFileR.ModificationTime) then
-        Result := -1
-      else
-      if (Assigned(r1.FFileR) > Assigned(r2.FFileR))
-      or Assigned(r1.FFileR)
-      and (r1.FFileR.ModificationTime > r2.FFileR.ModificationTime) then
-        Result := 1
-      else
-        Result := 0;
-    5:
-      if (Assigned(r1.FFileR) < Assigned(r2.FFileR))
-      or Assigned(r2.FFileR) and (r1.FFileR.Size < r2.FFileR.Size) then
-        Result := -1
-      else
-      if (Assigned(r1.FFileR) > Assigned(r2.FFileR))
-      or Assigned(r1.FFileR) and (r1.FFileR.Size > r2.FFileR.Size) then
-        Result := 1
-      else
-        Result := 0;
-    6:
-      Result := mbCompareStr(sl[i], sl[j]);
-    end;
-    if FSortDesc then
-      Result := -Result;
-  end;
-
-  procedure QuickSort(L, R: Integer; sl: TStringList);
-  var
-    Pivot, vL, vR: Integer;
-  begin
-    if R - L <= 1 then begin // a little bit of time saver
-      if L < R then
-        if CompareFn(sl, L, R) > 0 then
-          sl.Exchange(L, R);
+    FillFoundItemsDG;
+    if FCancel then
       Exit;
-    end;
-
-    vL := L;
-    vR := R;
-
-    Pivot := L + Random(R - L); // they say random is best
-
-    while vL < vR do begin
-      while (vL < Pivot) and (CompareFn(sl, vL, Pivot) <= 0) do
-        Inc(vL);
-
-      while (vR > Pivot) and (CompareFn(sl, vR, Pivot) > 0) do
-        Dec(vR);
-
-      sl.Exchange(vL, vR);
-
-      if Pivot = vL then // swap pivot if we just hit it from one side
-        Pivot := vR
-      else if Pivot = vR then
-        Pivot := vL;
-    end;
-
-    if Pivot - 1 >= L then
-      QuickSort(L, Pivot - 1, sl);
-    if Pivot + 1 <= R then
-      QuickSort(Pivot + 1, R, sl);
+    if (FFullTree.Count > 0) and (cfByContent in FCompareOption.flags) then
+      checkContentThreadStart;
+  finally
+    FreeAndNil(builder);
+    FreeAndNil(FMaskList);
+    FTemplate := nil;
+    FScanning := False;
   end;
-
-begin
-  QuickSort(0, sl.Count - 1, sl);
 end;
 
 procedure TfrmSyncDirsDlg.UpdateStatusBar;
 var s: string;
 begin
-  s := Format(rsFilesFound, [Ftotal, Fequal, Fnoneq, FuniqueL, FuniqueR]);
-  if FUnreadableCount > 0 then
-    s := s + '  ' + Format(rsSyncFoldersUnreadable, [FUnreadableCount]);
-  if FTypeConflictCount > 0 then
-    s := s + '  ' + Format(rsSyncTypeConflicts, [FTypeConflictCount]);
-  if Assigned(CheckContentThread)
-  and not TCheckContentThread(CheckContentThread).Done then
+  s := Format(rsFilesFound, [FFilteredCount.total, FFilteredCount.equal, FFilteredCount.notEqual, FFilteredCount.leftUnique, FFilteredCount.rightUnique]);
+  if Assigned(FCheckContentThread)
+  and not FCheckContentThread.Done then
     s := s + ' ...';
   StatusBar1.Panels[0].Text := s;
 end;
 
-procedure TfrmSyncDirsDlg.StopCheckContentThread;
+procedure TfrmSyncDirsDlg.toggleSelectionAction;
 begin
-  if Assigned(CheckContentThread) then
-  begin
-    with TCheckContentThread(CheckContentThread) do
-    begin
-      Terminate;
-      WaitFor;
-    end;
-    FreeAndNil(CheckContentThread);
-  end;
-end;
-
-procedure TfrmSyncDirsDlg.UpdateSelection(R: Integer);
-var
-  sr: TFileSyncRec;
-  ca: TSyncRecState;
-begin
-  sr := TFileSyncRec(FVisibleItems.Objects[r]);
-  if not Assigned(sr) or (sr.FState = srsEqual) or sr.Unreadable then Exit;
-  ca := sr.FAction;
-  case ca of
-  srsNotEq:
-    ca := srsCopyRight;
-  srsCopyRight:
-    if Assigned(sr.FFileR) then
-      ca := srsCopyLeft
-    else
-      ca := srsDoNothing;
-  srsCopyLeft:
-    // A type conflict has no automatic action to return to
-    if Assigned(sr.FFileL) and not sr.FTypeConflict then
-      ca := srsNotEq
-    else
-      ca := srsDoNothing;
-  srsDeleteRight:
-    if not chkAsymmetric.Checked then
-      ca := sr.FState
-    else
-      ca := srsDoNothing;
-  srsDeleteLeft:
-    ca := sr.FState;
-  srsDeleteBoth:
-    ca := sr.FState;
-  srsDoNothing:
-    if Assigned(sr.FFileL) then
-      ca := srsCopyRight
-    else
-      ca := FFileExists;
-  end;
-  sr.FAction := ca;
-  MainDrawGrid.InvalidateRow(r);
+  setSelectionAction(srsNextAction);
 end;
 
 procedure TfrmSyncDirsDlg.EnableControls(AEnabled: Boolean);
@@ -2460,365 +1188,149 @@ begin
   Timer.Enabled:= not AEnabled;
 end;
 
-procedure TfrmSyncDirsDlg.SetSyncRecState(AState: TSyncRecState; AKeepLink: Boolean);
+procedure TfrmSyncDirsDlg.setSelectionAction(const newAction: TSyncRecState);
 var
-  R, Y: Integer;
-  Selection: TGridRect;
-  SyncRec: TFileSyncRec;
-
-  procedure UpdateAction(NewAction: TSyncRecState);
-  begin
-    if SyncRec.Unreadable then Exit;
-    if AKeepLink then
-    begin
-      // A type conflict where one side is a link: copy the link over the
-      // folder or file on the other side. Anything else is left as it is.
-      if not SyncRec.FTypeConflict or
-         not Assigned(SyncRec.FFileL) or not Assigned(SyncRec.FFileR) then Exit;
-      if SyncRec.FFileL.IsLink and not SyncRec.FFileR.IsLink then
-        NewAction:= srsCopyRight
-      else if SyncRec.FFileR.IsLink and not SyncRec.FFileL.IsLink then
-        NewAction:= srsCopyLeft
-      else
-        Exit;
-    end;
-    case NewAction of
-      srsUnknown:
-        if SyncRec.FTypeConflict then
-          NewAction:= srsDoNothing
-        else
-          NewAction:= SyncRec.FState;
-      srsNotEq:
-        begin
-          if (SyncRec.FAction = srsCopyLeft) and Assigned(SyncRec.FFileL) then
-              NewAction:= srsCopyRight
-          else if (SyncRec.FAction = srsCopyRight) and Assigned(SyncRec.FFileR) then
-              NewAction:= srsCopyLeft
-          else
-            NewAction:= SyncRec.FAction
-        end;
-      srsCopyLeft:
-        begin
-          if not Assigned(SyncRec.FFileR) then
-            NewAction:= srsDoNothing;
-        end;
-      srsCopyRight:
-        begin
-          if not Assigned(SyncRec.FFileL) then
-            NewAction:= srsDoNothing;
-        end;
-      srsDeleteLeft:
-        begin
-          if not Assigned(SyncRec.FFileL) then
-            NewAction:= srsDoNothing;
-        end;
-      srsDeleteRight:
-        begin
-          if not Assigned(SyncRec.FFileR) then
-            NewAction:= srsDoNothing;
-        end;
-      srsDeleteBoth:
-        begin
-          if not Assigned(SyncRec.FFileL) then
-            NewAction:= srsDeleteRight;
-          if not Assigned(SyncRec.FFileR) then
-            NewAction:= srsDeleteLeft;
-        end;
-    end;
-    SyncRec.FAction:= NewAction;
-    MainDrawGrid.InvalidateRow(R);
-  end;
-
+  indexes: TIntegerList;
 begin
-  Selection:= MainDrawGrid.Selection;
-  if (MainDrawGrid.HasMultiSelection) or (Selection.Bottom <> Selection.Top) then
-  begin
-    for Y:= 0 to MainDrawGrid.SelectedRangeCount - 1 do
-    begin
-      Selection:= MainDrawGrid.SelectedRange[Y];
-      for R := Selection.Top to Selection.Bottom do
-      begin
-        SyncRec := TFileSyncRec(FVisibleItems.Objects[R]);
-        if Assigned(SyncRec) then UpdateAction(AState);
-      end;
-    end;
-    Exit;
-  end;
-  R := MainDrawGrid.Row;
-  if (R < 0) or (R >= FVisibleItems.Count) then Exit;
-  SyncRec := TFileSyncRec(FVisibleItems.Objects[r]);
-  if Assigned(SyncRec) then
-  begin
-    UpdateAction(AState);
-  end
-  else begin
-    Inc(R);
-    while R < FVisibleItems.Count do
-    begin
-      SyncRec := TFileSyncRec(FVisibleItems.Objects[R]);
-      if (SyncRec = nil) then Break;
-      UpdateAction(AState);
-      Inc(R);
-    end;
-  end;
-end;
-
-{ Delete operations are created anew for every directory batch, so the user's
-  "All"-type answers (delete read-only, skip errors, delete directly when trash
-  fails) live in form fields and are applied to each new operation and read
-  back afterwards. Reset them when a new run starts, so answers given in one
-  run do not leak into the next. }
-
-procedure TfrmSyncDirsDlg.SetPanelWatchers(AEnabled: Boolean);
-begin
-  // Suspend the source panels' directory watchers while we copy/delete, so a
-  // large local operation does not trigger one full O(n) panel reload per ~100
-  // changes (which makes a big delete behave as O(n²), ~1 file/sec). Resuming
-  // does a single reconciling reload of each panel.
-  if Assigned(FFileView1) then FFileView1.SetWatcherEnabled(AEnabled);
-  if Assigned(FFileView2) then FFileView2.SetWatcherEnabled(AEnabled);
-end;
-
-procedure TfrmSyncDirsDlg.ResetDeleteOptions;
-begin
-  FDeleteSkipErrors := gSkipFileOpError;
-  FDeleteReadOnlyOption := fsoogNone;
-  FDeleteDirectlyOption := fsoogNone;
-  FDeleteToTrash := gUseTrash;
-end;
-
-procedure TfrmSyncDirsDlg.ApplyDeleteOptions(AOperation: TFileSourceDeleteOperation);
-begin
-  AOperation.SkipErrors := FDeleteSkipErrors;
-  AOperation.DeleteReadOnly := FDeleteReadOnlyOption;
-  if AOperation is TFileSystemDeleteOperation then
-    TFileSystemDeleteOperation(AOperation).DeleteDirectly := FDeleteDirectlyOption;
-end;
-
-procedure TfrmSyncDirsDlg.RememberDeleteOptions(AOperation: TFileSourceDeleteOperation);
-begin
-  FDeleteSkipErrors := AOperation.SkipErrors;
-  FDeleteReadOnlyOption := AOperation.DeleteReadOnly;
-  if AOperation is TFileSystemDeleteOperation then
-    FDeleteDirectlyOption := TFileSystemDeleteOperation(AOperation).DeleteDirectly;
-end;
-
-procedure TfrmSyncDirsDlg.DeleteFiles(ALeft, ARight: Boolean);
-var
-  Message: String;
-  ALeftList: TFiles;
-  ARightList: TFiles;
-  TrashAvailable: Boolean;
-  Confirmed: Boolean;
-  DeleteMode: TDeleteMode;
-  DlgSource: IFileSource;
-  QueueId: TOperationsManagerQueueIdentifier;
-begin
-  ResetDeleteOptions;
-  if not ALeft then
-    ALeftList:= nil
-  else begin
-    ALeftList:= TFiles.Create(EmptyStr);
-  end;
-
-  if not ARight then
-    ARightList:= nil
-  else begin
-    ARightList:= TFiles.Create(EmptyStr);
-  end;
-
+  indexes:= self.createSelectionIndexes;
+  MainDrawGrid.BeginUpdate;
   try
-    Message:= EmptyStr;
-    UpdateList(ALeftList, ARightList, False, False);
-
-    ALeft:= ALeft and (ALeftList.Count > 0);
-    ARight:= ARight and (ARightList.Count > 0);
-
-    if (ALeft = False) and (ARight = False) then Exit;
-
-    FDeleteStatistics.DoneFiles:= 0;
-    FDeleteStatistics.TotalFiles:= 0;
-
-    if ALeft then
-    begin
-      FDeleteStatistics.TotalFiles+= ALeftList.Count;
-      Message:= Format(rsVarLeftPanel + ': ' + rsMsgDelFlDr, [ALeftList.Count]) + LineEnding;
-    end;
-
-    if ARight then
-    begin
-      FDeleteStatistics.TotalFiles+= ARightList.Count;
-      Message+= Format(rsVarRightPanel + ': ' + rsMsgDelFlDr, [ARightList.Count]) + LineEnding;
-    end;
-
-    // Per-operation trash override: when the involved local file source(s)
-    // support trash, offer Trash/Delete in the confirmation, defaulting to the
-    // global setting (FDeleteToTrash, just reset from gUseTrash). The user's
-    // choice here overrides the global preference for this delete only.
-    TrashAvailable:= True;
-    if ALeft then
-      TrashAvailable:= TrashAvailable and FCmpFileSourceL.IsClass(TFileSystemFileSource)
-        and mbCheckTrash(FCmpFilePathL);
-    if ARight then
-      TrashAvailable:= TrashAvailable and FCmpFileSourceR.IsClass(TFileSystemFileSource)
-        and mbCheckTrash(FCmpFilePathR);
-
-    if FDeleteToTrash and TrashAvailable then
-      DeleteMode:= dmTrash
-    else
-      DeleteMode:= dmDelete;
-
-    if TrashAvailable then
-    begin
-      if ALeft then DlgSource:= FCmpFileSourceL else DlgSource:= FCmpFileSourceR;
-      Confirmed:= ShowDeleteDialog(Self, Message, Message, EmptyStr,
-                    DlgSource, QueueId, True, False, DeleteMode);
-      FDeleteToTrash:= (DeleteMode = dmTrash);
-    end
-    else
-    begin
-      Confirmed:= MessageDlg(Message, mtWarning, [mbYes, mbNo], 0, mbYes) = mrYes;
-      FDeleteToTrash:= False;
-    end;
-
-    if Confirmed then
-    begin
-      EnableControls(False);
-      pnlCopyProgress.Visible:= False;
-      pnlDeleteProgress.Visible:= True;
-      SetPanelWatchers(False);
-      try
-        if ALeft then DeleteFiles(FCmpFileSourceL, ALeftList);
-        if ARight then DeleteFiles(FCmpFileSourceR, ARightList);
-      finally
-        SetPanelWatchers(True);
-      end;
-      UpdateList(nil, nil, ALeft, ARight);
-      EnableControls(True);
-    end;
+    FFilteredList.setNewAction( indexes, newAction );
   finally
-    ALeftList.Free;
-    ARightList.Free;
+    indexes.Free;
+    MainDrawGrid.EndUpdate;
   end;
 end;
 
-function TfrmSyncDirsDlg.DeleteFiles(FileSource: IFileSource; var Files: TFiles): Boolean;
-begin
-  Files.Path := Files[0].Path;
-  FOperation:= FileSource.CreateDeleteOperation(Files);
-  if not Assigned(FOperation) then
+procedure TfrmSyncDirsDlg.doCopyProperties(const targetSide: TDoubleSide);
+  function selectProperties: TCopyAttributesOptions;
+  var
+    dialog: TfrmSyncDirsSelectPropertiesDlg;
   begin
-    MessageDlg(rsMsgErrNotSupported, mtError, [mbOK], 0);
-    Exit(False);
-  end;
-  if (FOperation is TFileSystemDeleteOperation) then
-  begin
-    TFileSystemDeleteOperation(FOperation).Recycle:= FDeleteToTrash;
-  end;
-  ApplyDeleteOptions(TFileSourceDeleteOperation(FOperation));
-  FOperation.Elevate:= ElevateAction;
-  FOperation.AddUserInterface(FFileSourceOperationMessageBoxesUI);
-  try
-    FOperation.Execute;
-    Result := FOperation.Result = fsorFinished;
-    RememberDeleteOptions(TFileSourceDeleteOperation(FOperation));
-    FDeleteStatistics.DoneFiles+= TFileSourceDeleteOperation(FOperation).RetrieveStatistics.TotalFiles;
-    SetProgressFiles(ProgressBarDelete, FDeleteStatistics.DoneFiles, FDeleteStatistics.TotalFiles);
-  finally
-    FreeAndNil(FOperation);
-  end;
-end;
+    Result:= [];
+    dialog:= TfrmSyncDirsSelectPropertiesDlg.Create(nil);
+    dialog.chkTime.Checked:= gOperationOptionCopyTime;
+    dialog.chkAttributes.Checked:= gOperationOptionCopyAttributes;
+    dialog.chkPermissions.Checked:= gOperationOptionCopyOwnership or gOperationOptionCopyPermissions;
+    dialog.chkXAttributes.Checked:= gOperationOptionCopyXattributes;
+    if dialog.ShowModal <> mrOK then
+      Exit;
 
-procedure TfrmSyncDirsDlg.UpdateList(ALeft, ARight: TFiles; ARemoveLeft,
-  ARemoveRight: Boolean);
+    if dialog.chkTime.Checked then
+      Include(Result, caoCopyTime);
+    if dialog.chkAttributes.Checked then
+      Include(Result, caoCopyAttributes);
+    if dialog.chkPermissions.Checked then
+      Result:= Result + [caoCopyPermissions, caoCopyOwnership];
+    if dialog.chkXAttributes.Checked then
+      Include(Result, caoCopyXattributes);
+  end;
+
 var
-  R, Y: Integer;
-  ARemove: Boolean;
-  Selection: TGridRect;
-  SyncRec: TFileSyncRec;
-
-  procedure AddRemoveItem;
-  begin
-    if SyncRec.Unreadable then Exit;
-    if Assigned(ALeft) and Assigned(SyncRec.FFileL) then
-      ALeft.Add(SyncRec.FFileL.Clone);
-
-    if Assigned(ARight) and Assigned(SyncRec.FFileR) then
-      ARight.Add(SyncRec.FFileR.Clone);
-
-    if ARemove then
-    begin
-      if ARemoveLeft and Assigned(SyncRec.FFileL) then
-        FreeAndNil(SyncRec.FFileL);
-      if ARemoveRight and Assigned(SyncRec.FFileR) then
-        FreeAndNil(SyncRec.FFileR);
-
-      if Assigned(SyncRec.FFileL) or Assigned(SyncRec.FFileR) then
-      begin
-        SyncRec.UpdateState(chkIgnoreDate.Checked);
-        // A folder left from a type conflict was never scanned; the row stays
-        // a conflict so that a copy chosen for it takes the folder whole
-        if SyncRec.FTypeConflict then
-        begin
-          SyncRec.FState := srsNotEq;
-          SyncRec.FAction := srsDoNothing;
-        end;
-      end
-      else begin
-        if SyncRec.FTypeConflict then Dec(FTypeConflictCount);
-        MainDrawGrid.DeleteRow(R);
-        FVisibleItems.Delete(R);
-      end;
-    end;
-  end;
-
+  commonService: TSyncDirsCommonService;
+  indexes: TIntegerList = nil;
+  attrs: TCopyAttributesOptions;
 begin
-  Selection:= MainDrawGrid.Selection;
-  ARemove:= ARemoveLeft or ARemoveRight;
-  if (MainDrawGrid.HasMultiSelection) or (Selection.Bottom <> Selection.Top) then
-  begin
-    if ARemove then MainDrawGrid.BeginUpdate;
-    for Y:= 0 to MainDrawGrid.SelectedRangeCount - 1 do
-    begin
-      Selection:= MainDrawGrid.SelectedRange[Y];
-      for R := Selection.Bottom downto Selection.Top do
-      begin
-        SyncRec := TFileSyncRec(FVisibleItems.Objects[R]);
-        if Assigned(SyncRec) then AddRemoveItem;
-      end;
-    end;
-    if ARemove then MainDrawGrid.EndUpdate;
+  attrs:= selectProperties;
+  if attrs = [] then
     Exit;
+
+  commonService:= TSyncDirsCommonService.Create(self, self, FFilteredList, FCmpFileSources);
+  try
+    indexes:= self.createSelectionIndexes;
+
+    FFileCountProgressName:= rsOperSettingProperty;
+    FFileCountProgressTotal:= FFilteredList.countBothSides(indexes);
+    FFileCountProgressDone:= 0;
+
+    EnableControls(False);
+    pnlFileSizeProgress.Visible:= False;
+    pnlFileCountProgress.Visible:= True;
+    lblFileCountProgress.Caption:= FFileCountProgressName;
+    pbFileCountProgress.Position:= 0;
+
+    commonService.copyProperties(indexes, targetSide, attrs);
+
+    self.MainDrawGrid.Invalidate;
+    EnableControls(True);
+  finally
+    FFileCountProgressName:= EmptyStr;
+    commonService.Free;
+    indexes.Free;
   end;
-  R := MainDrawGrid.Row;
-  if (R < 0) or (R >= FVisibleItems.Count) then Exit;
-  SyncRec := TFileSyncRec(FVisibleItems.Objects[r]);
-  if ARemove then MainDrawGrid.BeginUpdate;
-  if Assigned(SyncRec) then
-  begin
-    AddRemoveItem;
-  end
-  else begin
-    Y:= R;
-    Inc(R);
-    while R < FVisibleItems.Count do
-    begin
-      if (FVisibleItems.Objects[R] = nil) then Break;
-      Inc(R);
-    end;
-    Dec(R);
-    while R > Y do
-    begin
-      SyncRec := TFileSyncRec(FVisibleItems.Objects[R]);
-      AddRemoveItem;
-      Dec(R);
-    end;
-  end;
-  if ARemove then MainDrawGrid.EndUpdate;
 end;
 
-procedure TfrmSyncDirsDlg.SetProgressBytes(AProgressBar: TKASProgressBar;
-  CurrentBytes: Int64; TotalBytes: Int64);
+procedure TfrmSyncDirsDlg.onCheckContentThreadStart;
+begin
+  Timer.Enabled:= True;
+  HeaderDG.Enabled:= False;
+  GroupBox1.Enabled:= False;
+  MainDrawGrid.Enabled:= False;
+  pnlFileSizeProgress.Visible:= True;
+  pbFileSizeProgress.SetProgress(0, 100);
+  pnlFileCountProgress.Visible:= False;
+  lblFileSizeProgress.Caption:= rsDiffComparing;
+  pnlProgress.Visible:= True;
+end;
+
+procedure TfrmSyncDirsDlg.onCheckContentThreadFinish;
+begin
+  FCheckContentThreadComparing:= False;
+  Timer.Enabled:= False;
+  HeaderDG.Enabled:= True;
+  TopPanel.Enabled:= True;
+  GroupBox1.Enabled:= True;
+  MainDrawGrid.Enabled:= True;
+  pnlProgress.Visible:= False;
+  MainDrawGrid.SetFocus;
+end;
+
+procedure TfrmSyncDirsDlg.onCheckContentThreadReapplyFilter;
+begin
+  FillFoundItemsDG;
+  UpdateStatusBar;
+end;
+
+procedure TfrmSyncDirsDlg.onCheckContentThreadCountUpdated(
+  const equalInc: Integer;
+  const notEqInc: Integer);
+begin
+  Inc( FFilteredCount.equal, equalInc );
+  Inc( FFilteredCount.notEqual, notEqInc );
+end;
+
+procedure TfrmSyncDirsDlg.checkContentThreadStart;
+begin
+  if Assigned(FCheckContentThread) then
+    Exit;
+  FCheckContentThread := TSyncDirsCheckContentThread.Create(FFullTree, Self);
+  FCheckContentThreadTimerCount := 0;
+  FCheckContentThreadComparing := True;
+end;
+
+procedure TfrmSyncDirsDlg.checkContentThreadStop;
+begin
+  if Assigned(FCheckContentThread) then
+  begin
+    with FCheckContentThread do
+    begin
+      Terminate;
+      WaitFor;
+    end;
+    FreeAndNil(FCheckContentThread);
+  end;
+end;
+
+procedure TfrmSyncDirsDlg.checkContentThreadUpdateGrid;
+begin
+  MainDrawGrid.Invalidate;
+  UpdateStatusBar;
+end;
+
+procedure TfrmSyncDirsDlg.checkContentThreadSetProgressBytes(
+  const AProgressBar: TKASProgressBar;
+  const CurrentBytes: Int64;
+  const TotalBytes: Int64 );
 var
   BarText : String;
   CaptionText : String;
@@ -2828,10 +1340,215 @@ begin
 
   {$IFDEF LCLCOCOA}
   if TotalBytes > 0 then
+    CaptionText := Format(rsComparingPercent, [CurrentBytes*100 div TotalBytes])
+  else
+    CaptionText := Format(rsComparingPercent, [0]);
+  lblFileSizeProgress.Caption := CaptionText;
+  {$ENDIF}
+end;
+
+function TfrmSyncDirsDlg.treeBuilderCheckRunning(const processMessages: Boolean): Boolean;
+begin
+  if processMessages then
+    Application.ProcessMessages;
+  Result:= NOT FCancel;
+end;
+
+function TfrmSyncDirsDlg.treeBuilderMaskFilt(const f: TFile): Boolean;
+begin
+  if f.IsDirectory or f.IsLinkToDirectory then begin
+    Result:= (FTemplate = nil) or (CheckDirectoryName(FTemplate.FileChecks, f.Name));
+  end else begin
+    Result:= (FTemplate = nil) or FTemplate.CheckFile(f);
+    if NOT Result then
+      Result:= ((FMaskList = nil) or FMaskList.Matches(f.Name));
+  end;
+end;
+
+procedure TfrmSyncDirsDlg.onTreeBuilderUpdateProgress(const percent: Integer);
+begin
+  StatusBar1.Panels[0].Text:= Format(rsComparingPercent, [percent]);
+end;
+
+function TfrmSyncDirsDlg.commonCheckRunning: Boolean;
+begin
+  Result:= pnlProgress.Visible;
+end;
+
+procedure TfrmSyncDirsDlg.DeleteSelectedFiles(ALeft, ARight: Boolean);
+var
+  commonService: TSyncDirsCommonService;
+  Message: String;
+  indexes: TIntegerList = nil;
+  leftCount: Integer;
+  rightCount: Integer;
+begin
+  commonService:= TSyncDirsCommonService.Create(self, self, FFilteredList, FCmpFileSources);
+  try
+    indexes:= self.createSelectionIndexes;
+    FFilteredList.countLeftRight(indexes, leftCount, rightCount);
+
+    ALeft:= ALeft and (leftCount > 0);
+    ARight:= ARight and (rightCount > 0);
+
+    if (ALeft = False) and (ARight = False) then Exit;
+
+    FDeleteStatistics.DoneFiles:= 0;
+    FDeleteStatistics.TotalFiles:= 0;
+
+    Message:= EmptyStr;
+    if ALeft then begin
+      FDeleteStatistics.TotalFiles+= leftCount;
+      Message:= Format(rsVarLeftPanel + ': ' + rsMsgDelFlDr, [leftCount]) + LineEnding;
+    end;
+    if ARight then begin
+      FDeleteStatistics.TotalFiles+= rightCount;
+      Message+= Format(rsVarRightPanel + ': ' + rsMsgDelFlDr, [rightCount]) + LineEnding;
+    end;
+
+    if MessageDlg(Message, mtWarning, [mbYes, mbNo], 0, mbYes) = mrYes then begin
+      EnableControls(False);
+      pnlFileSizeProgress.Visible:= False;
+      pnlFileCountProgress.Visible:= True;
+
+      commonService.delete(indexes, ALeft, ARight);
+      self.FillFoundItemsDG;
+
+      EnableControls(True);
+    end;
+  finally
+    commonService.Free;
+    indexes.Free;
+  end;
+end;
+
+function TfrmSyncDirsDlg.fileProcessorWithUICopyFiles(
+  const sourceFS: IFileSource;
+  const targetFS: IFileSource;
+  var files: TFiles;
+  const targetPath: String): Boolean;
+var
+  supported: Boolean = False;
+
+  procedure operationHandle( const operation: TFileSourceOperation; const state: TFileSourceOperationState );
+  begin
+    supported:= True;
+    case state of
+      fsosStarting: begin
+        operation.Elevate:= ElevateAction;
+        TFileSourceCopyOperation(operation).SymLinkOption := SymLinkOption;
+        TFileSourceCopyOperation(operation).FileExistsOption := FileExistsOption;
+        if operation is TFileSystemCopyOperation then
+          TFileSystemCopyOperation(operation).Verify := VerifyOption;
+        operation.AddUserInterface(FFileSourceOperationMessageBoxesUI);
+        FOperation:= operation;
+      end;
+      fsosStopped: begin
+        SymLinkOption := TFileSourceCopyOperation(operation).SymLinkOption;
+        FileExistsOption := TFileSourceCopyOperation(operation).FileExistsOption;
+        FCopyStatistics.DoneBytes+= TFileSourceCopyOperation(operation).RetrieveStatistics.TotalBytes;
+        SetProgressBytes(pbFileSizeProgress, FCopyStatistics.DoneBytes, FCopyStatistics.TotalBytes);
+        FOperation:= nil;
+      end;
+    end;
+  end;
+
+begin
+  Result:= TSyncDirsUtil.copyFiles(sourceFS, targetFS, files, targetPath, @operationHandle );
+  if NOT Result then begin
+    if NOT supported then
+      MessageDlg(rsMsgErrNotSupported, mtError, [mbOK], 0);
+  end;
+end;
+
+function TfrmSyncDirsDlg.fileProcessorWithUIDeleteFiles(
+  const FileSource: IFileSource;
+  var Files: TFiles ): Boolean;
+var
+  supported: Boolean = False;
+
+  procedure operationHandle( const operation: TFileSourceOperation; const state: TFileSourceOperationState );
+  begin
+    supported:= True;
+    case state of
+      fsosStarting: begin
+        if (operation is TFileSystemDeleteOperation) then begin
+          TFileSystemDeleteOperation(operation).Recycle:= gUseTrash;
+        end;
+        operation.Elevate:= ElevateAction;
+        operation.AddUserInterface(FFileSourceOperationMessageBoxesUI);
+        FOperation:= operation;
+      end;
+      fsosStopped: begin
+        FDeleteStatistics.DoneFiles+= TFileSourceDeleteOperation(operation).RetrieveStatistics.TotalFiles;
+        SetProgressFiles(pbFileCountProgress, FDeleteStatistics.DoneFiles, FDeleteStatistics.TotalFiles);
+        FOperation:= nil;
+      end;
+    end;
+  end;
+begin
+  Result:= TSyncDirsUtil.deleteFiles(FileSource, Files, @operationHandle);
+  if NOT Result then begin
+    if NOT supported then
+      MessageDlg(rsMsgErrNotSupported, mtError, [mbOK], 0);
+  end;
+end;
+
+function TfrmSyncDirsDlg.fileProcessorWithUICopyProperties(
+  const targetFS: IFileSource;
+  const sourceFile: TFile;
+  const targetFile: TFile;
+  const attrs: TCopyAttributesOptions ): Boolean;
+var
+  errMsg: String;
+  askResult: TModalResult;
+begin
+  Result:= TSyncDirsUtil.copyProperties(targetFS, sourceFile, targetFile, attrs);
+  Inc( FFileCountProgressDone );
+  Application.ProcessMessages;
+  if NOT Result then begin
+    errMsg:= Format(rsMsgErrSetAttribute, [targetFile.FullPath]);
+    askResult:= MessageDlg(errMsg, mtError, [mbIgnore, mbAbort], 0, mbAbort);
+    Result:= (askResult = mrIgnore);
+  end;
+end;
+
+function TfrmSyncDirsDlg.fileProcessorWithUIDeleteFile(
+  const FileSource: IFileSource;
+  const f: TFile ): Boolean;
+var
+  files: TFiles;
+begin
+  files := TFiles.Create(EmptyStr);
+  files.OwnsObjects:= False;
+  files.Add(f);
+  Result:= fileProcessorWithUIDeleteFiles(FileSource, files);
+  files.Free;
+end;
+
+procedure TfrmSyncDirsDlg.SetProgressBytes(AProgressBar: TKASProgressBar;
+  CurrentBytes: Int64; TotalBytes: Int64);
+var
+  BarText : String;
+  CaptionText : String;
+begin
+  {
+    not all FileSources can provide precise statistical information,
+    nor can they accurately calculate the generated size, for example, MultiArchive/7z.
+    so this check has been added to prevent reporting an erroneous progress exceeding 100%
+  }
+  if CurrentBytes > TotalBytes then
+    TotalBytes:= CurrentBytes + 1;
+
+  BarText := cnvFormatFileSize(CurrentBytes, uoscOperation) + '/' + cnvFormatFileSize(TotalBytes, uoscOperation);
+  AProgressBar.SetProgress(CurrentBytes, TotalBytes, BarText );
+
+  {$IFDEF LCLCOCOA}
+  if TotalBytes > 0 then
     CaptionText := rsOperCopying + ': ' + BarText + ' (' + FloatToStrF((CurrentBytes / TotalBytes) * 100, ffFixed, 0, 0) + '%)'
   else
     CaptionText := rsOperCopying;
-  lblProgress.Caption := CaptionText;
+  lblFileSizeProgress.Caption := CaptionText;
   {$ENDIF}
 end;
 
@@ -2841,6 +1558,13 @@ var
   BarText : String;
   CaptionText : String;
 begin
+  {
+    1. defensively prevent exceeding 100%
+    2. for "Delete all empty directories"
+  }
+  if CurrentFiles > TotalFiles then
+    TotalFiles:= CurrentFiles;
+
   BarText := IntToStrTS(CurrentFiles) + '/' + IntToStrTS(TotalFiles);
   AProgressBar.SetProgress(CurrentFiles, TotalFiles, BarText );
 
@@ -2849,7 +1573,29 @@ begin
     CaptionText := rsOperDeleting + ': ' + BarText + ' (' + FloatToStrF((CurrentFiles / TotalFiles) * 100, ffFixed, 0, 0) + '%)'
   else
     CaptionText := rsOperDeleting;
-  lblProgressDelete.Caption := CaptionText;
+  lblFileCountProgress.Caption := CaptionText;
+  {$ENDIF}
+end;
+
+procedure TfrmSyncDirsDlg.updateFileCountProgress;
+var
+  progressBarText : String;
+begin
+  {
+    1. defensively prevent exceeding 100%
+    2. for "Delete all empty directories"
+  }
+  if FFileCountProgressDone > FFileCountProgressTotal then
+    FFileCountProgressTotal:= FFileCountProgressDone;
+
+  progressBarText := IntToStrTS(FFileCountProgressDone) + '/' + IntToStrTS(FFileCountProgressTotal);
+  pbFileCountProgress.SetProgress(FFileCountProgressDone, FFileCountProgressTotal, progressBarText );
+
+  {$IFDEF LCLCOCOA}
+  if FFileCountProgressTotal > 0 then
+    lblFileCountProgress.Caption := FFileCountProgressName + ': ' + progressBarText + ' (' + FloatToStrF((FFileCountProgressDone / FFileCountProgressTotal) * 100, ffFixed, 0, 0) + '%)'
+  else
+    lblFileCountProgress.Caption := FFileCountProgressName;
   {$ENDIF}
 end;
 
@@ -2862,28 +1608,23 @@ end;
 
 constructor TfrmSyncDirsDlg.Create(AOwner: TComponent; FileView1,
   FileView2: TFileView);
-var
-  Index: Integer;
-  AFiles: TFiles;
 begin
   inherited Create(AOwner);
-  FFoundItems := TStringListEx.Create;
-  FFoundItems.CaseSensitive := FileNameCaseSensitive;
-  FFoundItems.Sorted := True;
-  FFileView1 := FileView1;
-  FFileView2 := FileView2;
-  FFileSourceL := FileView1.FileSource;
-  FFileSourceR := FileView2.FileSource;
-  FAddressL := FileView1.CurrentAddress;
-  FAddressR := FileView2.CurrentAddress;
+  FSortService := TSyncDirsSortService.Create;
+  FFullTree := TTwoLevelTree.Create;
+  FFilteredList := TFlatDirFileList.Create(FFullTree);
+  self.leftFS := FileView1.FileSource;
+  self.rightFS := FileView2.FileSource;
+  self.leftAddress := FileView1.CurrentAddress;
+  self.rightAddress := FileView2.CurrentAddress;
   with FileView1 do begin
-    edPath1.Text := FAddressL + CurrentPath;
+    edPath1.Text := self.leftAddress + CurrentPath;
 {$if lcl_fullversion >= 4990000}
     edPath1.DialogOptionsEx:= [ofShowsFilePackagesSwitch];
 {$endif}
   end;
   with FileView2 do begin
-    edPath2.Text := FAddressR + CurrentPath;
+    edPath2.Text := self.rightAddress + CurrentPath;
 {$if lcl_fullversion >= 4990000}
     edPath2.DialogOptionsEx:= [ofShowsFilePackagesSwitch];
 {$endif}
@@ -2891,39 +1632,18 @@ begin
   RecalcHeaderCols;
   MainDrawGrid.DoubleBuffered := True;
   MainDrawGrid.Font.Bold := True;
-  ResetDeleteOptions;
   FSortIndex := -1;
   SortIndex := 0;
   FScanning := False;
-  FSortDesc := False;
   MainDrawGrid.RowCount := 0;
-  // ---------------------------------------------------------------------------
-  FSelectedItems := TStringListEx.Create;
-  FSelectedItems.Sorted := True;
-  FSelectedItems.Duplicates := dupIgnore;
-  FSelectedItems.CaseSensitive := FileNameCaseSensitive;
-  // Get selected items from active panel
-  AFiles := FileView1.CloneSelectedFiles;
-  for Index := 0 to AFiles.Count - 1 do
-  begin
-    FSelectedItems.Add(AFiles[Index].Name);
-  end;
-  AFiles.Free;
-  // Get selected items from passive panel
-  AFiles := FileView2.CloneSelectedFiles;
-  for Index := 0 to AFiles.Count - 1 do
-  begin
-    FSelectedItems.Add(AFiles[Index].Name);
-  end;
-  AFiles.Free;
-  // ---------------------------------------------------------------------------
-  chkOnlySelected.Enabled := (FSelectedItems.Count > 0) and
+  FSelectedFiles[dsLeft]:= FileView1.CloneSelectedFiles;
+  FSelectedFiles[dsRight]:= FileView2.CloneSelectedFiles;
+  chkOnlySelected.Enabled := ((FSelectedFiles[dsLeft].Count>0) or (FSelectedFiles[dsRight].Count>0)) and
                              (FileView1.FlatView = False) and
                              (FileView2.FlatView = False);
   chkOnlySelected.Checked := chkOnlySelected.Enabled;
   // ---------------------------------------------------------------------------
-  chkByContent.Enabled := FFileSourceL.IsClass(TFileSystemFileSource) and
-                          FFileSourceR.IsClass(TFileSystemFileSource);
+  chkByContent.Enabled := TSyncDirsUtil.supportsCompareByContent(FFileSources);
   chkAsymmetric.Enabled := fsoDelete in FileView2.FileSource.GetOperationsTypes;
   // ---------------------------------------------------------------------------
   actDeleteLeft.Enabled := fsoDelete in FileView1.FileSource.GetOperationsTypes;
@@ -2931,187 +1651,99 @@ begin
   actDeleteBoth.Enabled := actDeleteLeft.Enabled and actDeleteRight.Enabled;
   // ---------------------------------------------------------------------------
   FFileSourceOperationMessageBoxesUI := TFileSourceOperationMessageBoxesUI.Create;
-  if (FFileSourceL.IsClass(TFileSystemFileSource)) and (FFileSourceR.IsClass(TFileSystemFileSource)) then
-  begin
-    FNtfsShift := gNtfsHourTimeDelay and NtfsHourTimeDelay(FileView1.CurrentPath, FileView2.CurrentPath);
-  end;
 end;
 
 destructor TfrmSyncDirsDlg.Destroy;
 begin
   HotMan.UnRegister(Self);
   FFileSourceOperationMessageBoxesUI.Free;
-  FVisibleItems.Free;
-  FSelectedItems.Free;
-  if Assigned(FFoundItems) then
-  begin
-    ClearFoundItems;
-    FFoundItems.Free;
-  end;
+  FSelectedFiles[dsLeft].Free;
+  FSelectedFiles[dsRight].Free;
+  FFilteredList.Free;
+  FFullTree.Free;
+  FSortService.Free;
+  FCompareOption.Free;
   inherited Destroy;
 end;
 
 procedure TfrmSyncDirsDlg.CopyToClipboard;
 var
-  sl: TStringList;
-  RowList: TIntegerList;
-  I: Integer;
-
-  procedure FillRowList(RowList: TIntegerList);
-  var
-    R, Y: Integer;
-    Selection: TGridRect;
-  begin
-    Selection := MainDrawGrid.Selection;
-    if (MainDrawGrid.HasMultiSelection) or (Selection.Bottom <> Selection.Top) then
-    begin
-      for Y:= 0 to MainDrawGrid.SelectedRangeCount - 1 do
-      begin
-        Selection:= MainDrawGrid.SelectedRange[Y];
-        for R := Selection.Top to Selection.Bottom do
-        begin
-          if RowList.IndexOf(R) = -1 then
-          begin
-            RowList.Add(R);
-          end;
-        end;
-      end;
-    end
-    else
-    begin
-      R := MainDrawGrid.Row;
-      if RowList.IndexOf(R) = -1 then
-      begin
-        RowList.Add(R);
-      end;
-    end;
-    RowList.Sort;
-  end;
-
-  procedure PrintRow(R: Integer);
-  var
-    s: string;
-    SyncRec: TFileSyncRec;
-  begin
-    s := '';
-    SyncRec := TFileSyncRec(FVisibleItems.Objects[R]);
-    if not Assigned(SyncRec) then
-    begin
-      s := s + FVisibleItems[R];
-    end
-    else
-    begin
-      if Assigned(SyncRec.FFileL) then
-      begin
-        s := s + FVisibleItems[R];
-        s := s + #9;
-        s := s + IntToStrTS(SyncRec.FFileL.Size);
-        s := s + #9;
-        s := s + FormatDateTime(gDateTimeFormatSync, SyncRec.FFileL.ModificationTime);
-      end;
-      if Length(s) <> 0 then
-        s := s + #9;
-      case SyncRec.FState of
-        srsUnknown:
-          s := s + '?';
-        srsEqual:
-          s := s + '=';
-        srsNotEq:
-          s := s + '!=';
-        srsCopyLeft:
-          s := s + '<-';
-        srsCopyRight:
-          s := s + '->';
-      end;
-      if Length(s) <> 0 then
-        s := s + #9;
-      if Assigned(SyncRec.FFileR) then
-      begin
-        s := s + FormatDateTime(gDateTimeFormatSync, SyncRec.FFileR.ModificationTime);
-        s := s + #9;
-        s := s + IntToStrTS(SyncRec.FFileR.Size);
-        s := s + #9;
-        s := s + FVisibleItems[R];
-      end;
-    end;
-    sl.Add(s);
-  end;
+  indexes: TIntegerList = nil;
+  sl: TStringList = nil;
 begin
-  sl := TStringList.Create;
-  RowList := TIntegerList.Create;
   try
-    FillRowList(RowList);
-    for I := 0 to RowList.Count - 1 do
-    begin
-      PrintRow(RowList[I]);
-    end;
+    indexes:= self.createSelectionIndexes;
+    sl:= TSyncDirsUtil.selectionToStringList(FFilteredList, indexes, FCompareOption);
     ClipboardSetText(sl.Text);
   finally
     FreeAndNil(sl);
-    FreeAndNil(RowList);
+    FreeAndNil(indexes);
   end;
 end;
 
 procedure TfrmSyncDirsDlg.cm_SelectClear(const Params: array of string);
 begin
-  SetSyncRecState(srsDoNothing);
+  setSelectionAction(srsDoNothing);
 end;
 
 procedure TfrmSyncDirsDlg.cm_SelectDeleteLeft(const Params: array of string);
 begin
-  SetSyncRecState(srsDeleteLeft);
+  setSelectionAction(srsDeleteLeft);
 end;
 
 procedure TfrmSyncDirsDlg.cm_SelectDeleteRight(const Params: array of string);
 begin
-  SetSyncRecState(srsDeleteRight);
+  setSelectionAction(srsDeleteRight);
 end;
 
 procedure TfrmSyncDirsDlg.cm_SelectDeleteBoth(const Params: array of string);
 begin
-  SetSyncRecState(srsDeleteBoth);
+  setSelectionAction(srsDeleteBoth);
 end;
 
 procedure TfrmSyncDirsDlg.cm_SelectCopyDefault(const Params: array of string);
 begin
-  SetSyncRecState(srsUnknown);
+  setSelectionAction(srsUnknown);
 end;
 
 procedure TfrmSyncDirsDlg.cm_SelectCopyReverse(const Params: array of string);
 begin
-  SetSyncRecState(srsNotEq);
+  setSelectionAction(srsNotEq);
 end;
 
 procedure TfrmSyncDirsDlg.cm_SelectCopyLeftToRight(const Params: array of string);
 begin
-  SetSyncRecState(srsCopyRight);
+  setSelectionAction(srsCopyToRight);
 end;
 
 procedure TfrmSyncDirsDlg.cm_SelectCopyRightToLeft(const Params: array of string);
 begin
-  SetSyncRecState(srsCopyLeft);
-end;
-
-procedure TfrmSyncDirsDlg.cm_SelectKeepLink(const Params: array of string);
-begin
-  // Links are usually the original: the real folder on the other side came
-  // from an earlier sync that copied what the link pointed to
-  SetSyncRecState(srsDoNothing, True);
+  setSelectionAction(srsCopyToLeft);
 end;
 
 procedure TfrmSyncDirsDlg.cm_DeleteLeft(const Params: array of string);
 begin
-  DeleteFiles(True, False);
+  DeleteSelectedFiles(True, False);
 end;
 
 procedure TfrmSyncDirsDlg.cm_DeleteRight(const Params: array of string);
 begin
-  DeleteFiles(False, True);
+  DeleteSelectedFiles(False, True);
 end;
 
 procedure TfrmSyncDirsDlg.cm_DeleteBoth(const Params: array of string);
 begin
-  DeleteFiles(True, True);
+  DeleteSelectedFiles(True, True);
+end;
+
+procedure TfrmSyncDirsDlg.cm_CopyPropertiesLeftToRight(const Params: array of string);
+begin
+  self.doCopyProperties(dsRight);
+end;
+
+procedure TfrmSyncDirsDlg.cm_CopyPropertiesRightToLeft(const Params: array of string);
+begin
+  self.doCopyProperties(dsLeft);
 end;
 
 initialization

@@ -20,7 +20,7 @@ msgstr "正在比较... %d%%（按下 ESC 键可取消）"
 #: fsyncdirsdlg.rsdeleteleft
 #, object-pascal-format
 msgid "Left: Delete %d file(s)"
-msgstr "左侧: 删除%d个文件"
+msgstr "左侧：删除 %d 个文件"
 
 #: fsyncdirsdlg.rsdeleteright
 #, object-pascal-format
@@ -1427,7 +1427,7 @@ msgstr "大小："
 
 #: tfrmfileproperties.lblsymlinkstr.caption
 msgid "Symlink to:"
-msgstr "符号链接："
+msgstr "链接指向："
 
 #: tfrmfileproperties.lbltypestr.caption
 msgid "Type:"
@@ -1497,6 +1497,11 @@ msgstr "进程 ID"
 #: tfrmfileunlock.stgfilehandles.columns[2].title.caption
 msgid "Executable Path"
 msgstr "可执行文件路径"
+
+#: tfrmfinddlg.actaddtostash.caption
+msgctxt "tfrmfinddlg.actaddtostash.caption"
+msgid "Add to Stash"
+msgstr "添加到暂存区"
 
 #: tfrmfinddlg.actcancel.caption
 msgctxt "tfrmfinddlg.actcancel.caption"
@@ -2048,6 +2053,7 @@ msgid "Add Plugin"
 msgstr "添加插件"
 
 #: tfrmmain.actaddtostash.caption
+msgctxt "tfrmmain.actaddtostash.caption"
 msgid "Add to Stash"
 msgstr "添加到暂存区"
 
@@ -4309,6 +4315,10 @@ msgstr "类别："
 msgid "Deleted:"
 msgstr "已删除"
 
+#: tfrmoptionscolors.lbldirselection.caption
+msgid "Directory Selection:"
+msgstr "目录被选中时："
+
 #: tfrmoptionscolors.lblerror.caption
 msgid "Error:"
 msgstr "错误："
@@ -4359,7 +4369,7 @@ msgstr "右边："
 #: tfrmoptionscolors.lblselection.caption
 msgctxt "tfrmoptionscolors.lblselection.caption"
 msgid "Selection:"
-msgstr "选择："
+msgstr "文件被选中时："
 
 #: tfrmoptionscolors.lblsuccess.caption
 msgctxt "tfrmoptionscolors.lblsuccess.caption"
@@ -6720,7 +6730,7 @@ msgid ""
 "This feature requires additional system permission.\n"
 "\n"
 "Enabling it will automatically guide you to the\n"
-"System Settings > Privacy & Security > Accessibility Panel.\n"
+"System Settings > Privacy && Security > Accessibility Panel.\n"
 "\n"
 "Each time a new version of DC is installed, you must first\n"
 "remove DC from the list and then add it back in."
@@ -7401,7 +7411,11 @@ msgstr "显示标签关闭按钮(&B)"
 
 #: tfrmoptionstabs.cbtabsshowdriveletter.caption
 msgid "Always show drive letter in tab title"
-msgstr "始终在标签标题中显示驱动器符"
+msgstr "始终在标题中显示盘符"
+
+#: tfrmoptionstabs.cbtabsunavailablemarker.caption
+msgid "Mark unavailable path in tab title with &a question mark ?"
+msgstr "在标题中用问号“?”标记不可用的路径"
 
 #: tfrmoptionstabs.gbtabs.caption
 msgid "Folder tabs headers"
@@ -8961,6 +8975,14 @@ msgctxt "TFRMSYMLINK.LBLLINKTOCREATE.CAPTION"
 msgid "&Link name"
 msgstr "链接名(&L)"
 
+#: tfrmsyncdirsdlg.actcopypropertieslefttoright.caption
+msgid "Copy file properties -> (left to right)..."
+msgstr "复制文件属性 ->（从左到右）"
+
+#: tfrmsyncdirsdlg.actcopypropertiesrighttoleft.caption
+msgid "Copy file properties <- (right to left)..."
+msgstr "复制文件属性 <-（从右到左）"
+
 #: tfrmsyncdirsdlg.actdeleteboth.caption
 msgid "Delete on both sides"
 msgstr "两边都删除"
@@ -9036,11 +9058,15 @@ msgstr ""
 
 #: tfrmsyncdirsdlg.chkasymmetric.caption
 msgid "asymmetric"
-msgstr "非对称"
+msgstr "单向镜像（保持左边不变）"
 
 #: tfrmsyncdirsdlg.chkbycontent.caption
 msgid "by content"
-msgstr "按内容"
+msgstr "比较内容"
+
+#: tfrmsyncdirsdlg.chkemptydir.caption
+msgid "empty directories"
+msgstr "空文件夹"
 
 #: tfrmsyncdirsdlg.chkignoredate.caption
 msgid "ignore date"
@@ -9048,7 +9074,7 @@ msgstr "忽略日期"
 
 #: tfrmsyncdirsdlg.chkonlyselected.caption
 msgid "only selected"
-msgstr "仅选定"
+msgstr "仅选定的文件"
 
 #: tfrmsyncdirsdlg.chksubdirs.caption
 msgid "Subdirs"
@@ -9121,7 +9147,7 @@ msgstr ""
 
 #: tfrmsyncdirsdlg.sbduplicates.caption
 msgid "duplicates"
-msgstr "重复文件"
+msgstr "共有的文件"
 
 #: tfrmsyncdirsdlg.sbequal.caption
 msgctxt "tfrmsyncdirsdlg.sbequal.caption"
@@ -9135,7 +9161,11 @@ msgstr ""
 
 #: tfrmsyncdirsdlg.sbsingles.caption
 msgid "singles"
-msgstr "单独文件"
+msgstr "独有的文件"
+
+#: tfrmsyncdirsdlg.sbunknown.caption
+msgid "?"
+msgstr ""
 
 #: tfrmsyncdirsdlg.statusbar1.panels[0].text
 msgid "Please press \"Compare\" to start"
@@ -9149,6 +9179,39 @@ msgstr "同步"
 #: tfrmsyncdirsperformdlg.chkconfirmoverwrites.caption
 msgid "Confirm overwrites"
 msgstr "确认覆盖"
+
+#: tfrmsyncdirsperformdlg.chkdeleteleftallemptydirs.caption
+msgid "Left: Delete all empty directories"
+msgstr "左侧：删除全部空文件夹"
+
+#: tfrmsyncdirsperformdlg.chkdeleterightallemptydirs.caption
+msgctxt "tfrmsyncdirsperformdlg.chkdeleterightallemptydirs.caption"
+msgid "Right: Delete all empty directories"
+msgstr "右侧：删除全部空文件夹"
+
+#: tfrmsyncdirsperformdlg.chkverify.caption
+msgid "Verify"
+msgstr "校验"
+
+#: tfrmsyncdirsselectpropertiesdlg.chkattributes.caption
+msgid "File &attributes"
+msgstr "文件属性(&A)"
+
+#: tfrmsyncdirsselectpropertiesdlg.chkpermissions.caption
+msgid "&Permissions /  Ownership"
+msgstr "权限/所有者(&P)"
+
+#: tfrmsyncdirsselectpropertiesdlg.chktime.caption
+msgid "&Timestamp (date+time)"
+msgstr "日期时间(&T)"
+
+#: tfrmsyncdirsselectpropertiesdlg.chkxattributes.caption
+msgid "&Extended attributes"
+msgstr "扩展属性(&E)"
+
+#: tfrmsyncdirsselectpropertiesdlg.lbllabel.caption
+msgid "Copy these file properties:"
+msgstr "复制以下文件属性："
 
 #: tfrmtreeviewmenu.caption
 msgctxt "tfrmtreeviewmenu.caption"
@@ -9181,7 +9244,7 @@ msgstr "搜索时不区分大小写 "
 
 #: tfrmtreeviewmenu.pminotignoreaccents.caption
 msgid "Search is strict regarding accents and ligatures"
-msgstr "搜索时区别重音和连字"
+msgstr "搜索时区分重音和连字"
 
 #: tfrmtreeviewmenu.pminotshowwholebranchifmatch.caption
 msgid "Don't show the branch content \"just\" because the searched string is found in the branche name"
@@ -14537,7 +14600,7 @@ msgstr "没有发生替换。"
 #: umaincommands.rsfavoritetabs_setupnotexist
 #, object-pascal-format
 msgid "No setup named \"%s\""
-msgstr "没有名为 \"%s\" 的安装程序"
+msgstr "没有名为“%s”的配置"
 
 
 #: tfrmsyncdirsdlg.chkemptydirs.caption

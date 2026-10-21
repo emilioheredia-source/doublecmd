@@ -8,7 +8,7 @@ uses
   Classes, SysUtils, Generics.Collections,
   Dialogs,
   uFile, uFileSource, uFileSourceManager,
-  uFileSystemFileSource, uWcxArchiveFileSource,
+  uFileSystemFileSource, uArchiveFileSource,
   uFileSourceProperty, uFileSourceOperation, uFileSourceOperationTypes,
   uLng, uDCUtils, DCStrUtils;
 
@@ -50,9 +50,6 @@ type
     procedure mount( const path: String );
     function getDefaultPointForPath( const path: String ): String; virtual;
     function getMountPointFromPath(const realPath: String): TMountPoint;
-  protected
-    function SetCurrentWorkingDirectory(NewDir: String): Boolean; override;
-    function GetCurrentWorkingDirectory: String; override;
   public
     function GetProcessor: TFileSourceProcessor; override;
     function GetRealPath(const APath: String): String; override;
@@ -167,16 +164,6 @@ begin
   end;
 end;
 
-function TMountedFileSource.SetCurrentWorkingDirectory(NewDir: String): Boolean;
-begin
-  Result:= True;
-end;
-
-function TMountedFileSource.GetCurrentWorkingDirectory: String;
-begin
-  Result:= '';
-end;
-
 function TMountedFileSource.GetProcessor: TFileSourceProcessor;
 begin
   Result:= mountedFileSourceProcessor;
@@ -189,6 +176,7 @@ var
 begin
   Result:= EmptyStr;
   logicPath:= APath.Substring( self.GetRootDir.Length - 1 );
+  logicPath:= IncludeTrailingPathDelimiter( logicPath );
   for mountPoint in _mountPoints do begin
     if logicPath.StartsWith(mountPoint.point) then begin
       Result:= mountPoint.path + logicPath.Substring(mountPoint.point.Length);
@@ -295,7 +283,9 @@ var
 begin
   if params.phase<>TFileSourceConsultPhase.source then
     Exit;
-  if NOT params.partnerFS.IsClass(TWcxArchiveFileSource) then
+  if NOT params.partnerFS.IsClass(TArchiveFileSource) then
+    Exit;
+  if params.files = nil then
     Exit;
 
   mountedFS:= params.currentFS as TMountedFileSource;
@@ -313,7 +303,7 @@ begin
   if params.phase<>TFileSourceConsultPhase.source then
     Exit;
 
-  if params.files.allFilesAtSamePath then
+  if (params.files=nil) or (params.files.allFilesAtSamePath) then
     Exit;
 
   MessageDlg(

@@ -39,23 +39,33 @@ procedure SetFileSystemPath(aFileView: TFileView; aPath: String);
 function RenameFile(aFileSource: IFileSource; const aFile: TFile;
                     const NewFileName: String; Interactive: Boolean; Reload: Boolean): TSetFilePropertyResult;
 
+function CreateDirectoryFromFile(
+  const targetFS: IFileSource;
+  const targetPath: String;
+  const sourceFS: IFileSource;
+  const sourceFile: TFile ): Boolean;
+
+function CreateDirectory(const fs: IFileSource; const path: String): Boolean;
+
+function FileExists(const fs: IFileSource; const path: String): Boolean; overload;
+function DirectoryExists(const fs: IFileSource; const path: String): Boolean; overload;
+function FileOrDirExists(const fs: IFileSource; const path: String): Boolean; overload;
 
 function isCompatibleFileSourceForCopyOperation( fs1: IFileSource; fs2: IFileSource ): Boolean;
-
-function GetCopyOperationType(SourceFileSource, TargetFileSource: IFileSource;
-                              out OperationType: TFileSourceOperationType): Boolean;
 
 implementation
 
 uses
-  LCLProc, fFileExecuteYourSelf, uGlobs, uShellExecute, uFindEx, uDebug,
-  uOSUtils, uShowMsg, uLng, uVfsModule, DCOSUtils, DCStrUtils,
+  LCLProc, FileUtil,
+  fFileExecuteYourSelf, uGlobs, uShellExecute, uFindEx, uDebug,
+  uOSUtils, uShowMsg, uLng, uVfsModule, DCOSUtils, DCStrUtils, uFileProcs,
   uFileSourceManager,
   uFileSourceOperation,
   uFileSourceExecuteOperation,
   uVfsFileSource,
   uFileSourceProperty,
   uFileSystemFileSource,
+  uFileSystemUtil,
   uWfxPluginFileSource,
   uArchiveFileSourceUtil,
   uFileSourceOperationMessageBoxesUI,
@@ -433,42 +443,131 @@ begin
   end;
 end;
 
+
+procedure internalCopyAttrToFile(const path: String; const templateFile: TFile);
+begin
+  if templateFile.AttributesProperty.IsNativeAttributes then
+    mbFileSetAttr( path, templateFile.Attributes );
+  FileSetTime( path, templateFile );
+end;
+
+function internalCreateDirByCopyInOperationFromFile(
+  const targetFS: IFileSource;
+  const targetPath: String;
+  const templateFile: TFile ): Boolean;
+var
+  files: TFiles = nil;
+  operation: TFileSourceOperation = nil;
+  tempDir: String;
+  tempPath: String;
+begin
+  tempDir:= GetTempName( GetTempFolderDeletableAtTheEnd, EmptyStr );
+  tempPath:= tempDir + PathDelim + GetLastDir(targetPath);
+  Result:= mbForceDirectory( tempPath );
+  if NOT Result then
+    Exit;
+
+  if Assigned(templateFile) then
+    internalCopyAttrToFile( tempPath, templateFile );
+
+  try
+    files:= TFiles.Create(tempDir);
+    files.Add(TFileSystemFileSource.CreateFileFromFile(tempPath));
+    operation:= targetFS.CreateCopyInOperation(
+      TFileSystemFileSource.GetFileSource,
+      files,
+      GetParentDir(targetPath));
+    operation.Execute;
+  finally
+    files.Free;
+    operation.Free;
+    DeleteDirectory(tempDir, False);
+  end;
+end;
+
+function internalCreateDirDirectlyFromFile(
+  const targetFS: IFileSource;
+  const targetPath: String;
+  const sourceFS: IFileSource;
+  const sourceFile: TFile ): Boolean;
+var
+  realPath: String;
+begin
+  Result:= targetFS.CreateDirectory( targetPath );
+  if NOT Result then
+    Exit;
+  realPath:= targetFS.GetRealPath( targetPath );
+  if fspDirectAccess in sourceFS.Properties then
+    mbFileCopyAttr( sourceFile.FullPath, realPath, CopyAttributesOptionCopyAll )
+  else
+    internalCopyAttrToFile( realPath, sourceFile );
+end;
+
+function CreateDirectoryFromFile(
+  const targetFS: IFileSource;
+  const targetPath: String;
+  const sourceFS: IFileSource;
+  const sourceFile: TFile ): Boolean;
+begin
+  if fspDirectAccess in targetFS.Properties then
+    Result:= internalCreateDirDirectlyFromFile( targetFS, targetPath, sourceFS, sourceFile )
+  else
+    Result:= internalCreateDirByCopyInOperationFromFile( targetFS, targetPath, sourceFile );
+end;
+
+
+// for FileSources that don't support CreateDirectory(), try CreateCopyInOperation
+function CreateDirectory(const fs: IFileSource; const path: String): Boolean;
+begin
+  Result:= fs.CreateDirectory(path);
+  if Result then
+    Exit;
+
+  internalCreateDirByCopyInOperationFromFile(fs, path, nil);
+end;
+
+function FileExists(const fs: IFileSource; const path: String): Boolean;
+var
+  ret: TFileSourceExistsResult;
+begin
+  ret:= fs.FileSystemEntryExists(
+    path,
+    [TFileSourceExistsOption.needFile] );
+  // treat notSupported as existing, maintaining compatibility with
+  // the previous TFileSource.FileSystemEntryExists().
+  Result:= ret <> TFileSourceExistsResult.notExist;
+end;
+
+function DirectoryExists(const fs: IFileSource; const path: String): Boolean;
+var
+  ret: TFileSourceExistsResult;
+begin
+  ret:= fs.FileSystemEntryExists(
+    path,
+    [TFileSourceExistsOption.needDir] );
+  // treat notSupported as existing, maintaining compatibility with
+  // the previous TFileSource.FileSystemEntryExists().
+  Result:= ret <> TFileSourceExistsResult.notExist;
+end;
+
+function FileOrDirExists(const fs: IFileSource; const path: String): Boolean;
+var
+  ret: TFileSourceExistsResult;
+begin
+  ret:= fs.FileSystemEntryExists(
+    path,
+    [TFileSourceExistsOption.needFile, TFileSourceExistsOption.needDir] );
+  // treat notSupported as existing, maintaining compatibility with
+  // the previous TFileSource.FileSystemEntryExists().
+  Result:= ret <> TFileSourceExistsResult.notExist;
+end;
+
 function isCompatibleFileSourceForCopyOperation(fs1: IFileSource; fs2: IFileSource): Boolean;
 begin
   Result:= (fsoCopy in fs1.GetOperationsTypes) and
            (fsoCopy in fs2.GetOperationsTypes) and
            fs1.Equals(fs1) and
            SameText(fs1.GetCurrentAddress, fs2.GetCurrentAddress);
-end;
-
-function GetCopyOperationType(SourceFileSource, TargetFileSource: IFileSource;
-  out OperationType: TFileSourceOperationType): Boolean;
-begin
-  // If same file source and address
-  if (fsoCopy in SourceFileSource.GetOperationsTypes) and
-     (fsoCopy in TargetFileSource.GetOperationsTypes) and
-     SourceFileSource.Equals(TargetFileSource) and
-     SameText(SourceFileSource.GetCurrentAddress, TargetFileSource.GetCurrentAddress) then
-  begin
-    Result:= True;
-    OperationType := fsoCopy;
-  end
-  else if TargetFileSource.IsClass(TFileSystemFileSource) and
-          (fsoCopyOut in SourceFileSource.GetOperationsTypes) then
-  begin
-    Result:= True;
-    OperationType := fsoCopyOut;
-  end
-  else if SourceFileSource.IsClass(TFileSystemFileSource) and
-          (fsoCopyIn in TargetFileSource.GetOperationsTypes) then
-  begin
-    Result:= True;
-    OperationType := fsoCopyIn;
-  end
-  else
-  begin
-    Result:= False;
-  end;
 end;
 
 end.

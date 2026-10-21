@@ -89,7 +89,7 @@ type
     function GetPathType(sPath : String): TPathType; override;
 
     function CreateDirectory(const Path: String): Boolean; override;
-    function FileSystemEntryExists(const Path: String): Boolean; override;
+    function FileSystemEntryExists(const Path: String; const Options: TFileSourceExistsOptions): TFileSourceExistsResult; override;
     function GetFreeSpace(Path: String; out FreeSize, TotalSize : Int64) : Boolean; override;
 
     function CreateListOperation(TargetPath: String): TFileSourceOperation; override;
@@ -656,6 +656,7 @@ begin
     if ([fpAttributes,
          fpSize,
          fpModificationTime,
+         {$IFDEF DARWIN}fpCreationTime,{$ENDIF}
          fpChangeTime,
          fpLastAccessTime,
          fpOwner] * PropertiesToSet <> []) or
@@ -819,7 +820,7 @@ function TFileSystemFileSource.GetProperties: TFileSourceProperties;
 begin
   Result := [
     fspDirectAccess, fspListFlatView, fspNoneParent,
-    fspSearchable, fspSaveableLoadable
+    fspSearchable, fspSynchronizable, fspSaveableLoadable
 {$IFDEF UNIX}
   , fspCaseSensitive
 {$ENDIF}
@@ -834,11 +835,14 @@ begin
 end;
 
 function TFileSystemFileSource.SetCurrentWorkingDirectory(NewDir: String): Boolean;
+var
+  realPath: String;
 begin
-  if not mbDirectoryExists(NewDir) then
+  realPath:= self.GetRealPath(NewDir);
+  if not mbDirectoryExists(realPath) then
     Result := False
   else
-    Result := mbSetCurrentDir(NewDir);
+    Result := mbSetCurrentDir(realPath);
 end;
 
 procedure TFileSystemFileSource.DoReload(const PathsToReload: TPathsArray);
@@ -879,8 +883,11 @@ begin
 end;
 
 function TFileSystemFileSource.CreateDirectory(const Path: String): Boolean;
+var
+  realPath: String;
 begin
-  Result := mbCreateDir(Path);
+  realPath:= self.GetRealPath(Path);
+  Result := mbCreateDir(realPath);
   if Result then
   begin
     if (log_dir_op in gLogOptions) and (log_success in gLogOptions) then
@@ -892,9 +899,27 @@ begin
   end;
 end;
 
-function TFileSystemFileSource.FileSystemEntryExists(const Path: String): Boolean;
+function TFileSystemFileSource.FileSystemEntryExists(
+  const Path: String;
+  const Options: TFileSourceExistsOptions): TFileSourceExistsResult;
+var
+  realPath: String;
+  exists: Boolean;
 begin
-  Result:= mbFileSystemEntryExists(Path);
+  Result:= TFileSourceExistsResult.notExist;
+  if Options = [] then
+    Exit;
+
+  realPath:= self.GetRealPath(Path);
+  if Options = [TFileSourceExistsOption.needFile] then
+    exists:= mbFileExists(realPath)
+  else if Options = [TFileSourceExistsOption.needDir] then
+    exists:= mbDirectoryExists(realPath)
+  else
+    exists:= mbFileSystemEntryExists(realPath);
+
+  if exists then
+    Result:= TFileSourceExistsResult.exists;
 end;
 
 function TFileSystemFileSource.GetFreeSpace(Path: String; out FreeSize, TotalSize : Int64) : Boolean;
@@ -908,9 +933,10 @@ begin
           + [fpSize,
              fpAttributes,
              fpModificationTime,
-             {$IF DEFINED(MSWINDOWS)}
+             {$IF DEFINED(MSWINDOWS) or DEFINED(DARWIN)}
              fpCreationTime,
-             {$ELSE}
+             {$ENDIF}
+             {$IF not DEFINED(MSWINDOWS)}
              fpChangeTime,
              {$ENDIF}
              fpLastAccessTime,
@@ -927,7 +953,7 @@ begin
           + [fpSize,
              fpAttributes,
              fpModificationTime,
-             {$IF DEFINED(MSWINDOWS)}
+             {$IF DEFINED(MSWINDOWS) or DEFINED(DARWIN)}
              fpCreationTime,
              {$ENDIF}
              fpChangeTime,
