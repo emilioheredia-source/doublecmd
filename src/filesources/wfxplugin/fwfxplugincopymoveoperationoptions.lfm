@@ -58,9 +58,15 @@ object WfxPluginCopyMoveOperationOptionsUI: TWfxPluginCopyMoveOperationOptionsUI
     ClientHeight = 38
     ClientWidth = 246
     TabOrder = 1
+    object cbCopyTime: TCheckBox
+      Left = 0
+      Height = 19
+      Top = 0
+      Width = 103
+      Caption = 'Copy d&ate/time'
+      TabOrder = 0
+    end
     object cbWorkInBackground: TCheckBox
-      AnchorSideTop.Control = cbCopyTime
-      AnchorSideTop.Side = asrBottom
       Left = 0
       Height = 19
       Top = 19
@@ -69,15 +75,6 @@ object WfxPluginCopyMoveOperationOptionsUI: TWfxPluginCopyMoveOperationOptionsUI
       OnChange = cbWorkInBackgroundChange
       TabOrder = 1
       Visible = False
-    end
-    object cbCopyTime: TCheckBox
-      AnchorSideTop.Side = asrBottom
-      Left = 0
-      Height = 19
-      Top = 0
-      Width = 103
-      Caption = 'Copy d&ate/time'
-      TabOrder = 0
     end
     object cbFollowLinks: TCheckBox
       Left = 0
