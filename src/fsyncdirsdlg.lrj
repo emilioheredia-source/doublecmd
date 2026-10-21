@@ -5,6 +5,7 @@
 {"hash":174352581,"name":"tfrmsyncdirsdlg.btncompare.caption","sourcebytes":[67,111,109,112,97,114,101],"value":"Compare"},
 {"hash":242752852,"name":"tfrmsyncdirsdlg.chkonlyselected.caption","sourcebytes":[111,110,108,121,32,115,101,108,101,99,116,101,100],"value":"only selected"},
 {"hash":181520105,"name":"tfrmsyncdirsdlg.label1.caption","sourcebytes":[40,105,110,32,109,97,105,110,32,119,105,110,100,111,119,41],"value":"(in main window)"},
+{"hash":28426435,"name":"tfrmsyncdirsdlg.chkemptydir.caption","sourcebytes":[101,109,112,116,121,32,100,105,114,101,99,116,111,114,105,101,115],"value":"empty directories"},
 {"hash":70923251,"name":"tfrmsyncdirsdlg.chkasymmetric.caption","sourcebytes":[97,115,121,109,109,101,116,114,105,99],"value":"asymmetric"},
 {"hash":179876035,"name":"tfrmsyncdirsdlg.chksubdirs.caption","sourcebytes":[83,117,98,100,105,114,115],"value":"Subdirs"},
 {"hash":174272820,"name":"tfrmsyncdirsdlg.chkbycontent.caption","sourcebytes":[98,121,32,99,111,110,116,101,110,116],"value":"by content"},
@@ -13,6 +14,7 @@
 {"hash":62,"name":"tfrmsyncdirsdlg.sbcopyright.caption","sourcebytes":[62],"value":">"},
 {"hash":61,"name":"tfrmsyncdirsdlg.sbequal.caption","sourcebytes":[61],"value":"="},
 {"hash":589,"name":"tfrmsyncdirsdlg.sbnotequal.caption","sourcebytes":[33,61],"value":"!="},
+{"hash":63,"name":"tfrmsyncdirsdlg.sbunknown.caption","sourcebytes":[63],"value":"?"},
 {"hash":60,"name":"tfrmsyncdirsdlg.sbcopyleft.caption","sourcebytes":[60],"value":"<"},
 {"hash":50280115,"name":"tfrmsyncdirsdlg.sbduplicates.caption","sourcebytes":[100,117,112,108,105,99,97,116,101,115],"value":"duplicates"},
 {"hash":168092339,"name":"tfrmsyncdirsdlg.sbsingles.caption","sourcebytes":[115,105,110,103,108,101,115],"value":"singles"},
@@ -39,5 +41,7 @@
 {"hash":254352617,"name":"tfrmsyncdirsdlg.actselectdeleteboth.caption","sourcebytes":[83,101,108,101,99,116,32,102,111,114,32,100,101,108,101,116,105,110,103,32,60,45,62,32,40,98,111,116,104,41],"value":"Select for deleting <-> (both)"},
 {"hash":87943924,"name":"tfrmsyncdirsdlg.actdeleteleft.caption","sourcebytes":[60,45,32,68,101,108,101,116,101,32,108,101,102,116],"value":"<- Delete left"},
 {"hash":64282708,"name":"tfrmsyncdirsdlg.actdeleteright.caption","sourcebytes":[45,62,32,68,101,108,101,116,101,32,114,105,103,104,116],"value":"-> Delete right"},
-{"hash":5492659,"name":"tfrmsyncdirsdlg.actdeleteboth.caption","sourcebytes":[68,101,108,101,116,101,32,111,110,32,98,111,116,104,32,115,105,100,101,115],"value":"Delete on both sides"}
+{"hash":5492659,"name":"tfrmsyncdirsdlg.actdeleteboth.caption","sourcebytes":[68,101,108,101,116,101,32,111,110,32,98,111,116,104,32,115,105,100,101,115],"value":"Delete on both sides"},
+{"hash":106075182,"name":"tfrmsyncdirsdlg.actcopypropertieslefttoright.caption","sourcebytes":[67,111,112,121,32,102,105,108,101,32,112,114,111,112,101,114,116,105,101,115,32,45,62,32,40,108,101,102,116,32,116,111,32,114,105,103,104,116,41,46,46,46],"value":"Copy file properties -> (left to right)..."},
+{"hash":26260126,"name":"tfrmsyncdirsdlg.actcopypropertiesrighttoleft.caption","sourcebytes":[67,111,112,121,32,102,105,108,101,32,112,114,111,112,101,114,116,105,101,115,32,60,45,32,40,114,105,103,104,116,32,116,111,32,108,101,102,116,41,46,46,46],"value":"Copy file properties <- (right to left)..."}
 ]}

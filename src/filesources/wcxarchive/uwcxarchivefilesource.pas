@@ -19,11 +19,9 @@ type
   IWcxArchiveFileSource = interface(IArchiveFileSource)
     ['{DB32E8A8-486B-4053-9448-4C145C1A33FA}']
 
-    function GetArcFileList: TThreadObjectList;
     function GetPluginCapabilities: PtrInt;
     function GetWcxModule: TWcxModule;
 
-    property ArchiveFileList: TThreadObjectList read GetArcFileList;
     property PluginCapabilities: PtrInt read GetPluginCapabilities;
     property WcxModule: TWCXModule read GetWcxModule;
   end;
@@ -34,14 +32,17 @@ type
   private
     FModuleFileName: String;
     FPluginCapabilities: PtrInt;
-    FArcFileList : TThreadObjectList;
     FWcxModule: TWCXModule;
     FOpenResult: LongInt;
 
     procedure SetCryptCallback;
-    function ReadArchive(anArchiveHandle: TArcHandle = 0): Boolean;
 
-    function GetArcFileList: TThreadObjectList;
+    function getWcxHeaderByPath(const path: String): TWCXHeader;
+
+    function ReadArchiveImpl(anArchiveHandle: TArcHandle = 0): Boolean;
+    // FArcFileList should be locked before calling CreateArcFilenameList()
+    procedure buildArcFilenameList;
+
     function GetPluginCapabilities: PtrInt;
     function GetWcxModule: TWcxModule;
 
@@ -68,9 +69,8 @@ type
     procedure OperationFinished(Operation: TFileSourceOperation); override;
 
     function GetSupportedFileProperties: TFilePropertiesTypes; override;
-    function SetCurrentWorkingDirectory(NewDir: String): Boolean; override;
 
-    procedure DoReload(const {%H-}PathsToReload: TPathsArray); override;
+    function ReadArchive: Boolean; override;
 
   public
     constructor Create(anArchiveFileSource: IFileSource;
@@ -82,10 +82,6 @@ type
                        aWcxPluginModule: TWcxModule;
                        aWcxPluginCapabilities: PtrInt;
                        anArchiveHandle: TArcHandle); reintroduce;
-    destructor Destroy; override;
-
-    function Changed: Boolean; override;
-
     class function CreateFile(const APath: String; WcxHeader: TWCXHeader): TFile; overload;
 
     // Retrieve operations permitted on the source.  = capabilities?
@@ -93,6 +89,8 @@ type
 
     // Retrieve some properties of the file source.
     function GetProperties: TFileSourceProperties; override;
+
+    function FileSystemEntryExists(const Path: String; const Options: TFileSourceExistsOptions): TFileSourceExistsResult; override;
 
     // These functions create an operation object specific to the file source.
     function CreateListOperation(TargetPath: String): TFileSourceOperation; override;
@@ -125,7 +123,6 @@ type
     function GetConnection(Operation: TFileSourceOperation): TFileSourceConnection; override;
     procedure RemoveOperationFromQueue(Operation: TFileSourceOperation); override;
 
-    property ArchiveFileList: TThreadObjectList read GetArcFileList;
     property PluginCapabilities: PtrInt read FPluginCapabilities;
     property WcxModule: TWCXModule read FWcxModule;
   end;
@@ -408,7 +405,6 @@ begin
 
   FModuleFileName := aWcxPluginFileName;
   FPluginCapabilities := aWcxPluginCapabilities;
-  FArcFileList := TThreadObjectList.Create;
   FWcxModule := gWCXPlugins.LoadModule(FModuleFileName);
 
   if not Assigned(FWcxModule) then
@@ -435,7 +431,6 @@ begin
   inherited Create(anArchiveFileSource, anArchiveFileName);
 
   FPluginCapabilities := aWcxPluginCapabilities;
-  FArcFileList := TThreadObjectList.Create;
   FWcxModule := aWcxPluginModule;
 
   FOperationsClasses[fsoCopyIn]  := TWcxArchiveCopyInOperation.GetOperationClass;
@@ -445,26 +440,11 @@ begin
 
   if mbFileExists(anArchiveFileName) then
   begin
-    if not ReadArchive(anArchiveHandle) then
+    if not ReadArchiveImpl(anArchiveHandle) then
       raise EWcxModuleException.Create(FOpenResult);
   end;
 
   CreateConnections;
-end;
-
-destructor TWcxArchiveFileSource.Destroy;
-begin
-  inherited Destroy;
-
-  if Assigned(FArcFileList) then
-    FreeAndNil(FArcFileList);
-end;
-
-function TWcxArchiveFileSource.Changed: Boolean;
-begin
-  Result:= Inherited;
-  if NOT mbFileExists(ArchiveFileName) then
-    Result:= (FArcFileList.Count <> 0);
 end;
 
 class function TWcxArchiveFileSource.CreateFile(const APath: String; WcxHeader: TWCXHeader): TFile;
@@ -520,7 +500,39 @@ end;
 
 function TWcxArchiveFileSource.GetProperties: TFileSourceProperties;
 begin
-  Result := [fspUsesConnections, fspListFlatView, fspSearchable];
+  Result := [fspUsesConnections, fspListFlatView, fspSearchable, fspSynchronizable];
+end;
+
+function TWcxArchiveFileSource.FileSystemEntryExists(
+  const Path: String;
+  const Options: TFileSourceExistsOptions): TFileSourceExistsResult;
+var
+  header: TWCXHeader;
+  exists: Boolean;
+begin
+  Result:= TFileSourceExistsResult.notExist;
+  if Options = [] then
+    Exit;
+
+  FArcFileList.LockList;
+  try
+    header:= self.getWcxHeaderByPath(Path);
+    if header <> nil then begin
+      if Options = [TFileSourceExistsOption.needFile] then
+        exists:= NOT FPS_ISDIR(header.FileAttr)
+      else if Options = [TFileSourceExistsOption.needDir] then
+        exists:= FPS_ISDIR(header.FileAttr)
+      else
+        exists:= True;
+    end else begin
+      exists:= False;
+    end;
+  finally
+    FArcFileList.UnlockList;
+  end;
+
+  if exists then
+    Result:= TFileSourceExistsResult.exists;
 end;
 
 function TWcxArchiveFileSource.GetSupportedFileProperties: TFilePropertiesTypes;
@@ -528,36 +540,9 @@ begin
   Result := inherited GetSupportedFileProperties;
 end;
 
-function TWcxArchiveFileSource.SetCurrentWorkingDirectory(NewDir: String): Boolean;
-var
-  I: Integer;
-  AFileList: TList;
-  Header: TWCXHeader;
+function TWcxArchiveFileSource.ReadArchive: Boolean;
 begin
-  Result := False;
-  if Length(NewDir) > 0 then
-  begin
-    if NewDir = GetRootDir() then
-      Exit(True);
-
-    NewDir := IncludeTrailingPathDelimiter(NewDir);
-
-    AFileList:= ArchiveFileList.LockList;
-    try
-      // Search file list for a directory with name NewDir.
-      for I := 0 to AFileList.Count - 1 do
-      begin
-        Header := TWCXHeader(AFileList.Items[I]);
-        if FPS_ISDIR(Header.FileAttr) and (Length(Header.FileName) > 0) then
-        begin
-          if mbCompareFileNames(NewDir, IncludeTrailingPathDelimiter(GetRootDir() + Header.FileName)) then
-            Exit(True);
-        end;
-      end;
-    finally
-      ArchiveFileList.UnlockList;
-    end;
-  end;
+  Result:= self.ReadArchiveImpl();
 end;
 
 function TWcxArchiveFileSource.GetPacker: String;
@@ -577,11 +562,27 @@ begin
   FWcxModule.WcxSetCryptCallback(0, AFlags, @CryptProcA, @CryptProcW);
 end;
 
-function TWcxArchiveFileSource.GetArcFileList: TThreadObjectList;
+function TWcxArchiveFileSource.getWcxHeaderByPath(const path: String): TWCXHeader;
+var
+  internalPath: String;
 begin
-  if self.Changed then
-    self.ReadArchive;
-  Result := FArcFileList;
+  internalPath:= ExcludeLeadingPathDelimiter(path);
+  internalPath:= ExcludeTrailingPathDelimiter(internalPath);
+  internalPath:= UTF8LowerCase(internalPath);
+  Result := TWCXHeader(FArcFilenameList[internalPath]);
+end;
+
+procedure TWcxArchiveFileSource.buildArcFilenameList;
+var
+  headerList: TList;
+  header: TWcxHeader;
+  i: Integer;
+begin
+  headerList:= FArcFileList.List;
+  for i:= 0 to headerList.Count-1 do begin
+    header:= TWcxHeader(headerList[i]);
+    FArcFilenameList.Add(UTF8LowerCase(header.FileName), header);
+  end;
 end;
 
 function TWcxArchiveFileSource.GetPluginCapabilities: PtrInt;
@@ -671,7 +672,7 @@ begin
   Result := TWcxArchiveCalcStatisticsOperation.Create(TargetFileSource, theFiles);
 end;
 
-function TWcxArchiveFileSource.ReadArchive(anArchiveHandle: TArcHandle): Boolean;
+function TWcxArchiveFileSource.ReadArchiveImpl(anArchiveHandle: TArcHandle): Boolean;
 
   procedure CollectDirs(Path: PAnsiChar; var DirsList: TStringHashListUtf8);
   var
@@ -708,6 +709,7 @@ begin
 
   AFileList:= FArcFileList.LockList;  // direct access, don't use ArchiveFileList
   try
+    FArcFilenameList.Clear;
     AFileList.Clear;
 
     if anArchiveHandle <> 0 then
@@ -801,6 +803,8 @@ begin
     end;
 
   finally
+    // because ArcFilenameList has become commonly used, build it while updating ArcFileList
+    buildArcFilenameList;
     FArcFileList.UnlockList;  // direct access, don't use ArchiveFileList
   end;
 end;
@@ -993,15 +997,6 @@ begin
     fsoTestArchive:
       TWcxArchiveTestArchiveOperation.ClearCurrentOperation;
   end;
-end;
-
-procedure TWcxArchiveFileSource.DoReload(const PathsToReload: TPathsArray);
-begin
-  // reset FAttributeData (updated timestamp) in TArchiveFileSource
-  // avoids Changed() still return True after ReadArchive()
-  self.Changed;
-
-  ReadArchive;
 end;
 
 { TWcxArchiveFileSourceConnection }

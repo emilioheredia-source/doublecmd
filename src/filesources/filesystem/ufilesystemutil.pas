@@ -27,6 +27,8 @@ uses
   function FileExistsMessage(const TargetName, SourceName: String;
                              SourceSize: Int64; SourceTime: TDateTime): String;
 
+  function FileSetTime(const TargetName: String; const templateFile: TFile): Boolean;
+
 type
 
   TUpdateStatisticsFunction = procedure(var NewStatistics: TFileSourceCopyOperationStatistics) of object;
@@ -301,7 +303,16 @@ begin
       if FileGetAttrUAC(aFile.FullPath, aFindData) then
       begin
         aFile.Size:= aFindData.Size;
-        aFile.Attributes:= aFindData.Attr;
+        {
+          it can't just set the attribute value, it should set the entire attribute
+          because the attribute type may have changed as well.
+
+          eg. copying a folder from one MultiArchive/7z to another MultiArchive/7z
+          requires an  intermediate temporary folder. on Unix-like system,
+          aFile.Attributes is TNtfsFileAttributesProperty in MultiArchive/7z,
+          but TUnixFileAttributesProperty in the temporary folder.
+        }
+        aFile.Properties[fpAttributes]:= TFileAttributesProperty.CreateOSAttributes(aFindData.Attr);
         aFile.ModificationTime:= FileTimeToDateTime(aFindData.LastWriteTime);
       end;
 
@@ -344,6 +355,32 @@ begin
   end;
   Result:= Result + LineEnding + rsMsgFileExistsWithFile + LineEnding + WrapTextSimple(SourceName, 100) + LineEnding +
            Format(rsMsgFileExistsFileInfo, [ASize, DateTimeToStr(SourceTime)]);
+end;
+
+function FileSetTime(const TargetName: String; const templateFile: TFile): Boolean;
+var
+  modificationTime: DCBasicTypes.TFileTimeEx;
+  creationTime    : DCBasicTypes.TFileTimeEx;
+  lastAccessTime  : DCBasicTypes.TFileTimeEx;
+
+  function getTime(const timePropType: TFilePropertyType): DCBasicTypes.TFileTimeEx;
+  var
+    timeProperty: TFileDateTimeProperty;
+  begin
+    Result:= TFileTimeExNull;
+    if NOT (timePropType in templateFile.AssignedProperties) then
+      Exit;
+    timeProperty:= TFileDateTimeProperty(templateFile.Properties[timePropType]);
+    if NOT timeProperty.IsValid then
+      Exit;
+    Result:= DateTimeToFileTimeEx(timeProperty.Value);
+  end;
+
+begin
+  modificationTime:= getTime(fpModificationTime);
+  creationTime:= getTime(fpCreationTime);
+  lastAccessTime:= getTime(fpLastAccessTime);
+  Result:= mbFileSetTimeEx(TargetName, modificationTime, creationTime, lastAccessTime);
 end;
 
 function FileCopyProgress(TotalBytes, DoneBytes: Int64; UserData: Pointer): LongBool;

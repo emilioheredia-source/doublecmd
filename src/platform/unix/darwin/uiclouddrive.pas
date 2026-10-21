@@ -11,7 +11,7 @@ uses
   uiCloudDriveConfig, uiCloudDriveUtil,
   uFile, uDisplayFile,
   uFileSource, uFileSourceOperationTypes, uFileSourceManager, uFileSourceWatcher,
-  uMountedFileSource, uVfsModule, uMultiArchiveFileSource, uStashFileSource,
+  uMountedFileSource, uVfsModule, uStashFileSource,
   uDCUtils, uLng,
   uDarwinFSWatch, uDarwinSimpleFSWatch, uDarwinDC,
   uDarwinFile, uDarwinImage, uDarwinUtil,
@@ -47,6 +47,7 @@ type
     function GetRootDir(sPath : String): String; override;
     function IsSystemFile(aFile: TFile): Boolean; override;
     function IsPathAtRoot(Path: String): Boolean; override;
+    function GetRealPath(const APath: String): String; override;
     function GetDisplayFileName(aFile: TFile): String; override;
     function QueryContextMenu(AFiles: TFiles; var AMenu: TPopupMenu): Boolean; override;
 
@@ -100,11 +101,6 @@ type
   { TiCloudDriveProcessor }
 
   TiCloudDriveProcessor = class( TMountedFileSourceProcessor )
-  protected
-    function calcSourcePath(
-      const mountedFS: TMountedFileSource;
-      const targetFS: IFileSource;
-      const realPath: String): String; override;
   public
     procedure consultOperation(var params: TFileSourceConsultParams); override;
     procedure confirmOperation(var params: TFileSourceConsultParams); override;
@@ -142,26 +138,6 @@ var
   iCloudDriveUIProcessor: TiCloudDriveUIHandler;
 
 { TiCloudDriveProcessor }
-
-function TiCloudDriveProcessor.calcSourcePath(
-  const mountedFS: TMountedFileSource;
-  const targetFS: IFileSource;
-  const realPath: String): String;
-var
-  mountPoint: TMountPoint;
-begin
-  mountPoint:= mountedFS.getMountPointFromPath( realPath );
-  {
-    '%R' is usually not specified in TMultiArchiveFileSource
-    this means that specifying subdir in MultiArchive/7z is not supported.
-    therefore, it falls back to the base path of iCloud to indirectly
-    achieve the effect of the subdir.
-  }
-  if (mountPoint<>nil) and targetFS.IsClass(TMultiArchiveFileSource) then
-    Result:= uDCUtils.ReplaceTilde( iCloudDriveConfig.path.base )
-  else
-    Result:= inherited;
-end;
 
 procedure TiCloudDriveProcessor.consultOperation( var params: TFileSourceConsultParams );
 
@@ -479,6 +455,8 @@ var
   i: Integer;
 begin
   Result:= False;
+  if aFiles = nil then
+    Exit;
   for i:=0 to aFiles.Count-1 do begin
     Result:= isSeedFile( aFiles[i] );
     if Result then
@@ -820,6 +798,14 @@ begin
     testPath:= ExcludeTrailingPathDelimiter( Path );
     Result:= ( testPath=iCloudPath );
   end;
+end;
+
+function TiCloudDriveFileSource.GetRealPath(const APath: String): String;
+begin
+  if self.IsPathAtRoot(APath) then
+    Result:= IncludeTrailingPathDelimiter( uDCUtils.ReplaceTilde(iCloudDriveConfig.path.drive) )
+  else
+    Result:= inherited;
 end;
 
 function TiCloudDriveFileSource.GetDisplayFileName(aFile: TFile): String;

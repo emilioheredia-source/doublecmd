@@ -94,6 +94,9 @@ type
     constructor Create(aModuleFileName, aPluginRootName: String); reintroduce;
     destructor Destroy; override;
 
+    function FileSystemEntryExists(const Path: String; const Options: TFileSourceExistsOptions): TFileSourceExistsResult; override;
+    function SetCurrentWorkingDirectory(NewDir: String): Boolean; override;
+
     class function CreateFile(const APath: String): TFile; override;
     class function CreateFile(const APath: String; FindData: TWfxFindData): TFile; overload;
 
@@ -173,7 +176,8 @@ uses
   uWfxPluginCopyInOperation, uWfxPluginCopyOutOperation,  uWfxPluginMoveOperation, uVfsModule,
   uWfxPluginExecuteOperation, uWfxPluginListOperation, uWfxPluginCreateDirectoryOperation,
   uWfxPluginDeleteOperation, uWfxPluginSetFilePropertyOperation, uWfxPluginCopyOperation,
-  DCConvertEncoding, uWfxPluginCalcStatisticsOperation, uFileFunctions, uPixMapManager;
+  DCConvertEncoding, uWfxPluginCalcStatisticsOperation, uFileFunctions, uPixMapManager,
+  uFileSourceUtil;
 
 const
   connCopyIn      = 0;
@@ -532,6 +536,99 @@ begin
   inherited Destroy;
 end;
 
+function TWfxPluginFileSource.FileSystemEntryExists(
+  const Path: String;
+  const Options: TFileSourceExistsOptions ): TFileSourceExistsResult;
+
+  // faster
+  // return True: the directory exists and it's not empty directories
+  // return False: no entry / empty directory / regular file
+  function notEmptyDirExists: Boolean;
+  var
+    findData: TWfxFindData;
+    handle: THandle;
+  begin
+    Result:= False;
+    handle:= WfxModule.WfxFindFirst(Path, findData);
+    if handle = wfxInvalidHandle then
+      Exit;
+    WfxModule.FsFindClose(handle);
+    Result:= True;
+  end;
+
+  // slower
+  function getFile: TFile;
+  var
+    parentDir: String;
+    filename: String;
+    findData: TWfxFindData;
+    handle: THandle;
+  begin
+    Result:= nil;
+    parentDir:= DCStrUtils.GetParentDir(Path);
+    filename:= DCStrUtils.ExtractFileNameEx(ExcludeTrailingPathDelimiter(Path));
+    handle:= WfxModule.WfxFindFirst(parentDir, findData);
+    if handle = wfxInvalidHandle then
+      Exit;
+    try
+      repeat
+        if findData.FileName <> filename then
+          continue;
+        Result:= self.CreateFile(Path, findData);
+        Exit;
+      until (not WfxModule.WfxFindNext(handle, findData));
+    finally
+      WfxModule.FsFindClose(handle);
+    end;
+  end;
+
+var
+  exists: Boolean;
+  f: TFile = nil;
+begin
+  Result:= TFileSourceExistsResult.notExist;
+  if Options = [] then
+    Exit;
+  if Path = EmptyStr then
+    Exit;
+
+  if Path = PathDelim then begin
+    if TFileSourceExistsOption.needDir in Options then
+      Result:= TFileSourceExistsResult.exists;
+    Exit;
+  end;
+
+  // note: notEmptyDirExists() should run much faster than getFile()
+  exists:= False;
+  if TFileSourceExistsOption.needDir in Options then
+    exists:= notEmptyDirExists();
+
+  if NOT exists then
+    f:= getFile;
+
+  if NOT exists and Assigned(f) then begin
+    if TFileSourceExistsOption.needDir in Options then
+      exists:= f.IsDirectory;
+  end;
+
+  if NOT exists and Assigned(f) then begin
+    if TFileSourceExistsOption.needFile in Options then
+      exists:= NOT f.IsDirectory;
+  end;
+
+  f.Free;
+
+  if exists then
+    Result:= TFileSourceExistsResult.exists;
+end;
+
+function TWfxPluginFileSource.SetCurrentWorkingDirectory(NewDir: String): Boolean;
+begin
+  Result := False;
+  if Length(NewDir) > 0 then
+    Result:= DirectoryExists(self, NewDir);
+end;
+
 class function TWfxPluginFileSource.CreateFile(const APath: String): TFile;
 begin
   Result := TFile.Create(APath);
@@ -636,7 +733,7 @@ end;
 function TWfxPluginFileSource.GetProperties: TFileSourceProperties;
 begin
   // Saveable: tabs keep their plugin location (see TFileView.SaveConfiguration)
-  Result := [fspUsesConnections, fspListOnMainThread, fspSearchable, fspSaveableLoadable];
+  Result := [fspUsesConnections, fspListOnMainThread, fspSearchable, fspSynchronizable, fspSaveableLoadable];
   with FWfxModule do
   begin
     if Assigned(FsLinksToLocalFiles) and FsLinksToLocalFiles() then
@@ -940,12 +1037,16 @@ begin
 end;
 
 function TWfxPluginFileSource.CreateDirectory(const Path: String): Boolean;
+var
+  parentPath: String;
 begin
-  Result:= WfxModule.WfxMkDir(ExtractFilePath(Path), Path) = WFX_SUCCESS;
+  parentPath:= ExtractFilePath(Path);
+  Result:= WfxModule.WfxMkDir(parentPath, Path) = WFX_SUCCESS;
   if Result then
   begin
     if (log_vfs_op in gLogOptions) and (log_success in gLogOptions) then
-      logWrite(Format(rsMsgLogSuccess + rsMsgLogMkDir, [Path]), lmtSuccess)
+      logWrite(Format(rsMsgLogSuccess + rsMsgLogMkDir, [Path]), lmtSuccess);
+    self.Reload(parentPath);
   end
   else begin
     if (log_vfs_op in gLogOptions) and (log_errors in gLogOptions) then

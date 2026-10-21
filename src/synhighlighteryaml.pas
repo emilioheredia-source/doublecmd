@@ -41,7 +41,11 @@ unit SynHighlighterYAML;
 interface
 
 uses
-  SysUtils, Classes, Graphics, SynEditHighlighter, SynEditTypes;
+  SysUtils, Classes, Graphics, SynEditHighlighter, SynEditTypes, LCLVersion
+{$IF DEFINED(LCL_VER_499)}
+  , LazEditHighlighter
+{$ENDIF}
+  ;
 
 const
   rsUnknown = 0;
@@ -74,6 +78,10 @@ type
 
   PIdentFuncTableFunc = ^TIdentFuncTableFunc;
   TIdentFuncTableFunc = function (Index: Integer): TtkTokenKind of object;
+
+{$if lcl_fullversion >= 5990000}
+  TSynHighlighterAttributes = TLazEditHighlighterAttributes;
+{$endif}
 
 type
 
@@ -213,13 +221,19 @@ end;
 procedure TSynYAMLSyn.StringProc1;
 begin
   fTokenID := tkString;
-  while not IsLineEnd(Run) do begin
-    if FLine[Run] = '"' then begin
+  while not IsLineEnd(Run) do
+  begin
+    if FLine[Run] = '"' then
+    begin
       Inc(Run);
       LongRec(fRange).Lo := rsUnknown;
       Exit;
-    end else if FLine[Run] = '\' then
-      Inc(Run);
+    end;
+    if FLine[Run] = '\' then
+    begin
+      if FLine[Run + 1] = '"' then
+        Inc(Run);
+    end;
     Inc(Run)
   end;
   LongRec(fRange).Lo := rsString1;

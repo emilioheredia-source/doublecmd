@@ -112,6 +112,7 @@ type
     FFilePropertiesNeeded: TFilePropertiesTypes;
     FFileViewWorkers: TFileViewWorkers;
     FFlags: TFileViewFlags;
+    FPathAvailable: Boolean;     //<en Cached availability of the current path (used by the tab marker)
     FHashedFiles: TBucketList;  //<en Contains pointers to file source files for quick checking if a file object is still valid
     FHashedNames: TStringHashListUtf8;
     FPendingFilesChanges: TFPList;
@@ -467,6 +468,11 @@ type
     }
     procedure SetWatcherEnabled(AEnabled: Boolean);
     procedure StopWorkers; virtual;
+    {en
+       Re-checks availability of the current path (single stat) and refreshes
+       the tab title, so that the tab marker is up to date.
+    }
+    procedure UpdatePathAvailability;
 
     // For now we use here the knowledge that there are tabs.
     // Config should be independent of that in the future.
@@ -576,6 +582,7 @@ type
     property FlatView: Boolean read FFlatView write SetFlatView;
     property Path[FileSourceIndex, PathIndex: Integer]: String read GetPath;
     property PathsCount[FileSourceIndex: Integer]: Integer read GetPathsCount;
+    property PathAvailable: Boolean read FPathAvailable;
 
     property Sorting: TFileSortings read FSortings write SetSorting;
     property WatcherActive: Boolean read GetWatcherActive;
@@ -716,6 +723,7 @@ begin
   FHistory := TFileViewHistory.Create;
   FSavedSelection:= TStringListEx.Create;
   FLastMark := '*';
+  FPathAvailable := True;
   FLastMarkCaseSensitive := gbMarkMaskCaseSensitive;
   FLastMarkIgnoreAccents := gbMarkMaskIgnoreAccents;
   FFiles := TDisplayFiles.Create(False);
@@ -1051,6 +1059,7 @@ end;
 procedure TFileView.FileSourceFileListLoaded;
 begin
   FLoadingFileListLongTimer.Enabled := False;
+  UpdatePathAvailability;
 end;
 
 procedure TFileView.FileSourceFileListUpdated;
@@ -2307,12 +2316,11 @@ begin
           fileNamesList.Add(DragFile.FSFile.FullPath);
 
         // Initiate external drag&drop operation.
+        // Note that this does not necessarily block until the drag has finished:
+        // on GTK and Cocoa the drag session is asynchronous and this returns
+        // right after the drag has been started. Anything that has to happen
+        // after the drop belongs into the drag-end event, not here.
         Result := DragDropSource.DoDragDrop(fileNamesList, MouseButton, ScreenStartPoint);
-
-        // Refresh source file panel after drop to (possibly) another application
-        // (files could have been moved for example).
-        // 'draggedFileItem' is invalid after this.
-        Reload;
       end;
 
     finally
@@ -2756,13 +2764,26 @@ begin
     end;
     if TFileSystemFileSource.ClassNameIs(aFileSource.ClassName) then
     begin
-      // Go to upper directory if current doesn't exist. When nothing of it
-      // exists (a drive that is gone) go home: DC's working directory is
-      // wherever it was started from, e.g. /run or C:\Windows\System32.
-      sPath := GetDeepestExistingPath(FHistory.CurrentPath);
-      if Length(sPath) = 0 then sPath := GetHomeDir;
-      if not mbCompareFileNames(sPath, FHistory.CurrentPath) then
-        FHistory.Add(aFileSource, sPath);
+      if (fvfDelayLoadingFiles in Flags) then
+      begin
+        // The tab is not being loaded yet (e.g. inactive tab at startup).
+        // Keep the saved path even if the target is temporarily unavailable
+        // (removable media, network share): correcting it here would make the
+        // corrected path the saved one. Only cache the path availability for
+        // the tab marker ('?' on the tab title).
+        FPathAvailable := mbFileSystemEntryExists(FHistory.CurrentPath);
+      end
+      else
+      begin
+        // Go to upper directory if current doesn't exist. When nothing of it
+        // exists (a drive that is gone) go home: DC's working directory is
+        // wherever it was started from, e.g. /run or C:\Windows\System32.
+        sPath := GetDeepestExistingPath(FHistory.CurrentPath);
+        if Length(sPath) = 0 then sPath := GetHomeDir;
+        if not mbCompareFileNames(sPath, FHistory.CurrentPath) then
+          FHistory.Add(aFileSource, sPath);
+        FPathAvailable := True;
+      end;
     end;
   end;
 
@@ -3019,6 +3040,7 @@ begin
   UpdateTitle;
 
   MakeFileSourceFileList;
+  UpdatePathAvailability;
 end;
 
 procedure TFileView.ChangePathToParent(AllowChangingFileSource: Boolean);
@@ -3583,10 +3605,21 @@ begin
   FileSource.GetWatcher.UpdateWatch;
 end;
 
+procedure TFileView.UpdatePathAvailability;
+begin
+  if Assigned(FileSource) and TFileSystemFileSource.ClassNameIs(FileSource.ClassName) then
+    FPathAvailable := mbFileSystemEntryExists(CurrentPath)
+  else
+    FPathAvailable := True;
+  if Parent is TFileViewPage then
+    TFileViewPage(Parent).UpdateTitle;
+end;
+
 procedure TFileView.ActivateEvent(Sender: TObject);
 begin
   SetFlags(Flags - [fvfDelayLoadingFiles]);
   ReloadIfNeeded;
+  UpdatePathAvailability;
 end;
 
 function TFileView.CheckIfDelayReload: Boolean;

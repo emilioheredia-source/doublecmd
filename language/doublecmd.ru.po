@@ -1,8 +1,8 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Double Commander 1.3.0 alpha\n"
-"POT-Creation-Date: 2026-07-23 15:10+0300\n"
-"PO-Revision-Date: 2026-07-23 18:30+0300\n"
+"POT-Creation-Date: 2026-08-21 04:30+0300\n"
+"PO-Revision-Date: 2026-08-21 12:30+0300\n"
 "Last-Translator: Alexander Koblov <alexx2000@mail.ru>\n"
 "Language-Team: \n"
 "Language: ru\n"
@@ -1523,6 +1523,11 @@ msgstr "ИД процесса"
 msgid "Executable Path"
 msgstr "Исполняемый файл"
 
+#: tfrmfinddlg.actaddtostash.caption
+msgctxt "tfrmfinddlg.actaddtostash.caption"
+msgid "Add to Stash"
+msgstr "Добавить в хранилище"
+
 #: tfrmfinddlg.actcancel.caption
 msgctxt "tfrmfinddlg.actcancel.caption"
 msgid "C&ancel"
@@ -2086,6 +2091,7 @@ msgid "Add Plugin"
 msgstr "Добавить плагин"
 
 #: tfrmmain.actaddtostash.caption
+msgctxt "tfrmmain.actaddtostash.caption"
 msgid "Add to Stash"
 msgstr "Добавить в хранилище"
 
@@ -4381,6 +4387,10 @@ msgstr "Категория:"
 #: tfrmoptionscolors.lbldeleted.caption
 msgid "Deleted:"
 msgstr "Удалено:"
+
+#: tfrmoptionscolors.lbldirselection.caption
+msgid "Directory Selection:"
+msgstr "Выделение каталога:"
 
 #: tfrmoptionscolors.lblerror.caption
 msgid "Error:"
@@ -6879,7 +6889,7 @@ msgid ""
 "This feature requires additional system permission.\n"
 "\n"
 "Enabling it will automatically guide you to the\n"
-"System Settings > Privacy & Security > Accessibility Panel.\n"
+"System Settings > Privacy && Security > Accessibility Panel.\n"
 "\n"
 "Each time a new version of DC is installed, you must first\n"
 "remove DC from the list and then add it back in."
@@ -7607,6 +7617,10 @@ msgstr "Кнопка &закрытия вкладки"
 #: tfrmoptionstabs.cbtabsshowdriveletter.caption
 msgid "Always show drive letter in tab title"
 msgstr "Всегда показывать букву диска в заголовке вкладки"
+
+#: tfrmoptionstabs.cbtabsunavailablemarker.caption
+msgid "Mark unavailable path in tab title with &a question mark ?"
+msgstr "Отмечать вкладки с недоступным &путём вопросительным знаком ?"
 
 #: tfrmoptionstabs.gbtabs.caption
 msgctxt "TFRMOPTIONSTABS.GBTABS.CAPTION"
@@ -9198,6 +9212,14 @@ msgctxt "TFRMSYMLINK.LBLLINKTOCREATE.CAPTION"
 msgid "&Link name"
 msgstr "&Имя ссылки"
 
+#: tfrmsyncdirsdlg.actcopypropertieslefttoright.caption
+msgid "Copy file properties -> (left to right)..."
+msgstr ""
+
+#: tfrmsyncdirsdlg.actcopypropertiesrighttoleft.caption
+msgid "Copy file properties <- (right to left)..."
+msgstr ""
+
 #: tfrmsyncdirsdlg.actdeleteboth.caption
 msgid "Delete on both sides"
 msgstr "Удалить с обеих сторон"
@@ -9279,6 +9301,10 @@ msgstr "&асимметрично"
 #: tfrmsyncdirsdlg.chkbycontent.caption
 msgid "by content"
 msgstr "по сод&ержимому"
+
+#: tfrmsyncdirsdlg.chkemptydir.caption
+msgid "empty directories"
+msgstr "пустые каталоги"
 
 #: tfrmsyncdirsdlg.chkignoredate.caption
 msgid "ignore date"
@@ -9375,6 +9401,10 @@ msgstr "!="
 msgid "singles"
 msgstr "&уникальные"
 
+#: tfrmsyncdirsdlg.sbunknown.caption
+msgid "?"
+msgstr "?"
+
 #: tfrmsyncdirsdlg.statusbar1.panels[0].text
 msgid "Please press \"Compare\" to start"
 msgstr "Чтобы начать, нажмите \"Сравнить\""
@@ -9387,6 +9417,39 @@ msgstr "Синхронизировать"
 #: tfrmsyncdirsperformdlg.chkconfirmoverwrites.caption
 msgid "Confirm overwrites"
 msgstr "Подтвердить замену"
+
+#: tfrmsyncdirsperformdlg.chkdeleteleftallemptydirs.caption
+msgid "Left: Delete all empty directories"
+msgstr ""
+
+#: tfrmsyncdirsperformdlg.chkdeleterightallemptydirs.caption
+msgctxt "tfrmsyncdirsperformdlg.chkdeleterightallemptydirs.caption"
+msgid "Right: Delete all empty directories"
+msgstr ""
+
+#: tfrmsyncdirsperformdlg.chkverify.caption
+msgid "Verify"
+msgstr "Проверить после завершения"
+
+#: tfrmsyncdirsselectpropertiesdlg.chkattributes.caption
+msgid "File &attributes"
+msgstr ""
+
+#: tfrmsyncdirsselectpropertiesdlg.chkpermissions.caption
+msgid "&Permissions /  Ownership"
+msgstr ""
+
+#: tfrmsyncdirsselectpropertiesdlg.chktime.caption
+msgid "&Timestamp (date+time)"
+msgstr ""
+
+#: tfrmsyncdirsselectpropertiesdlg.chkxattributes.caption
+msgid "&Extended attributes"
+msgstr ""
+
+#: tfrmsyncdirsselectpropertiesdlg.lbllabel.caption
+msgid "Copy these file properties:"
+msgstr ""
 
 #: tfrmtreeviewmenu.caption
 msgctxt "tfrmtreeviewmenu.caption"
@@ -11381,12 +11444,12 @@ msgstr "Диск iCloud"
 #: ulng.rsmfstbinetworktips
 msgctxt "ulng.rsmfstbinetworktips"
 msgid "network"
-msgstr ""
+msgstr "Сетевые подключения"
 
 #: ulng.rsmfstbinetworktitle
 msgctxt "ulng.rsmfstbinetworktitle"
 msgid "network"
-msgstr ""
+msgstr "Сеть"
 
 #: ulng.rsmfstbiprivilegetips
 msgid "As a file manager, Double Command requires full disk access permissions. Clicking this button will pop up the macOS system settings page. Please add \"Double Commander.app\" to the \"Full Disk Access\" list to complete the authorization."

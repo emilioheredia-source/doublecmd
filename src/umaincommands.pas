@@ -3663,20 +3663,8 @@ begin
 end;
 
 procedure TMainCommands.cm_SyncDirs(const Params: array of string);
-var
-  OperationType: TFileSourceOperationType;
 begin
-  with frmMain do
-  begin
-    if GetCopyOperationType(FrameLeft.FileSource, FrameRight.FileSource, OperationType) or
-       GetCopyOperationType(FrameRight.FileSource, FrameLeft.FileSource, OperationType) then
-    begin
-      ShowSyncDirsDlg(FrameLeft, FrameRight);
-    end
-    else begin
-      msgWarning(rsMsgErrNotSupported);
-    end;
-  end;
+  ShowSyncDirsDlg(frmMain.FrameLeft, frmMain.FrameRight);
 end;
 
 //------------------------------------------------------

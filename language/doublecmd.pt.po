@@ -1535,6 +1535,11 @@ msgstr "ID do processo"
 msgid "Executable Path"
 msgstr "Caminho do executável"
 
+#: tfrmfinddlg.actaddtostash.caption
+msgctxt "tfrmfinddlg.actaddtostash.caption"
+msgid "Add to Stash"
+msgstr ""
+
 #: tfrmfinddlg.actcancel.caption
 msgctxt "tfrmfinddlg.actcancel.caption"
 msgid "C&ancel"
@@ -2102,6 +2107,7 @@ msgid "Add Plugin"
 msgstr "Adicionar extensão"
 
 #: tfrmmain.actaddtostash.caption
+msgctxt "tfrmmain.actaddtostash.caption"
 msgid "Add to Stash"
 msgstr ""
 
@@ -4402,6 +4408,10 @@ msgstr "Categoria:"
 #: tfrmoptionscolors.lbldeleted.caption
 msgid "Deleted:"
 msgstr "Eliminado:"
+
+#: tfrmoptionscolors.lbldirselection.caption
+msgid "Directory Selection:"
+msgstr ""
 
 #: tfrmoptionscolors.lblerror.caption
 msgid "Error:"
@@ -6876,7 +6886,7 @@ msgid ""
 "This feature requires additional system permission.\n"
 "\n"
 "Enabling it will automatically guide you to the\n"
-"System Settings > Privacy & Security > Accessibility Panel.\n"
+"System Settings > Privacy && Security > Accessibility Panel.\n"
 "\n"
 "Each time a new version of DC is installed, you must first\n"
 "remove DC from the list and then add it back in."
@@ -7595,6 +7605,10 @@ msgstr "Mostrar &botão de fecho do separador"
 #: tfrmoptionstabs.cbtabsshowdriveletter.caption
 msgid "Always show drive letter in tab title"
 msgstr "Mostrar sempre letra da unidade no título"
+
+#: tfrmoptionstabs.cbtabsunavailablemarker.caption
+msgid "Mark unavailable path in tab title with &a question mark ?"
+msgstr ""
 
 #: tfrmoptionstabs.gbtabs.caption
 msgctxt "TFRMOPTIONSTABS.GBTABS.CAPTION"
@@ -9174,6 +9188,14 @@ msgctxt "TFRMSYMLINK.LBLLINKTOCREATE.CAPTION"
 msgid "&Link name"
 msgstr "Nome da &ligação"
 
+#: tfrmsyncdirsdlg.actcopypropertieslefttoright.caption
+msgid "Copy file properties -> (left to right)..."
+msgstr ""
+
+#: tfrmsyncdirsdlg.actcopypropertiesrighttoleft.caption
+msgid "Copy file properties <- (right to left)..."
+msgstr ""
+
 #: tfrmsyncdirsdlg.actdeleteboth.caption
 msgid "Delete on both sides"
 msgstr "Eliminar nos dois lados"
@@ -9254,6 +9276,10 @@ msgstr "assimétrico"
 #: tfrmsyncdirsdlg.chkbycontent.caption
 msgid "by content"
 msgstr "por conteúdo"
+
+#: tfrmsyncdirsdlg.chkemptydir.caption
+msgid "empty directories"
+msgstr ""
 
 #: tfrmsyncdirsdlg.chkignoredate.caption
 msgid "ignore date"
@@ -9350,6 +9376,10 @@ msgstr "!="
 msgid "singles"
 msgstr "únicos"
 
+#: tfrmsyncdirsdlg.sbunknown.caption
+msgid "?"
+msgstr ""
+
 #: tfrmsyncdirsdlg.statusbar1.panels[0].text
 msgid "Please press \"Compare\" to start"
 msgstr "Clique em \"Comparar\" para iniciar"
@@ -9362,6 +9392,39 @@ msgstr "Sincronizar"
 #: tfrmsyncdirsperformdlg.chkconfirmoverwrites.caption
 msgid "Confirm overwrites"
 msgstr "Confirmar sobrescrição"
+
+#: tfrmsyncdirsperformdlg.chkdeleteleftallemptydirs.caption
+msgid "Left: Delete all empty directories"
+msgstr ""
+
+#: tfrmsyncdirsperformdlg.chkdeleterightallemptydirs.caption
+msgctxt "tfrmsyncdirsperformdlg.chkdeleterightallemptydirs.caption"
+msgid "Right: Delete all empty directories"
+msgstr ""
+
+#: tfrmsyncdirsperformdlg.chkverify.caption
+msgid "Verify"
+msgstr ""
+
+#: tfrmsyncdirsselectpropertiesdlg.chkattributes.caption
+msgid "File &attributes"
+msgstr ""
+
+#: tfrmsyncdirsselectpropertiesdlg.chkpermissions.caption
+msgid "&Permissions /  Ownership"
+msgstr ""
+
+#: tfrmsyncdirsselectpropertiesdlg.chktime.caption
+msgid "&Timestamp (date+time)"
+msgstr ""
+
+#: tfrmsyncdirsselectpropertiesdlg.chkxattributes.caption
+msgid "&Extended attributes"
+msgstr ""
+
+#: tfrmsyncdirsselectpropertiesdlg.lbllabel.caption
+msgid "Copy these file properties:"
+msgstr ""
 
 #: tfrmtreeviewmenu.caption
 msgctxt "tfrmtreeviewmenu.caption"

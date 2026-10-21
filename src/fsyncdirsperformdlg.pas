@@ -15,13 +15,14 @@ type
   TfrmSyncDirsPerformDlg = class(TForm)
     Bevel1: TBevel;
     ButtonPanel1: TButtonPanel;
+    chkDeleteLeftAllEmptyDirs: TCheckBox;
     chkDeleteLeft: TCheckBox;
+    chkDeleteRightAllEmptyDirs: TCheckBox;
     chkDeleteRight: TCheckBox;
     chkConfirmOverwrites: TCheckBox;
-    chkOverwriteReadOnly: TCheckBox;
-    chkDeleteToTrash: TCheckBox;
     chkLeftToRight: TCheckBox;
     chkRightToLeft: TCheckBox;
+    chkVerify: TCheckBox;
     edRightPath: TEdit;
     edLeftPath: TEdit;
   private

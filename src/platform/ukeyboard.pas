@@ -153,7 +153,7 @@ implementation
 uses
   LCLProc, LCLIntf, LazUTF8
 {$IF DEFINED(MSWINDOWS)}
-  , Windows
+  , Windows, uMyWindows
 {$ENDIF}
 {$IF DEFINED(LCLGTK)}
   , Gdk, GLib
@@ -194,7 +194,9 @@ type
   end;
 
 const
-  ModifiersMap: array [0..4] of TModifiersMap =
+  MAP_HIGH = {$IF DEFINED(DARWIN)}4{$ELSE}3{$ENDIF};
+
+  ModifiersMap: array [0..MAP_HIGH] of TModifiersMap =
    (
      {$IFDEF DARWIN}
      (Shift: ssAltGr; Shortcut: scAltGr; Text: mkcAltGr),
@@ -206,8 +208,7 @@ const
      (Shift: ssCtrl;  Shortcut: scCtrl;  Text: mkcCtrl),
      (Shift: ssMeta;  Shortcut: scMeta;  Text: mkcMeta),
      (Shift: ssShift; Shortcut: scShift; Text: mkcShift),
-     (Shift: ssAlt;   Shortcut: scAlt;   Text: mkcAlt),
-     (Shift: ssAltGr; Shortcut: scAltGr; Text: mkcAltGr)
+     (Shift: ssAlt;   Shortcut: scAlt;   Text: mkcAlt)
      {$ENDIF}
    );
 
@@ -252,6 +253,12 @@ var
 
   ShiftMask : Cardinal = 0;
   AltGrMask : Cardinal = 0;
+{$ENDIF}
+
+{$IF DEFINED(MSWINDOWS)}
+var
+  MsgHook: HHOOK = 0;
+  LayoutCache: TStringList;
 {$ENDIF}
 
 var
@@ -952,6 +959,25 @@ procedure UpdateKeyboardLayoutAltGrFlag;
       cbLgEntry: Byte;
       pLigature: Pointer;
     end;
+{$IFDEF WIN32}
+    PKBDTABLES64 = ^KBDTABLES64;
+    KBDTABLES64 = record // not packed
+      pCharModifers: UInt64;
+      pVkToWCharTable: UInt64;
+      pDeadKey: UInt64;
+      pKeyNames: UInt64;
+      pKeyNamesExt: UInt64;
+      pKeyNamesDead: UInt64;
+      pUsVscToVk: UInt64;
+      MaxVscToVk: Byte;
+      pVSCToVk_E0: UInt64;
+      pVSCToVk_E1: UInt64;
+      LocalFlags: DWORD;    // <-- we only need this
+      LgMaxD: Byte;
+      cbLgEntry: Byte;
+      pLigature: UInt64;
+    end;
+{$ENDIF}
 
   const
     KBDTABLE_VERSION = 1;
@@ -960,63 +986,82 @@ procedure UpdateKeyboardLayoutAltGrFlag;
     //KLLF_SHIFTLOCK = 2;
     //KLLF_LRM_RLM = 4;
 
-  function GetKeyboardLayoutFileName: WideString;
+  var
+    KeyboardLayoutName: array [0..KL_NAMELENGTH-1] of WChar;
+
+  function GetKeyboardLayoutFileName: UnicodeString;
   var
     KeyHandle: HKEY;
-    KeyboardLayoutName: array [0..KL_NAMELENGTH-1] of WChar;
-    RegistryKey  : WideString = 'SYSTEM\CurrentControlSet\Control\Keyboard Layouts\';
-    RegistryValue: WideString = 'Layout File';
+    RegistryKey  : UnicodeString = 'SYSTEM\CurrentControlSet\Control\Keyboard Layouts\';
+    RegistryValue: UnicodeString = 'Layout File';
     BytesNeeded: DWORD;
   begin
     Result := '';
-    // Get current keyboard layout ID.
-    if GetKeyboardLayoutNameW(KeyboardLayoutName) then
+    RegistryKey := RegistryKey + PWChar(KeyboardLayoutName);
+
+    // Read corresponding layout dll name from registry.
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, PWChar(RegistryKey), 0,
+                      KEY_QUERY_VALUE, @KeyHandle) = ERROR_SUCCESS)
+       and (KeyHandle <> 0) then
     begin
-      RegistryKey := RegistryKey + PWChar(KeyboardLayoutName);
-
-      // Read corresponding layout dll name from registry.
-      if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, PWChar(RegistryKey), 0,
-                        KEY_QUERY_VALUE, @KeyHandle) = ERROR_SUCCESS)
-         and (KeyHandle <> 0) then
+      if RegQueryValueExW(KeyHandle, PWChar(RegistryValue), nil, nil,
+                          nil, @BytesNeeded) = ERROR_SUCCESS then
       begin
+        SetLength(Result, BytesNeeded div SizeOf(WChar));
         if RegQueryValueExW(KeyHandle, PWChar(RegistryValue), nil, nil,
-                            nil, @BytesNeeded) = ERROR_SUCCESS then
+                            PByte(PWChar(Result)), @BytesNeeded) = ERROR_SUCCESS then
         begin
-          SetLength(Result, BytesNeeded div SizeOf(WChar));
-          if RegQueryValueExW(KeyHandle, PWChar(RegistryValue), nil, nil,
-                              PByte(PWChar(Result)), @BytesNeeded) = ERROR_SUCCESS then
-          begin
-            Result := Result + #0; // end with zero to be sure
-          end;
+          Result := Result + #0; // end with zero to be sure
         end;
-
-        RegCloseKey(KeyHandle);
       end;
+
+      RegCloseKey(KeyHandle);
     end;
   end;
 
-  function GetKeyboardLayoutAltGrFlag(LayoutDllFileName: WideString): Boolean;
+  function GetKeyboardLayoutAltGrFlag(const LayoutDllFileName: UnicodeString): Boolean;
   type
     TKbdLayerDescriptor = function: PKBDTABLES; stdcall;
   var
     Handle: HMODULE;
-    KbdLayerDescriptor: TKbdLayerDescriptor;
     Tables: PKBDTABLES;
+{$IFDEF WIN32}
+    Tables64: PKBDTABLES64;
+{$ENDIF}
+    SystemDirectory: UnicodeString;
+    KbdLayerDescriptor: TKbdLayerDescriptor;
   begin
     Result := False;
     // Load the keyboard layout dll.
-    Handle := LoadLibraryW(PWChar(LayoutDllFileName));
+    SetLength(SystemDirectory, MaxSmallint + 1);
+    SetLength(SystemDirectory, GetSystemDirectoryW(Pointer(SystemDirectory), MaxSmallint));
+    Handle := LoadLibraryW(PWideChar(SystemDirectory + PathDelim + LayoutDllFileName));
     if Handle <> 0 then
     begin
       KbdLayerDescriptor := TKbdLayerDescriptor(GetProcAddress(Handle, 'KbdLayerDescriptor'));
       if Assigned(KbdLayerDescriptor) then
       begin
-        // Get the layout tables.
-        Tables := KbdLayerDescriptor();
-        if Assigned(Tables) and (HIWORD(Tables^.LocalFlags) = KBDTABLE_VERSION) then
+{$IFDEF WIN32}
+        if IsWow64 then
         begin
-          // Read AltGr flag.
-          Result := Boolean(Tables^.LocalFlags and KLLF_ALTGR);
+          // Get the layout tables.
+          Tables64 := PKBDTABLES64(KbdLayerDescriptor());
+          if Assigned(Tables64) and (Hi(Tables64^.LocalFlags) = KBDTABLE_VERSION) then
+          begin
+            // Read AltGr flag.
+            Result := Boolean(Tables64^.LocalFlags and KLLF_ALTGR);
+          end;
+        end
+        else
+{$ENDIF}
+        begin
+          // Get the layout tables.
+          Tables := KbdLayerDescriptor();
+          if Assigned(Tables) and (Hi(Tables^.LocalFlags) = KBDTABLE_VERSION) then
+          begin
+            // Read AltGr flag.
+            Result := Boolean(Tables^.LocalFlags and KLLF_ALTGR);
+          end;
         end;
       end;
 
@@ -1025,13 +1070,30 @@ procedure UpdateKeyboardLayoutAltGrFlag;
   end;
 
 var
-  FileName: WideString;
+  AKey: String;
+  Index: Integer;
+  FileName: UnicodeString;
 begin
   HasKeyboardAltGrKey := False;
 
-  FileName := GetKeyboardLayoutFileName;
-  if FileName <> '' then
-    HasKeyboardAltGrKey := GetKeyboardLayoutAltGrFlag(FileName);
+  // Get current keyboard layout ID.
+  if GetKeyboardLayoutNameW(KeyboardLayoutName) then
+  begin
+    AKey:= KeyboardLayoutName;
+    Index:= LayoutCache.IndexOf(AKey);
+    {$PUSH}{$HINTS OFF}{$WARNINGS OFF}
+    if (Index >= 0) then
+      HasKeyboardAltGrKey := Boolean(IntPtr(LayoutCache.Objects[Index]))
+    else begin
+      FileName := GetKeyboardLayoutFileName;
+      if FileName <> '' then
+      begin
+        HasKeyboardAltGrKey := GetKeyboardLayoutAltGrFlag(FileName);
+        LayoutCache.AddObject(AKey, TObject(IntPtr(HasKeyboardAltGrKey)));
+      end;
+    end;
+    {$POP}
+  end;
 end;
 {$ENDIF}
 
@@ -1170,6 +1232,20 @@ begin
   OnKeyboardLayoutChanged;
 end;
 {$ENDIF}
+{$ELSEIF DEFINED(MSWINDOWS)}
+function CallWndProc(nCode: Integer; wParam: WPARAM; lParam: LPARAM): LRESULT; stdcall;
+var
+  CWP: PCWPStruct absolute lParam;
+begin
+  if nCode >= 0 then
+  begin
+    if CWP^.message = WM_INPUTLANGCHANGE then
+    begin
+      OnKeyboardLayoutChanged;
+    end;
+  end;
+  Result := CallNextHookEx(MsgHook, nCode, wParam, lParam);
+end;
 {$ENDIF}
 
 procedure UnhookKeyboardLayoutChanged;
@@ -1197,6 +1273,13 @@ begin
   end;
 
   {$ENDIF}
+{$ELSEIF DEFINED(MSWINDOWS)}
+
+  if MsgHook <> 0 then
+  begin
+    UnhookWindowsHookEx(MsgHook);
+    MsgHook := 0;
+  end;
 
 {$ENDIF}
 end;
@@ -1233,6 +1316,10 @@ begin
                             {$IFDEF LCLGTK2}0{$ELSE}[]{$ENDIF});
 
   {$ENDIF}
+
+{$ELSEIF DEFINED(MSWINDOWS)}
+
+  MsgHook := SetWindowsHookEx(WH_CALLWNDPROC, @CallWndProc, 0, GetCurrentThreadId);
 
 {$ENDIF}
 end;
@@ -1291,6 +1378,14 @@ procedure CleanupKeyboard;
 begin
   UnhookKeyboardLayoutChanged;
 end;
+
+{$IF DEFINED(MSWINDOWS)}
+initialization
+  LayoutCache:= TStringList.Create;
+
+finalization
+  LayoutCache.Free;
+{$ENDIF}
 
 {$IF DEFINED(X11)}
 initialization
