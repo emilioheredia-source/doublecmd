@@ -34,7 +34,7 @@ uses
   uFileView, uFileSource, uFileSourceCopyOperation, uFile, uFileSourceOperation,
   uFileSourceOperationMessageBoxesUI, uFormCommands, uHotkeyManager, uClassesEx,
   uFileSourceOperationOptions, uFileSourceDeleteOperation, KASProgressBar,
-  uMasks, uSearchTemplate,
+  uMasks, uSearchTemplate, uFileSystemUtil,
   uSyncDirsModel, uSyncDirsService;
 
 const
@@ -194,6 +194,19 @@ type
     FileExistsOption: TFileSourceOperationOptionFileExists;
     SymLinkOption: TFileSourceOperationOptionSymLink;
     VerifyOption: Boolean;
+    // Carried from one copy batch to the next, so "All"-type answers hold
+    // for the whole run
+    OverwriteReadOnly: Boolean;
+    SkipAllErrors: Boolean;
+    DirExistsOption: TFileSourceOperationOptionDirectoryExists;
+    SetPropertyError: TFileSourceOperationOptionSetPropertyError;
+    SkipFlags: TFileSystemOperationHelperSkipFlags;
+    // The same for delete batches. Whether deletions go to the trash is
+    // preset from the global setting and chosen per run.
+    FDeleteSkipErrors: Boolean;
+    FDeleteReadOnlyOption: TFileSourceOperationOptionGeneral;
+    FDeleteDirectlyOption: TFileSourceOperationOptionGeneral;
+    FDeleteToTrash: Boolean;
     FCopyStatistics: TFileSourceCopyOperationStatistics;
     FDeleteStatistics: TFileSourceDeleteOperationStatistics;
     FFileSourceOperationMessageBoxesUI: TFileSourceOperationMessageBoxesUI;
@@ -228,6 +241,12 @@ type
     function confirmSkippedItems(const syncCount: TSyncDirsSyncCount): Boolean;
     procedure UpdateExcludeFieldsState;
     function createExclusionTemplate: TSearchTemplate;
+    procedure ApplyCopyOptions(const operation: TFileSourceOperation);
+    procedure RememberCopyOptions(const operation: TFileSourceOperation);
+    procedure ResetDeleteOptions;
+    procedure ApplyDeleteOptions(const operation: TFileSourceOperation);
+    procedure RememberDeleteOptions(const operation: TFileSourceOperation);
+    function trashAvailableFor(const sides: array of TDoubleSide): Boolean;
     procedure SetProgressBytes(AProgressBar: TKASProgressBar; CurrentBytes: Int64; TotalBytes: Int64);
     procedure SetProgressFiles(AProgressBar: TKASProgressBar; CurrentFiles: Int64; TotalFiles: Int64);
 
@@ -344,7 +363,8 @@ uses
   uDCUtils, uFileSourceOperationTypes, uShowForm, uAdministrator,
   uOSUtils, uLng, Math, uClipboard, fMaskInputDlg,
   LCLVersion, uTypes, uFileSystemCopyOperation, uFileSystemDeleteOperation, uFindFiles,
-  uFileSourceManager, uFileSourceProperty, uShowMsg;
+  uFileSourceManager, uFileSourceProperty, uShowMsg,
+  fDeleteDlg, uTrash, uOperationsManager;
 
 {$R *.lfm}
 
@@ -551,10 +571,14 @@ begin
       Format(rsRightToLeftCopy, [syncCount.copyToLeftCount, cnvFormatFileSize(syncCount.copyToLeftSize, fsfFloat, gFileSizeDigits), IntToStrTS(syncCount.copyToLeftSize)]);
     chkVerify.Visible := TSyncDirsUtil.supportsVerify(FCmpFileSources);
     chkVerify.Checked := gOperationOptionVerify;
+    chkOverwriteReadOnly.Checked := gSyncDirsOverwriteReadOnly;
+    chkDeleteToTrash.Checked := gUseTrash;
 
     if ShowModal = mrOk then
     begin
       EnableControls(False);
+      // Each run starts with fresh operation options; from here on they are
+      // carried from one batch to the next by the Apply*/Remember* pairs
       // A link is always synced as a link; see TSyncDirsTreeBuilder.build
       SymLinkOption:= fsooslDontFollow;
       if chkConfirmOverwrites.Checked then
@@ -563,6 +587,14 @@ begin
         FileExistsOption := fsoofeOverwrite;
       end;
       VerifyOption := chkVerify.Checked;
+      OverwriteReadOnly := chkOverwriteReadOnly.Checked;
+      gSyncDirsOverwriteReadOnly := OverwriteReadOnly;
+      SkipAllErrors := False;
+      DirExistsOption := gOperationOptionDirectoryExists;
+      SetPropertyError := gOperationOptionSetPropertyError;
+      SkipFlags := Default(TFileSystemOperationHelperSkipFlags);
+      ResetDeleteOptions;
+      FDeleteToTrash := chkDeleteToTrash.Checked;
 
       if chkRightToLeft.Checked then
         Include( syncFlags, sfCopyToLeft );
@@ -750,6 +782,7 @@ begin
   HMSync := HotMan.Register(Self, HotkeysCategory);
   HMSync.RegisterActionList(ActionList);
   FCommands := TFormCommands.Create(Self, ActionList);
+  ResetDeleteOptions;
 
 {$IFDEF DARWIN}
   self.BorderIcons:= self.BorderIcons - [biMinimize];
@@ -1517,6 +1550,17 @@ begin
   Result:= pnlProgress.Visible;
 end;
 
+// Whether the local trash can take what is deleted on these sides
+function TfrmSyncDirsDlg.trashAvailableFor(const sides: array of TDoubleSide): Boolean;
+var
+  side: TDoubleSide;
+begin
+  Result:= True;
+  for side in sides do
+    Result:= Result and FCmpFileSources[side].IsClass(TFileSystemFileSource)
+                    and mbCheckTrash(FCmpFilePaths[side]);
+end;
+
 procedure TfrmSyncDirsDlg.DeleteSelectedFiles(ALeft, ARight: Boolean);
 var
   commonService: TSyncDirsCommonService;
@@ -1524,7 +1568,34 @@ var
   indexes: TIntegerList = nil;
   leftCount: Integer;
   rightCount: Integer;
+
+  // Trash or delete is asked along with the confirmation when the trash is
+  // available, preset from the global setting; the choice holds for this
+  // delete only
+  function confirmed: Boolean;
+  var
+    sides: array of TDoubleSide;
+    deleteMode: TDeleteMode;
+    queueId: TOperationsManagerQueueIdentifier;
+  begin
+    sides:= [];
+    if ALeft then Insert(dsLeft, sides, Length(sides));
+    if ARight then Insert(dsRight, sides, Length(sides));
+    if NOT trashAvailableFor(sides) then begin
+      FDeleteToTrash:= False;
+      Exit(MessageDlg(Message, mtWarning, [mbYes, mbNo], 0, mbYes) = mrYes);
+    end;
+    if FDeleteToTrash then
+      deleteMode:= dmTrash
+    else
+      deleteMode:= dmDelete;
+    Result:= ShowDeleteDialog(Self, Message, Message, EmptyStr,
+               FCmpFileSources[sides[0]], queueId, True, False, deleteMode);
+    FDeleteToTrash:= (deleteMode = dmTrash);
+  end;
+
 begin
+  ResetDeleteOptions;
   commonService:= TSyncDirsCommonService.Create(self, self, FFilteredList, FCmpFileSources);
   try
     indexes:= self.createSelectionIndexes;
@@ -1548,7 +1619,7 @@ begin
       Message+= Format(rsVarRightPanel + ': ' + rsMsgDelFlDr, [rightCount]) + LineEnding;
     end;
 
-    if MessageDlg(Message, mtWarning, [mbYes, mbNo], 0, mbYes) = mrYes then begin
+    if confirmed then begin
       EnableControls(False);
       pnlFileSizeProgress.Visible:= False;
       pnlFileCountProgress.Visible:= True;
@@ -1578,16 +1649,12 @@ var
     case state of
       fsosStarting: begin
         operation.Elevate:= ElevateAction;
-        TFileSourceCopyOperation(operation).SymLinkOption := SymLinkOption;
-        TFileSourceCopyOperation(operation).FileExistsOption := FileExistsOption;
-        if operation is TFileSystemCopyOperation then
-          TFileSystemCopyOperation(operation).Verify := VerifyOption;
+        ApplyCopyOptions(operation);
         operation.AddUserInterface(FFileSourceOperationMessageBoxesUI);
         FOperation:= operation;
       end;
       fsosStopped: begin
-        SymLinkOption := TFileSourceCopyOperation(operation).SymLinkOption;
-        FileExistsOption := TFileSourceCopyOperation(operation).FileExistsOption;
+        RememberCopyOptions(operation);
         FCopyStatistics.DoneBytes+= TFileSourceCopyOperation(operation).RetrieveStatistics.TotalBytes;
         SetProgressBytes(pbFileSizeProgress, FCopyStatistics.DoneBytes, FCopyStatistics.TotalBytes);
         FOperation:= nil;
@@ -1615,13 +1682,15 @@ var
     case state of
       fsosStarting: begin
         if (operation is TFileSystemDeleteOperation) then begin
-          TFileSystemDeleteOperation(operation).Recycle:= gUseTrash;
+          TFileSystemDeleteOperation(operation).Recycle:= FDeleteToTrash;
         end;
+        ApplyDeleteOptions(operation);
         operation.Elevate:= ElevateAction;
         operation.AddUserInterface(FFileSourceOperationMessageBoxesUI);
         FOperation:= operation;
       end;
       fsosStopped: begin
+        RememberDeleteOptions(operation);
         FDeleteStatistics.DoneFiles+= TFileSourceDeleteOperation(operation).RetrieveStatistics.TotalFiles;
         SetProgressFiles(pbFileCountProgress, FDeleteStatistics.DoneFiles, FDeleteStatistics.TotalFiles);
         FOperation:= nil;
@@ -1666,6 +1735,72 @@ begin
   files.Add(f);
   Result:= fileProcessorWithUIDeleteFiles(FileSource, files);
   files.Free;
+end;
+
+{ Copy and delete operations are created anew for every directory batch, so
+  the user's "All"-type answers (overwrite all, skip all errors, delete
+  read-only, delete directly when the trash fails) live in form fields and are
+  applied to each new operation and read back afterwards. }
+
+procedure TfrmSyncDirsDlg.ApplyCopyOptions(const operation: TFileSourceOperation);
+var
+  copyOperation: TFileSourceCopyOperation absolute operation;
+begin
+  copyOperation.SymLinkOption := SymLinkOption;
+  copyOperation.FileExistsOption := FileExistsOption;
+  copyOperation.DirExistsOption := DirExistsOption;
+  copyOperation.SkipAllErrors := SkipAllErrors;
+  copyOperation.OverwriteReadOnly := OverwriteReadOnly;
+  if operation is TFileSystemCopyOperation then
+  begin
+    TFileSystemCopyOperation(operation).Verify := VerifyOption;
+    TFileSystemCopyOperation(operation).SetPropertyError := SetPropertyError;
+    TFileSystemCopyOperation(operation).SkipFlags := SkipFlags;
+  end;
+end;
+
+procedure TfrmSyncDirsDlg.RememberCopyOptions(const operation: TFileSourceOperation);
+var
+  copyOperation: TFileSourceCopyOperation absolute operation;
+begin
+  SymLinkOption := copyOperation.SymLinkOption;
+  FileExistsOption := copyOperation.FileExistsOption;
+  DirExistsOption := copyOperation.DirExistsOption;
+  SkipAllErrors := copyOperation.SkipAllErrors;
+  if operation is TFileSystemCopyOperation then
+  begin
+    SetPropertyError := TFileSystemCopyOperation(operation).SetPropertyError;
+    SkipFlags := TFileSystemCopyOperation(operation).SkipFlags;
+  end;
+end;
+
+// Answers given in one run must not leak into the next
+procedure TfrmSyncDirsDlg.ResetDeleteOptions;
+begin
+  FDeleteSkipErrors := gSkipFileOpError;
+  FDeleteReadOnlyOption := fsoogNone;
+  FDeleteDirectlyOption := fsoogNone;
+  FDeleteToTrash := gUseTrash;
+end;
+
+procedure TfrmSyncDirsDlg.ApplyDeleteOptions(const operation: TFileSourceOperation);
+var
+  deleteOperation: TFileSourceDeleteOperation absolute operation;
+begin
+  deleteOperation.SkipErrors := FDeleteSkipErrors;
+  deleteOperation.DeleteReadOnly := FDeleteReadOnlyOption;
+  if operation is TFileSystemDeleteOperation then
+    TFileSystemDeleteOperation(operation).DeleteDirectly := FDeleteDirectlyOption;
+end;
+
+procedure TfrmSyncDirsDlg.RememberDeleteOptions(const operation: TFileSourceOperation);
+var
+  deleteOperation: TFileSourceDeleteOperation absolute operation;
+begin
+  FDeleteSkipErrors := deleteOperation.SkipErrors;
+  FDeleteReadOnlyOption := deleteOperation.DeleteReadOnly;
+  if operation is TFileSystemDeleteOperation then
+    FDeleteDirectlyOption := TFileSystemDeleteOperation(operation).DeleteDirectly;
 end;
 
 procedure TfrmSyncDirsDlg.SetProgressBytes(AProgressBar: TKASProgressBar;
