@@ -70,6 +70,7 @@ type
     actSelectClear: TAction;
     actSelectCopyLeftToRight: TAction;
     actSelectCopyRightToLeft: TAction;
+    actSelectKeepLink: TAction;
     actSelectCopyDefault: TAction;
     ActionList: TActionList;
     btnAbort: TBitBtn;
@@ -109,6 +110,7 @@ type
     miSeparator1: TMenuItem;
     miSelectCopyLeftToRight: TMenuItem;
     miSelectCopyRightToLeft: TMenuItem;
+    miSelectKeepLink: TMenuItem;
     miSelectCopyDefault: TMenuItem;
     miSelectClear: TMenuItem;
     MenuItemCompare: TMenuItem;
@@ -217,6 +219,7 @@ type
     procedure UpdateStatusBar;
     procedure EnableControls(AEnabled: Boolean);
     procedure DeleteSelectedFiles(ALeft, ARight: Boolean);
+    function confirmSkippedItems(const syncCount: TSyncDirsSyncCount): Boolean;
     procedure SetProgressBytes(AProgressBar: TKASProgressBar; CurrentBytes: Int64; TotalBytes: Int64);
     procedure SetProgressFiles(AProgressBar: TKASProgressBar; CurrentFiles: Int64; TotalFiles: Int64);
 
@@ -256,6 +259,7 @@ type
   private
     function treeBuilderCheckRunning( const processMessages: Boolean ): Boolean;
     function treeBuilderMaskFilt( const f: TFile ): Boolean;
+    function treeBuilderUnreadable( const side: TDoubleSide; const path: String ): TSyncDirsUnreadableAnswer;
     procedure onTreeBuilderUpdateProgress( const percent: Integer );
 
   private
@@ -288,6 +292,7 @@ type
     procedure cm_SelectCopyReverse(const {%H-}Params:array of string);
     procedure cm_SelectCopyLeftToRight(const {%H-}Params:array of string);
     procedure cm_SelectCopyRightToLeft(const {%H-}Params:array of string);
+    procedure cm_SelectKeepLink(const {%H-}Params:array of string);
 
     procedure cm_DeleteLeft(const {%H-}Params:array of string);
     procedure cm_DeleteRight(const {%H-}Params:array of string);
@@ -305,6 +310,20 @@ resourcestring
   rsDeleteRight = 'Right: Delete %d file(s)';
   rsFilesFound = 'Files found: %d  (Identical: %d, Different: %d, '
     + 'Unique left: %d, Unique right: %d)';
+  rsSyncCannotRead = 'Cannot read folder "%s".'
+    + ' Skipping it leaves the folder untouched on both sides.';
+  rsSyncUnreadable = '<could not be read>';
+  rsSyncFoldersUnreadable = '%d folder(s) could not be read';
+  rsSyncUnreadableWarning = '%d folder(s) could not be read. They are left'
+    + ' untouched on both sides and will not be synchronized. Continue?';
+  rsSyncTypeConflicts = '%d item(s) differ in type (red)';
+  rsSyncTypeConflictWarning = '%d item(s) are a folder on one side and a file or'
+    + ' link on the other (shown in red) and have no action set. They are left'
+    + ' untouched on both sides and will not be synchronized. Continue?';
+  rsSyncTypeConflictReplace = '%d item(s) shown in red will replace an item of a'
+    + ' different type on the other side. What is there now is deleted first'
+    + ' - for a folder, everything in it - and the item is then copied over'
+    + ' whole. Continue?';
 
 procedure ShowSyncDirsDlg(FileView1, FileView2: TFileView);
 
@@ -444,6 +463,10 @@ begin
   synchronizer:= TSyncDirsSynchronizer.Create( self, self, FFilteredList, FCmpFileSources, FCmpFilePaths );
   syncCount:= synchronizer.count;
   syncFlags:= [];
+  if NOT confirmSkippedItems( syncCount ) then begin
+    synchronizer.Free;
+    Exit;
+  end;
 
   FCopyStatistics.DoneBytes:= 0;
   FDeleteStatistics.DoneFiles:= 0;
@@ -482,7 +505,8 @@ begin
     if ShowModal = mrOk then
     begin
       EnableControls(False);
-      SymLinkOption:= fsooslNone;
+      // A link is always synced as a link; see TSyncDirsTreeBuilder.build
+      SymLinkOption:= fsooslDontFollow;
       if chkConfirmOverwrites.Checked then
         FileExistsOption := fsoofeNone
       else begin
@@ -718,10 +742,21 @@ begin
       end;
       FillRect(aRect);
       Font.Bold := True;
-      Font.Color := clWindowText;
+      if rec.isUnreadable then
+        Font.Color := clRed
+      else
+        Font.Color := clWindowText;
       with hCols[0] do
         TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
           Left + 2, aRect.Top + 2, FFilteredList.path(aRow));
+      if rec.isUnreadableOnSide(dsLeft) then
+        with hCols[1] do
+          TextRect(Rect(Left, aRect.Top, hCols[2].Left + hCols[2].Width, aRect.Bottom),
+            Left + 2, aRect.Top + 2, rsSyncUnreadable);
+      if rec.isUnreadableOnSide(dsRight) then
+        with hCols[4] do
+          TextRect(Rect(Left, aRect.Top, hCols[5].Left + hCols[5].Width, aRect.Bottom),
+            Left + 2, aRect.Top + 2, rsSyncUnreadable);
     end else begin
       with gColors.SyncDirs^ do
       begin
@@ -734,6 +769,7 @@ begin
         else Font.Color := clWindowText;
         end;
       end;
+      if rec.isTypeConflict then Font.Color := clRed;
       if rec.hasLeftFile then
       begin
         with hCols[0] do
@@ -902,6 +938,7 @@ procedure TfrmSyncDirsDlg.pmGridMenuPopup(Sender: TObject);
 
     miSelectCopyLeftToRight.Enabled:= hasLeft;
     miSelectCopyRightToLeft.Enabled:= hasRight;
+    miSelectKeepLink.Visible:= FFilteredCount.typeConflict > 0;
     MenuItemViewLeft.Enabled:= hasLeft;
     MenuItemViewRight.Enabled:= hasRight;
     MenuItemCompare.Enabled:= hasBothWithinSameRec;
@@ -1165,6 +1202,10 @@ procedure TfrmSyncDirsDlg.UpdateStatusBar;
 var s: string;
 begin
   s := Format(rsFilesFound, [FFilteredCount.total, FFilteredCount.equal, FFilteredCount.notEqual, FFilteredCount.leftUnique, FFilteredCount.rightUnique]);
+  if FFilteredCount.unreadable > 0 then
+    s := s + '  ' + Format(rsSyncFoldersUnreadable, [FFilteredCount.unreadable]);
+  if FFilteredCount.typeConflict > 0 then
+    s := s + '  ' + Format(rsSyncTypeConflicts, [FFilteredCount.typeConflict]);
   if Assigned(FCheckContentThread)
   and not FCheckContentThread.Done then
     s := s + ' ...';
@@ -1363,6 +1404,40 @@ begin
     if NOT Result then
       Result:= ((FMaskList = nil) or FMaskList.Matches(f.Name));
   end;
+end;
+
+function TfrmSyncDirsDlg.treeBuilderUnreadable(const side: TDoubleSide;
+  const path: String): TSyncDirsUnreadableAnswer;
+begin
+  case MsgBox(Format(rsSyncCannotRead, [FAddresses[side] + path]),
+              [msmbRetry, msmbSkip, msmbSkipAll, msmbAbort], msmbRetry, msmbAbort) of
+    mmrRetry:   Result:= uaRetry;
+    mmrSkipAll: Result:= uaSkipAll;
+    mmrAbort:
+      begin
+        FCancel:= True;
+        Result:= uaAbort;
+      end;
+    else
+      Result:= uaSkip;
+  end;
+end;
+
+// Folders that could not be read and type conflicts without an action are
+// left alone on both sides; a conflict with an action replaces the other
+// side. Say so before synchronizing.
+function TfrmSyncDirsDlg.confirmSkippedItems(const syncCount: TSyncDirsSyncCount): Boolean;
+
+  function warn(const message: String; const count: Integer): Boolean;
+  begin
+    Result:= (count = 0) or
+             (MessageDlg(Format(message, [count]), mtWarning, [mbYes, mbNo], 0, mbNo) = mrYes);
+  end;
+
+begin
+  Result:= warn(rsSyncUnreadableWarning, FFilteredCount.unreadable) and
+           warn(rsSyncTypeConflictWarning, syncCount.conflictKeepCount) and
+           warn(rsSyncTypeConflictReplace, syncCount.conflictReplaceCount);
 end;
 
 procedure TfrmSyncDirsDlg.onTreeBuilderUpdateProgress(const percent: Integer);
@@ -1719,6 +1794,13 @@ end;
 procedure TfrmSyncDirsDlg.cm_SelectCopyRightToLeft(const Params: array of string);
 begin
   setSelectionAction(srsCopyToLeft);
+end;
+
+procedure TfrmSyncDirsDlg.cm_SelectKeepLink(const Params: array of string);
+begin
+  // Links are usually the original: the real folder on the other side came
+  // from an earlier sync that copied what the link pointed to
+  setSelectionAction(srsKeepLink);
 end;
 
 procedure TfrmSyncDirsDlg.cm_DeleteLeft(const Params: array of string);
