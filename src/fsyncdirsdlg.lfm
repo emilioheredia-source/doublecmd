@@ -176,17 +176,6 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
         Enabled = False
         ParentFont = False
       end
-      object chkEmptyDir: TCheckBox
-        AnchorSideLeft.Control = chkOnlySelected
-        AnchorSideTop.Control = Label1
-        AnchorSideTop.Side = asrBottom
-        Left = 3
-        Height = 18
-        Top = 60
-        Width = 126
-        Caption = 'empty directories'
-        TabOrder = 2
-      end
     end
     object LeftPanel2: TPanel
       AnchorSideLeft.Control = LeftPanel1
@@ -253,6 +242,18 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
         Caption = 'ignore date'
         ParentFont = False
         TabOrder = 3
+      end
+      object chkEmptyDir: TCheckBox
+        AnchorSideLeft.Control = LeftPanel2
+        AnchorSideTop.Control = chkIgnoreDate
+        AnchorSideTop.Side = asrBottom
+        Left = 0
+        Height = 18
+        Top = 80
+        Width = 126
+        Caption = 'empty directories'
+        ParentFont = False
+        TabOrder = 4
       end
     end
     object GroupBox1: TGroupBox
