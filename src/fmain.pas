@@ -618,6 +618,7 @@ type
     procedure miTrayIconRestoreClick(Sender: TObject);
     procedure mnuOpenStashClick(Sender: TObject);
     procedure PanelButtonClick(Button: TSpeedButton; FileView: TFileView);
+    procedure ShowDirectoryHotlist(Button: TControl; FileView: TFileView);
     procedure pnlDiskResize(Sender: TObject);
     procedure ShellTreeViewSelect;
     procedure ShellTreeViewKeyDown(Sender: TObject; var Key: Word;
@@ -1417,13 +1418,8 @@ end;
 //To make appear the Directory Hotlist popup menu when pressing "*" button on left
 //
 procedure TfrmMain.btnLeftDirectoryHotlistClick(Sender: TObject);
-var P:TPoint;
 begin
-  if tb_activate_panel_on_click in gDirTabOptions then SetActiveFrame(fpLeft);
-  gDirectoryHotlist.PopulateMenuWithHotDir(pmHotList,@HotDirSelected,@miHotAddOrConfigClick,mpHOTDIRSWITHCONFIG,0);
-  p := Classes.Point(btnLeftDirectoryHotlist.Left,btnLeftDirectoryHotlist.Height);
-  p := pnlLeftTools.ClientToScreen(p);
-  pmHotList.PopUp(P.x,P.y);
+  ShowDirectoryHotlist(btnLeftDirectoryHotlist, FrameLeft);
 end;
 
 procedure TfrmMain.btnRightClick(Sender: TObject);
@@ -1435,13 +1431,22 @@ end;
 //To make appear the Directory Hotlist popup menu when pressing "*" button on right
 //
 procedure TfrmMain.btnRightDirectoryHotlistClick(Sender: TObject);
-var P:TPoint;
 begin
-  if tb_activate_panel_on_click in gDirTabOptions then SetActiveFrame(fpRight);
+  ShowDirectoryHotlist(btnRightDirectoryHotlist, FrameRight);
+end;
+
+{ TfrmMain.ShowDirectoryHotlist }
+// Pops up the Directory Hotlist menu just below Button. Shared by the "*" buttons
+// next to the drive combo box and their copies on the drive bar.
+//
+procedure TfrmMain.ShowDirectoryHotlist(Button: TControl; FileView: TFileView);
+var
+  P: TPoint;
+begin
+  if tb_activate_panel_on_click in gDirTabOptions then SetActiveFrame(FileView);
   gDirectoryHotlist.PopulateMenuWithHotDir(pmHotList,@HotDirSelected,@miHotAddOrConfigClick,mpHOTDIRSWITHCONFIG,0);
-  p := Classes.Point(btnRightDirectoryHotlist.Left,btnRightDirectoryHotlist.Height);
-  p := pnlRightTools.ClientToScreen(p);
-  pmHotList.PopUp(P.x,P.y);
+  P := Button.ClientToScreen(Classes.Point(0, Button.Height));
+  pmHotList.PopUp(P.X, P.Y);
 end;
 
 procedure TfrmMain.btnDriveMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
@@ -1748,6 +1753,12 @@ end;
 
 procedure TfrmMain.PanelButtonClick(Button: TSpeedButton; FileView: TFileView);
 begin
+  if Button.Caption = btnLeftDirectoryHotlist.Caption then
+  begin
+    ShowDirectoryHotlist(Button, FileView);
+    Exit;
+  end;
+
   with FileView do
   begin
     if Button.Caption = DirectorySeparator then
@@ -5224,6 +5235,7 @@ procedure TfrmMain.AddSpecialButtons(dskPanel: TKASToolBar);
   end;
 
 begin
+  AddItem(btnLeftDirectoryHotlist);
   AddItem(btnLeftRoot);
   AddItem(btnLeftUp);
   AddItem(btnLeftHome);
