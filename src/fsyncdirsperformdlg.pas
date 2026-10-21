@@ -20,6 +20,8 @@ type
     chkDeleteRightAllEmptyDirs: TCheckBox;
     chkDeleteRight: TCheckBox;
     chkConfirmOverwrites: TCheckBox;
+    chkOverwriteReadOnly: TCheckBox;
+    chkDeleteToTrash: TCheckBox;
     chkLeftToRight: TCheckBox;
     chkRightToLeft: TCheckBox;
     chkVerify: TCheckBox;
