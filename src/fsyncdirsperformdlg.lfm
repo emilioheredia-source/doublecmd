@@ -148,9 +148,35 @@ object frmSyncDirsPerformDlg: TfrmSyncDirsPerformDlg
     State = cbChecked
     TabOrder = 8
   end
-  object chkVerify: TCheckBox
+  object chkOverwriteReadOnly: TCheckBox
     AnchorSideLeft.Control = chkConfirmOverwrites
     AnchorSideTop.Control = chkConfirmOverwrites
+    AnchorSideTop.Side = asrBottom
+    Left = 6
+    Height = 18
+    Top = 223
+    Width = 160
+    BorderSpacing.Top = 6
+    Caption = 'Overwrite read-only files'
+    Checked = True
+    State = cbChecked
+    TabOrder = 9
+  end
+  object chkDeleteToTrash: TCheckBox
+    AnchorSideLeft.Control = chkConfirmOverwrites
+    AnchorSideTop.Control = chkOverwriteReadOnly
+    AnchorSideTop.Side = asrBottom
+    Left = 6
+    Height = 18
+    Top = 247
+    Width = 103
+    BorderSpacing.Top = 6
+    Caption = 'Delete to trash'
+    TabOrder = 10
+  end
+  object chkVerify: TCheckBox
+    AnchorSideLeft.Control = chkConfirmOverwrites
+    AnchorSideTop.Control = chkDeleteToTrash
     AnchorSideTop.Side = asrBottom
     Left = 6
     Height = 18
@@ -158,7 +184,7 @@ object frmSyncDirsPerformDlg: TfrmSyncDirsPerformDlg
     Width = 59
     BorderSpacing.Top = 6
     Caption = 'Verify'
-    TabOrder = 9
+    TabOrder = 11
     Visible = False
   end
   object ButtonPanel1: TButtonPanel
@@ -178,7 +204,7 @@ object frmSyncDirsPerformDlg: TfrmSyncDirsPerformDlg
     CloseButton.DefaultCaption = True
     CancelButton.Name = 'CancelButton'
     CancelButton.DefaultCaption = True
-    TabOrder = 10
+    TabOrder = 12
     ShowButtons = [pbOK, pbCancel]
     ShowBevel = False
   end
