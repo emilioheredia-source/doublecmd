@@ -588,6 +588,10 @@ begin
     chkVerify.Checked := gOperationOptionVerify;
     chkOverwriteReadOnly.Checked := gSyncDirsOverwriteReadOnly;
     chkDeleteToTrash.Checked := gUseTrash;
+    // A mirror keeps the empty folders the source has and loses the ones
+    // it does not; deleting all of them on a side is no part of it
+    chkDeleteLeftAllEmptyDirs.Visible := NOT chkAsymmetric.Checked;
+    chkDeleteRightAllEmptyDirs.Visible := NOT chkAsymmetric.Checked;
 
     if ShowModal = mrOk then
     begin
