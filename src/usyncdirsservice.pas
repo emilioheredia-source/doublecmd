@@ -179,6 +179,13 @@ type
     _basePaths: TDoublePaths;
     _selectedList: TStringListEx;
     _skipAllUnreadable: Boolean;
+    // Share of the whole tree already scanned, 0..1. The tree's size is not
+    // known in advance, so each directory hands its share on to its
+    // subdirectories in equal parts, and a directory adds its share once
+    // nothing below it is left to scan. Counting directories discovered
+    // against done kept the two almost equal during the depth-first walk,
+    // so the percentage sat at 99% for most of a long scan.
+    _progress: Double;
   private
     procedure fillSelectedList( const selectedFiles: TDoubleFiles );
     function isSelectedFile( const f: TFile ): Boolean;
@@ -1066,7 +1073,8 @@ procedure TSyncDirsTreeBuilder.build( const FFullTree: TTwoLevelTree; const sele
     dir: string;
     const parentDirIndex: Integer;
     const leftParentDirs: TStringList;
-    const rightParentDirs: TStringList);
+    const rightParentDirs: TStringList;
+    const share: Double );
   var
     dirItem: TTwoLevelTreeDirItem;
     dirSyncRec: TSyncDirRec;
@@ -1075,40 +1083,68 @@ procedure TSyncDirsTreeBuilder.build( const FFullTree: TTwoLevelTree; const sele
     rightDirs: TStringListEx;
     leftFiles: TFiles;
     rightFiles: TFiles;
+    children: Integer;
+    shareDelegated: Boolean = False;
 
-    procedure addFiles;
+    // A directory present on the right side only is, in asymmetric (mirror)
+    // mode, deleted as a whole: one record, never walked into. Deleting its
+    // files one by one left empty folders behind and made one operation
+    // per file.
+    procedure addOrphanDir( const dirPath: String );
+    var
+      orphanRec: TSyncDirRec;
+    begin
+      orphanRec:= TSyncDirRec.Create(_compareOption, dirPath, currentDirIndex);
+      FFullTree.addDir(dirPath, TTwoLevelTreeDirItem.Create(orphanRec));
+      setDirSyncRecFile(orphanRec, leftDirs, rightDirs);
+      orphanRec.state:= srsDeleteRight;
+      orphanRec.action:= srsDeleteRight;
+    end;
+
+    // The subdirectories scanned below: all left ones, plus right-only ones
+    // unless mirroring deletes them whole
+    function childCount: Integer;
+    var
+      i: Integer;
+    begin
+      Result:= leftDirs.Count;
+      if cfAsymmetric in _compareOption.flags then
+        Exit;
+      for i:= 0 to rightDirs.Count - 1 do
+        if leftDirs.IndexOf(rightDirs[i]) < 0 then
+          Inc(Result);
+    end;
+
+    procedure addFiles( const childShare: Double );
     var
       i: Integer;
       rightIndex: Integer;
-      totalCount: Integer;
       dirPart: String;
     begin
-      totalCount:= leftDirs.Count + rightDirs.Count;
       for i:= 0 to leftDirs.Count - 1 do begin
-        if dir = '' then
-          _callback.onTreeBuilderUpdateProgress( i * 100 div totalCount );
         dirPart:= leftDirs[i];
-        scanDir(dir + dirPart, currentDirIndex, leftDirs, rightDirs);
+        scanDir(dir + dirPart, currentDirIndex, leftDirs, rightDirs, childShare);
         if NOT _callback.treeBuilderCheckRunning(False) then
           Exit;
         rightIndex:= rightDirs.IndexOf(dirPart);
-        if rightIndex >= 0 then begin
+        if rightIndex >= 0 then
           rightDirs.Delete(rightIndex);
-          Dec(totalCount);
-        end
       end;
 
       for i:= 0 to rightDirs.Count-1 do begin
-        if dir = '' then
-          _callback.onTreeBuilderUpdateProgress( (leftDirs.Count + i) * 100 div totalCount );
         dirPart:= rightDirs[i];
-        scanDir(dir + dirPart, currentDirIndex, leftDirs, rightDirs);
+        if cfAsymmetric in _compareOption.flags then begin
+          addOrphanDir(dir + dirPart);
+          continue;
+        end;
+        scanDir(dir + dirPart, currentDirIndex, leftDirs, rightDirs, childShare);
         if NOT _callback.treeBuilderCheckRunning(False) then
           Exit;
       end;
     end;
 
   begin
+    _callback.onTreeBuilderUpdateProgress( Trunc(_progress * 100) );
     currentDirIndex:= FFullTree.indexOfDir(dir);
     if currentDirIndex < 0 then begin
       dirSyncRec:= TSyncDirRec.Create(_compareOption, dir, parentDirIndex);
@@ -1145,8 +1181,14 @@ procedure TSyncDirsTreeBuilder.build( const FFullTree: TTwoLevelTree; const sele
       _sortedService.sortDirItem(dirItem);
       if not (cfSubdirs in _compareOption.flags) then
         Exit;
-      addFiles;
+      children:= childCount;
+      if children = 0 then
+        Exit;
+      shareDelegated:= True;
+      addFiles( share / children );
     finally
+      if NOT shareDelegated then
+        _progress:= _progress + share;
       leftDirs.Free;
       rightDirs.Free;
     end;
@@ -1154,7 +1196,8 @@ procedure TSyncDirsTreeBuilder.build( const FFullTree: TTwoLevelTree; const sele
 
 begin
   self.fillSelectedList( selectedFiles );
-  scanDir('', -1, nil, nil);
+  _progress:= 0;
+  scanDir('', -1, nil, nil, 1.0);
 end;
 
 { TSyncDirsSynchronizer }

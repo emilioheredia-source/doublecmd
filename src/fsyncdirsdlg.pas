@@ -175,6 +175,12 @@ type
     { private declarations }
     FCancel: Boolean;
     FScanning: Boolean;
+    // Compare progress: shown at most every 50 ms, never going back
+    FLastMessagesTime: QWord;
+    FScanShownPercent: Integer;
+    // The two source panels, so their directory watchers can be suspended
+    // during bulk copy/delete (avoids one panel reload per ~100 changes)
+    FFileViews: array [TDoubleSide] of TFileView;
     FSortService: TSyncDirsSortService;
     FFullTree: TTwoLevelTree;
     FFilteredList: TFlatDirFileList;
@@ -241,6 +247,7 @@ type
     function confirmSkippedItems(const syncCount: TSyncDirsSyncCount): Boolean;
     procedure UpdateExcludeFieldsState;
     function createExclusionTemplate: TSearchTemplate;
+    procedure SetPanelWatchers(AEnabled: Boolean);
     procedure ApplyCopyOptions(const operation: TFileSourceOperation);
     procedure RememberCopyOptions(const operation: TFileSourceOperation);
     procedure ResetDeleteOptions;
@@ -364,7 +371,8 @@ uses
   uOSUtils, uLng, Math, uClipboard, fMaskInputDlg,
   LCLVersion, uTypes, uFileSystemCopyOperation, uFileSystemDeleteOperation, uFindFiles,
   uFileSourceManager, uFileSourceProperty, uShowMsg,
-  fDeleteDlg, uTrash, uOperationsManager;
+  fDeleteDlg, uTrash, uOperationsManager, uOSForms,
+  uWfxPluginFileSource, WfxPlugin;
 
 {$R *.lfm}
 
@@ -372,6 +380,9 @@ const
   GRID_COLUMN_FMT = 'HeaderDG_Column%d_Width';
 
 procedure ShowSyncDirsDlg(FileView1, FileView2: TFileView);
+var
+  dlg: TfrmSyncDirsDlg;
+
   function isSupported: Boolean;
   var
     leftFS: IFileSource;
@@ -399,8 +410,12 @@ begin
     Exit;
   end;
 
-  with TfrmSyncDirsDlg.Create(Application, FileView1, FileView2) do
-    Show;
+  dlg:= TfrmSyncDirsDlg.Create(Application, FileView1, FileView2);
+  // On the same monitor as the main window, not the middle of the desktop
+  with GetFrmMainMonitor do
+    dlg.SetBounds(Left + (Width - dlg.Width) div 2, Top + (Height - dlg.Height) div 2,
+                  dlg.Width, dlg.Height);
+  dlg.Show;
 end;
 
 { TDrawGrid }
@@ -617,7 +632,12 @@ begin
       pnlFileCountProgress.Visible:= (sfDeleteLeft in syncFlags) or (sfDeleteRight in syncFlags) or
                                   (sfDeleteLeftAllEmptyDirs in syncFlags) or (sfDeleteRightAllEmptyDirs in syncFlags);
 
-      synchronizer.sync( syncFlags );
+      SetPanelWatchers(False);
+      try
+        synchronizer.sync( syncFlags );
+      finally
+        SetPanelWatchers(True);
+      end;
 
       EnableControls(True);
       btnCompare.Click;
@@ -1246,6 +1266,20 @@ var
   // template taken from gSearchTemplateList belongs to the list, not to us.
   ownTemplate: TSearchTemplate = nil;
 
+  // Tell plugin file systems that a whole tree is about to be listed, as
+  // Total Commander does (FS_STATUS_OP_SYNC_SEARCH), so they may fetch
+  // ahead: over SFTP the compare otherwise waits out several round trips
+  // per directory.
+  procedure notifySyncSearch(const startEnd: Integer);
+  var
+    side: TDoubleSide;
+    wfx: IWfxPluginFileSource;
+  begin
+    for side := dsLeft to dsRight do
+      if Supports(FFileSources[side], IWfxPluginFileSource, wfx) then
+        wfx.WfxModule.WfxStatusInfo(basePaths[side], startEnd, FS_STATUS_OP_SYNC_SEARCH);
+  end;
+
   procedure setBaseDir(const text: String; const side: TDoubleSide);
   var
     path: String;
@@ -1280,8 +1314,15 @@ begin
     setBaseDir(edPath2.Text, dsRight);
     FCmpFilePaths := basePaths;
 
+    FScanShownPercent := 0;
+    FLastMessagesTime := 0;
     builder:= TSyncDirsTreeBuilder.Create( self, FSortService, FCompareOption, FFileSources, basePaths );
-    builder.build( FFullTree, FSelectedFiles );
+    notifySyncSearch(FS_STATUS_START);
+    try
+      builder.build( FFullTree, FSelectedFiles );
+    finally
+      notifySyncSearch(FS_STATUS_END);
+    end;
 
     FillFoundItemsDG;
     if FCancel then
@@ -1489,8 +1530,15 @@ end;
 
 function TfrmSyncDirsDlg.treeBuilderCheckRunning(const processMessages: Boolean): Boolean;
 begin
-  if processMessages then
+  // At most every 50 ms: each call may process queued file-watcher events
+  // and trigger panel reloads, which made a long compare O(n^2); and a status
+  // bar update per directory is measurably expensive
+  if processMessages and (GetTickCount64 - FLastMessagesTime >= 50) then
+  begin
+    FLastMessagesTime := GetTickCount64;
+    StatusBar1.Panels[0].Text := Format(rsComparingPercent, [FScanShownPercent]);
     Application.ProcessMessages;
+  end;
   Result:= NOT FCancel;
 end;
 
@@ -1542,7 +1590,17 @@ end;
 
 procedure TfrmSyncDirsDlg.onTreeBuilderUpdateProgress(const percent: Integer);
 begin
-  StatusBar1.Panels[0].Text:= Format(rsComparingPercent, [percent]);
+  FScanShownPercent := Max(FScanShownPercent, Min(99, percent));
+end;
+
+procedure TfrmSyncDirsDlg.SetPanelWatchers(AEnabled: Boolean);
+var
+  side: TDoubleSide;
+begin
+  // Resuming does a single reconciling reload of each panel
+  for side := dsLeft to dsRight do
+    if Assigned(FFileViews[side]) then
+      FFileViews[side].SetWatcherEnabled(AEnabled);
 end;
 
 function TfrmSyncDirsDlg.commonCheckRunning: Boolean;
@@ -1624,7 +1682,12 @@ begin
       pnlFileSizeProgress.Visible:= False;
       pnlFileCountProgress.Visible:= True;
 
-      commonService.delete(indexes, ALeft, ARight);
+      SetPanelWatchers(False);
+      try
+        commonService.delete(indexes, ALeft, ARight);
+      finally
+        SetPanelWatchers(True);
+      end;
       self.FillFoundItemsDG;
 
       EnableControls(True);
@@ -1890,6 +1953,8 @@ begin
   FSortService := TSyncDirsSortService.Create;
   FFullTree := TTwoLevelTree.Create;
   FFilteredList := TFlatDirFileList.Create(FFullTree);
+  FFileViews[dsLeft] := FileView1;
+  FFileViews[dsRight] := FileView2;
   self.leftFS := FileView1.FileSource;
   self.rightFS := FileView2.FileSource;
   self.leftAddress := FileView1.CurrentAddress;
