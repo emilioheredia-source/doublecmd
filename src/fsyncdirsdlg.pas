@@ -84,6 +84,11 @@ type
     chkIgnoreDate: TCheckBox;
     chkOnlySelected: TCheckBox;
     cbExtFilter: TComboBox;
+    cbExcludeDirs: TComboBox;
+    cbExcludeFiles: TComboBox;
+    lblExcludeDirs: TLabel;
+    lblExcludeFiles: TLabel;
+    pnlExclude: TPanel;
     edPath1: TDirectoryEdit;
     edPath2: TDirectoryEdit;
     HeaderDG: TDrawGrid;
@@ -138,6 +143,7 @@ type
     procedure btnAbortClick(Sender: TObject);
     procedure btnCloseClick(Sender: TObject);
     procedure btnSearchTemplateClick(Sender: TObject);
+    procedure cbExtFilterChange(Sender: TObject);
     procedure btnCompareClick(Sender: TObject);
     procedure btnSynchronizeClick(Sender: TObject);
     procedure edPath1AcceptDirectory(Sender: TObject; var Value: String);
@@ -220,6 +226,8 @@ type
     procedure EnableControls(AEnabled: Boolean);
     procedure DeleteSelectedFiles(ALeft, ARight: Boolean);
     function confirmSkippedItems(const syncCount: TSyncDirsSyncCount): Boolean;
+    procedure UpdateExcludeFieldsState;
+    function createExclusionTemplate: TSearchTemplate;
     procedure SetProgressBytes(AProgressBar: TKASProgressBar; CurrentBytes: Int64; TotalBytes: Int64);
     procedure SetProgressFiles(AProgressBar: TKASProgressBar; CurrentFiles: Int64; TotalFiles: Int64);
 
@@ -427,7 +435,45 @@ begin
     bTemplate:= IsMaskSearchTemplate(sMask);
     cbExtFilter.Enabled:= not bTemplate;
     cbExtFilter.Text:= sMask;
+    UpdateExcludeFieldsState;
   end;
+end;
+
+// A named search template carries its own exclusions, so the inline fields
+// would be silently ignored. Grey them out rather than let them look active.
+procedure TfrmSyncDirsDlg.UpdateExcludeFieldsState;
+var
+  bTemplate: Boolean;
+begin
+  bTemplate:= IsMaskSearchTemplate(cbExtFilter.Text);
+  cbExcludeDirs.Enabled:= not bTemplate;
+  cbExcludeFiles.Enabled:= not bTemplate;
+  lblExcludeDirs.Enabled:= not bTemplate;
+  lblExcludeFiles.Enabled:= not bTemplate;
+end;
+
+procedure TfrmSyncDirsDlg.cbExtFilterChange(Sender: TObject);
+begin
+  UpdateExcludeFieldsState;
+end;
+
+// Exclusions typed straight into the dialog, wrapped in a throwaway template
+// so they run through the same FileChecks path a named template uses. The
+// file mask must be '*': an empty mask matches nothing, which would reject
+// every file. The real mask stays with FMaskList. Nil when both are empty.
+function TfrmSyncDirsDlg.createExclusionTemplate: TSearchTemplate;
+var
+  SearchRec: TSearchTemplateRec;
+begin
+  Result:= nil;
+  if (Trim(cbExcludeDirs.Text) = EmptyStr) and (Trim(cbExcludeFiles.Text) = EmptyStr) then
+    Exit;
+  Result:= TSearchTemplate.Create;
+  SearchRec:= Result.SearchRecord;
+  SearchRec.FilesMasks:= '*';
+  SearchRec.ExcludeDirectories:= Trim(cbExcludeDirs.Text);
+  SearchRec.ExcludeFiles:= Trim(cbExcludeFiles.Text);
+  Result.SearchRecord:= SearchRec;
 end;
 
 procedure TfrmSyncDirsDlg.btnAbortClick(Sender: TObject);
@@ -445,6 +491,10 @@ procedure TfrmSyncDirsDlg.btnCompareClick(Sender: TObject);
 begin
   if not IsMaskSearchTemplate(cbExtFilter.Text) then
     InsertFirstItem(Trim(cbExtFilter.Text), cbExtFilter);
+  if Trim(cbExcludeDirs.Text) <> EmptyStr then
+    InsertFirstItem(Trim(cbExcludeDirs.Text), cbExcludeDirs);
+  if Trim(cbExcludeFiles.Text) <> EmptyStr then
+    InsertFirstItem(Trim(cbExcludeFiles.Text), cbExcludeFiles);
   StatusBar1.Panels[0].Text := Format(rsComparingPercent, [0]);
   checkContentThreadStop;
   Compare;
@@ -614,7 +664,13 @@ begin
   end;
   if chkByContent.Enabled then
     gSyncDirsByContent          := chkByContent.Checked;
+  gSyncDirsExcludeDirs          := Trim(cbExcludeDirs.Text);
+  gSyncDirsExcludeFiles         := Trim(cbExcludeFiles.Text);
   glsSyncMaskHistory.Assign(cbExtFilter.Items);
+  // Exclusion history is shared with the Find files dialog: the same folder
+  // and file patterns get skipped in both places.
+  glsSearchExcludeDirectories.Assign(cbExcludeDirs.Items);
+  glsSearchExcludeFiles.Assign(cbExcludeFiles.Items);
 
   with HeaderDG.Columns do
   begin
@@ -685,6 +741,11 @@ begin
   end;
   cbExtFilter.Items.Assign(glsSyncMaskHistory);
   cbExtFilter.Text       := gSyncDirsFileMask;
+  cbExcludeDirs.Items.Assign(glsSearchExcludeDirectories);
+  cbExcludeDirs.Text     := gSyncDirsExcludeDirs;
+  cbExcludeFiles.Items.Assign(glsSearchExcludeFiles);
+  cbExcludeFiles.Text    := gSyncDirsExcludeFiles;
+  UpdateExcludeFieldsState;
 
   HMSync := HotMan.Register(Self, HotkeysCategory);
   HMSync.RegisterActionList(ActionList);
@@ -1148,6 +1209,9 @@ procedure TfrmSyncDirsDlg.ScanDirs;
 var
   builder: TSyncDirsTreeBuilder = nil;
   basePaths: TDoublePaths;
+  // Non-nil only when FTemplate was built here from the exclude fields; a
+  // template taken from gSearchTemplateList belongs to the list, not to us.
+  ownTemplate: TSearchTemplate = nil;
 
   procedure setBaseDir(const text: String; const side: TDoubleSide);
   var
@@ -1171,7 +1235,8 @@ begin
       FTemplate:= gSearchTemplateList.TemplateByName[cbExtFilter.Text];
     end
     else begin
-      FTemplate := nil;
+      ownTemplate := createExclusionTemplate;
+      FTemplate := ownTemplate;
       if cbExtFilter.Text <> EmptyStr then
         FMaskList := TMaskList.Create(cbExtFilter.Text)
       else
@@ -1194,6 +1259,7 @@ begin
     FreeAndNil(builder);
     FreeAndNil(FMaskList);
     FTemplate := nil;
+    ownTemplate.Free;
     FScanning := False;
   end;
 end;
@@ -1400,9 +1466,10 @@ begin
   if f.IsDirectory or f.IsLinkToDirectory then begin
     Result:= (FTemplate = nil) or (CheckDirectoryName(FTemplate.FileChecks, f.Name));
   end else begin
-    Result:= (FTemplate = nil) or FTemplate.CheckFile(f);
-    if NOT Result then
-      Result:= ((FMaskList = nil) or FMaskList.Matches(f.Name));
+    // A file has to pass the template (named, or the exclude fields) and the
+    // mask; the mask is no way around an exclusion
+    Result:= ((FTemplate = nil) or FTemplate.CheckFile(f)) and
+             ((FMaskList = nil) or FMaskList.Matches(f.Name));
   end;
 end;
 
