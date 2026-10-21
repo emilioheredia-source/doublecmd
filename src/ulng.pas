@@ -846,6 +846,7 @@ resourcestring
   rsOptMouseSelectionButton = 'Left button;Right button;';
   rsOptAutoSizeColumn = 'First;Last;';
   rsOptTabsPosition = 'Top;Bottom;';
+  rsOptKeyButtonsHeight = 'Narrow;Normal;Big;Extra big;';
   rsOptArchiveTypeName = 'Archive type name:';
   //-------------------------------
   // Hotkeys

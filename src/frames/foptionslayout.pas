@@ -38,6 +38,9 @@ type
     cbFlatDiskPanel: TCheckBox;
     cbFlatInterface: TCheckBox;
     cbFreespaceInd: TCheckBox;
+    cbKeyButtonsIcons: TCheckBox;
+    cmbKeyButtonsHeight: TComboBox;
+    lblKeyButtonsHeight: TLabel;
     cbLogWindow: TCheckBox;
     cbPanelOfOperations: TCheckBox;
     cbProgInMenuBar: TCheckBox;
@@ -59,7 +62,9 @@ type
     gbScreenLayout: TGroupBox;
     procedure cbShowDiskPanelChange(Sender: TObject);
     procedure cbShowDriveFreeSpaceChange(Sender: TObject);
+    procedure cbShowKeysPanelChange(Sender: TObject);
   protected
+    procedure Init; override;
     procedure Load; override;
     function Save: TOptionsEditorSaveFlags; override;
   public
@@ -72,7 +77,7 @@ implementation
 {$R *.lfm}
 
 uses
-  uGlobs, uLng;
+  DCStrUtils, uGlobs, uLng;
 
 { TfrmOptionsLayout }
 
@@ -86,6 +91,18 @@ procedure TfrmOptionsLayout.cbShowDriveFreeSpaceChange(Sender: TObject);
 begin
   cbShowShortDriveFreeSpace.Enabled:= cbShowDriveFreeSpace.Checked;
   if not(cbShowDriveFreeSpace.Checked) then cbShowShortDriveFreeSpace.Checked:= false;
+end;
+
+procedure TfrmOptionsLayout.cbShowKeysPanelChange(Sender: TObject);
+begin
+  cbKeyButtonsIcons.Enabled := cbShowKeysPanel.Checked;
+  lblKeyButtonsHeight.Enabled := cbShowKeysPanel.Checked;
+  cmbKeyButtonsHeight.Enabled := cbShowKeysPanel.Checked;
+end;
+
+procedure TfrmOptionsLayout.Init;
+begin
+  ParseLineToList(rsOptKeyButtonsHeight, cmbKeyButtonsHeight.Items);
 end;
 
 class function TfrmOptionsLayout.GetIconIndex: Integer;
@@ -113,6 +130,9 @@ begin
   cbShowStatusBar.Checked := gStatusBar;
   cbShowCmdLine.Checked := gCmdLine;
   cbShowKeysPanel.Checked := gKeyButtons;
+  cbKeyButtonsIcons.Checked := gKeyButtonsIcons;
+  cmbKeyButtonsHeight.ItemIndex := Integer(gKeyButtonsHeight);
+  cbShowKeysPanelChange(cbShowKeysPanel);
   cbFlatInterface.Checked := gInterfaceFlat;
   cbLogWindow.Checked := gLogWindow;
   cbTermWindow.Checked := gTermWindow;
@@ -140,6 +160,8 @@ begin
   gStatusBar := cbShowStatusBar.Checked;
   gCmdLine := cbShowCmdLine.Checked;
   gKeyButtons := cbShowKeysPanel.Checked;
+  gKeyButtonsIcons := cbKeyButtonsIcons.Checked;
+  gKeyButtonsHeight := TKeyButtonsHeight(cmbKeyButtonsHeight.ItemIndex);
   gInterfaceFlat := cbFlatInterface.Checked;
   gLogWindow := cbLogWindow.Checked;
   gTermWindow := cbTermWindow.Checked;

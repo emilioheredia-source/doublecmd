@@ -890,6 +890,7 @@ type
     procedure UpdateDiskCount;
     procedure UpdateSelectedDrives;
     procedure UpdateGUIFunctionKeys;
+    procedure UpdateFunctionKeysIcons;
     procedure UpdateMainTitleBar;
     procedure CreateDiskPanel(dskPanel : TKASToolBar);
     procedure UpdateSelectedDrive(ANoteBook: TFileViewNotebook);
@@ -5929,6 +5930,7 @@ begin
           end;
         end;
       end;
+      UpdateFunctionKeysIcons;
       UpdateGUIFunctionKeys;
     end;
 
@@ -6899,6 +6901,13 @@ begin
 end;
 
 procedure TfrmMain.UpdateGUIFunctionKeys;
+const
+  // Extra pixels (at 96 DPI) above the tallest caption or icon.
+  // Normal keeps the original 4 pixels.
+  KeyButtonsPadding: array[TKeyButtonsHeight] of Integer = (0, 4, 12, 20);
+  // Text height already includes the font's internal leading, but an icon
+  // fills its whole box, so it needs room for the button frame on both sides.
+  IconFrameSpace = 8;
 var
   I: Integer;
   H: Integer = 0;
@@ -6911,9 +6920,37 @@ begin
       AButton:= TSpeedButton(pnlKeys.Controls[I]);
       FontOptionsToFont(gFonts[dcfFunctionButtons], AButton.Font);
       H:= Max(H, AButton.Canvas.TextHeight(AButton.Caption));
+      if not AButton.Glyph.Empty then
+        H:= Max(H, AButton.Glyph.Height + Scale96ToForm(IconFrameSpace));
     end;
   end;
-  pnlKeys.Height := H + 4;
+  pnlKeys.Height := H + Scale96ToForm(KeyButtonsPadding[gKeyButtonsHeight]);
+end;
+
+procedure TfrmMain.UpdateFunctionKeysIcons;
+var
+  I: Integer;
+  AButton: TSpeedButton;
+  ABitmap: TBitmap;
+begin
+  for I:= 0 to pnlKeys.ControlCount - 1 do
+  begin
+    if not (pnlKeys.Controls[I] is TSpeedButton) then
+      Continue;
+
+    AButton:= TSpeedButton(pnlKeys.Controls[I]);
+    AButton.Glyph:= nil;
+    if not gKeyButtonsIcons then
+      Continue;
+
+    ABitmap:= PixMapManager.GetThemeIcon(ittInternal,
+      LowerCase(FunctionButtonsCaptions[I].ACommand), gIconsInMenusSize);
+    if Assigned(ABitmap) then
+    begin
+      AButton.Glyph:= ABitmap;
+      ABitmap.Free;
+    end;
+  end;
 end;
 
 procedure TfrmMain.ShowDrivesList(APanel: TFilePanelSelect);

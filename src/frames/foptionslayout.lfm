@@ -119,7 +119,57 @@ inherited frmOptionsLayout: TfrmOptionsLayout
       Width = 178
       BorderSpacing.Top = 2
       Caption = 'Show function &key buttons'
+      OnChange = cbShowKeysPanelChange
       TabOrder = 15
+    end
+    object cbKeyButtonsIcons: TCheckBox
+      AnchorSideLeft.Control = cbShowKeysPanel
+      AnchorSideTop.Control = cbShowKeysPanel
+      AnchorSideTop.Side = asrBottom
+      Left = 28
+      Height = 22
+      Top = 388
+      Width = 220
+      BorderSpacing.Left = 16
+      BorderSpacing.Top = 2
+      Caption = 'Show ic&ons on the buttons'
+      Enabled = False
+      TabOrder = 16
+    end
+    object lblKeyButtonsHeight: TLabel
+      AnchorSideLeft.Control = cbKeyButtonsIcons
+      AnchorSideTop.Control = cmbKeyButtonsHeight
+      AnchorSideTop.Side = asrCenter
+      Left = 28
+      Height = 15
+      Top = 418
+      Width = 80
+      Caption = 'B&utton height:'
+      Enabled = False
+      FocusControl = cmbKeyButtonsHeight
+      ParentColor = False
+    end
+    object cmbKeyButtonsHeight: TComboBox
+      AnchorSideLeft.Control = lblKeyButtonsHeight
+      AnchorSideLeft.Side = asrBottom
+      AnchorSideTop.Control = cbKeyButtonsIcons
+      AnchorSideTop.Side = asrBottom
+      Left = 114
+      Height = 23
+      Top = 414
+      Width = 120
+      BorderSpacing.Left = 6
+      BorderSpacing.Top = 2
+      Enabled = False
+      ItemHeight = 15
+      Items.Strings = (
+        'Narrow'
+        'Normal'
+        'Big'
+        'Extra big'
+      )
+      Style = csDropDownList
+      TabOrder = 17
     end
     object cbFlatDiskPanel: TCheckBox
       AnchorSideLeft.Control = cbTwoDiskPanels
@@ -160,7 +210,7 @@ inherited frmOptionsLayout: TfrmOptionsLayout
       TabOrder = 10
     end
     object cbFlatInterface: TCheckBox
-      AnchorSideTop.Control = cbShowKeysPanel
+      AnchorSideTop.Control = cmbKeyButtonsHeight
       AnchorSideTop.Side = asrBottom
       Left = 12
       Height = 22
@@ -168,7 +218,7 @@ inherited frmOptionsLayout: TfrmOptionsLayout
       Width = 100
       BorderSpacing.Top = 2
       Caption = 'Flat i&nterface'
-      TabOrder = 16
+      TabOrder = 18
     end
     object cbLogWindow: TCheckBox
       AnchorSideTop.Control = cbFlatInterface
@@ -179,7 +229,7 @@ inherited frmOptionsLayout: TfrmOptionsLayout
       Width = 123
       BorderSpacing.Top = 2
       Caption = 'Show lo&g window'
-      TabOrder = 17
+      TabOrder = 19
     end
     object cbTermWindow: TCheckBox
       AnchorSideTop.Control = cbLogWindow
@@ -190,7 +240,7 @@ inherited frmOptionsLayout: TfrmOptionsLayout
       Width = 152
       BorderSpacing.Top = 2
       Caption = 'Show te&rminal window'
-      TabOrder = 18
+      TabOrder = 20
     end
     object cbFreespaceInd: TCheckBox
       AnchorSideTop.Control = cbShowShortDriveFreeSpace
@@ -212,7 +262,7 @@ inherited frmOptionsLayout: TfrmOptionsLayout
       Width = 236
       BorderSpacing.Top = 2
       Caption = 'Show common progress in menu bar'
-      TabOrder = 19
+      TabOrder = 21
     end
     object cbPanelOfOperations: TCheckBox
       AnchorSideTop.Control = cbProgInMenuBar
@@ -223,7 +273,7 @@ inherited frmOptionsLayout: TfrmOptionsLayout
       Width = 248
       BorderSpacing.Top = 2
       Caption = 'Show panel of operation in background'
-      TabOrder = 20
+      TabOrder = 22
     end
     object cbShowDriveFreeSpace: TCheckBox
       AnchorSideTop.Control = cbShowDrivesListButton
