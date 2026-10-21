@@ -76,6 +76,8 @@ type
 
   TTabsOptionsDoubleClick = (tadc_Nothing, tadc_CloseTab, tadc_FavoriteTabs, tadc_TabsPopup);
 
+  TKeyButtonsHeight = (kbhNarrow, kbhNormal, kbhBig, kbhExtraBig);
+
   TTabsPosition = (tbpos_top, tbpos_bottom);
   { Show icons mode }
   TShowIconsMode = (sim_none, sim_standart, sim_all, sim_all_and_exe);
@@ -303,6 +305,7 @@ var
   gLogWindow,
   gTermWindow,
   gKeyButtons,
+  gKeyButtonsIcons,
   gInterfaceFlat,
   gDriveInd,
   gDriveFreeSpace,
@@ -312,6 +315,7 @@ var
   gUpperCaseDriveLetter,
   gShowColonAfterDrive,
   gShortFormatDriveInfo: Boolean;
+  gKeyButtonsHeight: TKeyButtonsHeight;
   gDrivesListButtonOptions: TDrivesListButtonOptions;
   gSeparateTree: Boolean;
 
@@ -2064,6 +2068,8 @@ begin
   gLogWindow := False;
   gTermWindow := False;
   gKeyButtons := True;
+  gKeyButtonsIcons := False;
+  gKeyButtonsHeight := kbhNormal;
   gInterfaceFlat := True;
   gDriveInd := False;
   gDriveFreeSpace := True;
@@ -2741,7 +2747,7 @@ procedure LoadXmlConfig;
 var
   DecimalSeparator: String;
   Root, Node, SubNode: TXmlNode;
-  LoadedConfigVersion, iIndexContextMode: Integer;
+  LoadedConfigVersion, iIndexContextMode, KeyButtonsHeight: Integer;
   oldQuickSearch: Boolean = True;
   oldQuickFilter: Boolean = False;
   oldQuickSearchMode: TShiftState = [ssCtrl, ssAlt];
@@ -3005,6 +3011,11 @@ begin
       gLogWindow := GetValue(Node, 'LogWindow', gLogWindow);
       gTermWindow := GetValue(Node, 'TermWindow', gTermWindow);
       gKeyButtons := GetValue(Node, 'KeyButtons', gKeyButtons);
+      gKeyButtonsIcons := GetValue(Node, 'KeyButtonsIcons', gKeyButtonsIcons);
+      KeyButtonsHeight := GetValue(Node, 'KeyButtonsHeight', Integer(gKeyButtonsHeight));
+      if (KeyButtonsHeight >= Integer(Low(TKeyButtonsHeight))) and
+         (KeyButtonsHeight <= Integer(High(TKeyButtonsHeight))) then
+        gKeyButtonsHeight := TKeyButtonsHeight(KeyButtonsHeight);
       gInterfaceFlat := GetValue(Node, 'InterfaceFlat', gInterfaceFlat);
       gDriveFreeSpace := GetValue(Node, 'DriveFreeSpace', gDriveFreeSpace);
       gDriveInd := GetValue(Node, 'DriveIndicator', gDriveInd);
@@ -3727,6 +3738,8 @@ begin
     SetValue(Node, 'LogWindow', gLogWindow);
     SetValue(Node, 'TermWindow', gTermWindow);
     SetValue(Node, 'KeyButtons', gKeyButtons);
+    SetValue(Node, 'KeyButtonsIcons', gKeyButtonsIcons);
+    SetValue(Node, 'KeyButtonsHeight', Integer(gKeyButtonsHeight));
     SetValue(Node, 'InterfaceFlat', gInterfaceFlat);
     SetValue(Node, 'DriveFreeSpace', gDriveFreeSpace);
     SetValue(Node, 'DriveIndicator', gDriveInd);
