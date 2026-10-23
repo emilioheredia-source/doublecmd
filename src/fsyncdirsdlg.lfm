@@ -533,7 +533,7 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
     ChildSizing.TopBottomSpacing = 2
     ChildSizing.HorizontalSpacing = 8
     ChildSizing.Layout = cclLeftToRightThenTopToBottom
-    ChildSizing.ControlsPerLine = 8
+    ChildSizing.ControlsPerLine = 9
     ClientHeight = 27
     ClientWidth = 833
     TabOrder = 8
@@ -607,6 +607,17 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
       OnChange = chkViewFilesChange
       State = cbChecked
       TabOrder = 0
+    end
+    object chkViewIndent: TCheckBox
+      Left = 300
+      Height = 23
+      Top = 2
+      Width = 60
+      Caption = 'Indent'
+      Checked = True
+      OnChange = chkViewIndentChange
+      State = cbChecked
+      TabOrder = 2
     end
     object chkActionsSubfolders: TCheckBox
       Left = 416

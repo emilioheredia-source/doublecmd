@@ -709,6 +709,7 @@ var
   // actions on a folder row applied to its subfolders
   gSyncDirsViewLevel: Integer;
   gSyncDirsViewFiles: Boolean;
+  gSyncDirsViewIndent: Boolean;
   gSyncDirsActionsSubfolders: Boolean;
   gDateTimeFormatSync : String;
 
@@ -2344,6 +2345,7 @@ begin
   gSyncDirsExcludeFiles := '';
   gSyncDirsViewLevel := 0;
   gSyncDirsViewFiles := True;
+  gSyncDirsViewIndent := True;
   gSyncDirsActionsSubfolders := True;
   gDateTimeFormatSync := DefaultDateTimeFormatSync;
 
@@ -3444,6 +3446,7 @@ begin
       gSyncDirsExcludeFiles := GetValue(Node, 'ExcludeFiles', gSyncDirsExcludeFiles);
       gSyncDirsViewLevel := GetValue(Node, 'ViewLevel', gSyncDirsViewLevel);
       gSyncDirsViewFiles := GetValue(Node, 'ViewFiles', gSyncDirsViewFiles);
+      gSyncDirsViewIndent := GetValue(Node, 'ViewIndent', gSyncDirsViewIndent);
       gSyncDirsActionsSubfolders := GetValue(Node, 'ActionsIncludeSubfolders', gSyncDirsActionsSubfolders);
       gDateTimeFormatSync := GetValidDateTimeFormat(GetValue(Node, 'DateTimeFormat', gDateTimeFormatSync), DefaultDateTimeFormatSync);
     end;
@@ -4040,6 +4043,7 @@ begin
     SetValue(Node, 'ExcludeFiles', gSyncDirsExcludeFiles);
     SetValue(Node, 'ViewLevel', gSyncDirsViewLevel);
     SetValue(Node, 'ViewFiles', gSyncDirsViewFiles);
+    SetValue(Node, 'ViewIndent', gSyncDirsViewIndent);
     SetValue(Node, 'ActionsIncludeSubfolders', gSyncDirsActionsSubfolders);
     SetValue(Node, 'DateTimeFormat', gDateTimeFormatSync);
 
