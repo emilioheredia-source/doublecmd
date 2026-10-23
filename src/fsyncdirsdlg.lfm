@@ -533,7 +533,7 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
     ChildSizing.TopBottomSpacing = 2
     ChildSizing.HorizontalSpacing = 8
     ChildSizing.Layout = cclLeftToRightThenTopToBottom
-    ChildSizing.ControlsPerLine = 6
+    ChildSizing.ControlsPerLine = 8
     ClientHeight = 27
     ClientWidth = 833
     TabOrder = 8
@@ -542,28 +542,60 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
       Height = 23
       Top = 2
       Width = 48
-      Caption = 'Folders:'
+      Caption = 'Fold at level:'
       Layout = tlCenter
       ParentColor = False
     end
-    object cbViewLevel: TComboBox
+    object sbLevelAll: TSpeedButton
       Left = 60
       Height = 23
       Top = 2
-      Width = 110
-      ItemHeight = 15
-      ItemIndex = 0
-      Items.Strings = (
-        'all levels'
-        'level 1'
-        'level 2'
-        'level 3'
-        'level 4'
-      )
-      OnChange = cbViewLevelChange
-      Style = csDropDownList
-      TabOrder = 0
-      Text = 'all levels'
+      Width = 28
+      Caption = 'All'
+      Down = True
+      GroupIndex = 2
+      OnClick = sbViewLevelClick
+      Tag = 0
+    end
+    object sbLevel1: TSpeedButton
+      Left = 96
+      Height = 23
+      Top = 2
+      Width = 28
+      Caption = '1'
+      GroupIndex = 2
+      OnClick = sbViewLevelClick
+      Tag = 1
+    end
+    object sbLevel2: TSpeedButton
+      Left = 132
+      Height = 23
+      Top = 2
+      Width = 28
+      Caption = '2'
+      GroupIndex = 2
+      OnClick = sbViewLevelClick
+      Tag = 2
+    end
+    object sbLevel3: TSpeedButton
+      Left = 168
+      Height = 23
+      Top = 2
+      Width = 28
+      Caption = '3'
+      GroupIndex = 2
+      OnClick = sbViewLevelClick
+      Tag = 3
+    end
+    object sbLevel4: TSpeedButton
+      Left = 204
+      Height = 23
+      Top = 2
+      Width = 28
+      Caption = '4'
+      GroupIndex = 2
+      OnClick = sbViewLevelClick
+      Tag = 4
     end
     object chkViewFiles: TCheckBox
       Left = 178
@@ -574,27 +606,7 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
       Checked = True
       OnChange = chkViewFilesChange
       State = cbChecked
-      TabOrder = 1
-    end
-    object btnExpandAll: TButton
-      Left = 236
-      Height = 23
-      Top = 2
-      Width = 80
-      AutoSize = True
-      Caption = 'Expand all'
-      OnClick = btnExpandAllClick
-      TabOrder = 2
-    end
-    object btnCollapseAll: TButton
-      Left = 324
-      Height = 23
-      Top = 2
-      Width = 84
-      AutoSize = True
-      Caption = 'Collapse all'
-      OnClick = btnCollapseAllClick
-      TabOrder = 3
+      TabOrder = 0
     end
     object chkActionsSubfolders: TCheckBox
       Left = 416
@@ -605,7 +617,7 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
       Checked = True
       OnChange = chkActionsSubfoldersChange
       State = cbChecked
-      TabOrder = 4
+      TabOrder = 1
     end
   end
   object HeaderDG: TDrawGrid
