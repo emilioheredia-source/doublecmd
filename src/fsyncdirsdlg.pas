@@ -91,10 +91,12 @@ type
     pnlExclude: TPanel;
     pnlView: TPanel;
     lblViewLevel: TLabel;
-    cbViewLevel: TComboBox;
+    sbLevelAll: TSpeedButton;
+    sbLevel1: TSpeedButton;
+    sbLevel2: TSpeedButton;
+    sbLevel3: TSpeedButton;
+    sbLevel4: TSpeedButton;
     chkViewFiles: TCheckBox;
-    btnExpandAll: TButton;
-    btnCollapseAll: TButton;
     chkActionsSubfolders: TCheckBox;
     edPath1: TDirectoryEdit;
     edPath2: TDirectoryEdit;
@@ -151,10 +153,8 @@ type
     procedure btnCloseClick(Sender: TObject);
     procedure btnSearchTemplateClick(Sender: TObject);
     procedure cbExtFilterChange(Sender: TObject);
-    procedure cbViewLevelChange(Sender: TObject);
+    procedure sbViewLevelClick(Sender: TObject);
     procedure chkViewFilesChange(Sender: TObject);
-    procedure btnExpandAllClick(Sender: TObject);
-    procedure btnCollapseAllClick(Sender: TObject);
     procedure chkActionsSubfoldersChange(Sender: TObject);
     procedure btnCompareClick(Sender: TObject);
     procedure btnSynchronizeClick(Sender: TObject);
@@ -263,6 +263,7 @@ type
     function createExclusionTemplate: TSearchTemplate;
     procedure takeRunOptions(const dialog: TfrmSyncDirsPerformDlg);
     procedure applyViewSettings;
+    procedure setViewLevel(const level: Integer);
     procedure refreshView;
     procedure toggleFolderRow(const viewIndex: Integer);
     procedure drawFolderRow(const viewRow: TSyncViewRow; const summary: TSyncDirSummary;
@@ -727,7 +728,7 @@ begin
     gSyncDirsByContent          := chkByContent.Checked;
   gSyncDirsExcludeDirs          := Trim(cbExcludeDirs.Text);
   gSyncDirsExcludeFiles         := Trim(cbExcludeFiles.Text);
-  gSyncDirsViewLevel            := cbViewLevel.ItemIndex;
+  gSyncDirsViewLevel            := FView.level;
   gSyncDirsViewFiles            := chkViewFiles.Checked;
   gSyncDirsActionsSubfolders    := chkActionsSubfolders.Checked;
   glsSyncMaskHistory.Assign(cbExtFilter.Items);
@@ -810,10 +811,10 @@ begin
   cbExcludeFiles.Items.Assign(glsSearchExcludeFiles);
   cbExcludeFiles.Text    := gSyncDirsExcludeFiles;
   UpdateExcludeFieldsState;
-  cbViewLevel.ItemIndex  := Min(gSyncDirsViewLevel, cbViewLevel.Items.Count - 1);
   chkViewFiles.Checked   := gSyncDirsViewFiles;
   chkActionsSubfolders.Checked := gSyncDirsActionsSubfolders;
   applyViewSettings;
+  setViewLevel(gSyncDirsViewLevel);
 
   HMSync := HotMan.Register(Self, HotkeysCategory);
   HMSync.RegisterActionList(ActionList);
@@ -872,6 +873,15 @@ begin
   part(summary.undecided, 'skip');
 end;
 
+// Rows are indented by their depth in the tree, so a folder's files and
+// subfolders sit one step to the right of it
+function depthIndentation(const depth: Integer): Integer;
+const
+  STEP = 16;
+begin
+  Result := Max(0, depth - 1) * STEP;
+end;
+
 procedure TfrmSyncDirsDlg.drawFolderRow(const viewRow: TSyncViewRow;
   const summary: TSyncDirSummary; const aRect: TRect; const aState: TGridDrawState);
 var
@@ -897,14 +907,15 @@ begin
       Font.Color := gColors.SyncDirs^.UnknownColor
     else
       Font.Color := clWindowText;
-    folderText := FFullTree.dirPath(viewRow.dirIndex) + PathDelim;
+    // The folder's own name: its parent is the row above it
+    folderText := ExtractFileName(FFullTree.dirPath(viewRow.dirIndex)) + PathDelim;
     if viewRow.kind = vrFoldedFolder then
       folderText := '[+] ' + folderText
     else
       folderText := '[-] ' + folderText;
     with hCols[0] do
       TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
-        Left + 2, aRect.Top + 2, folderText);
+        Left + 2 + depthIndentation(viewRow.depth), aRect.Top + 2, folderText);
     with hCols[1] do
       TextRect(Rect(Left, aRect.Top, hCols[2].Left + hCols[2].Width, aRect.Bottom),
         Left + 2, aRect.Top + 2, folderSummaryText(summary));
@@ -957,7 +968,8 @@ begin
       begin
         with hCols[0] do
           TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
-            Left + 2 + LEFT_FILE_INDENTATION, aRect.Top + 2, FFilteredList.path(viewRow.rowIndex));
+            Left + 2 + LEFT_FILE_INDENTATION + depthIndentation(viewRow.depth), aRect.Top + 2,
+            ExtractFileName(FFilteredList.path(viewRow.rowIndex)));
         s := IntToStrTS(rec.leftFile.Size);
         with hCols[1] do begin
           x := Left + Width - 8 - TextWidth(s);
@@ -1019,12 +1031,12 @@ begin
       end;
     VK_MULTIPLY:
       begin
-        btnExpandAllClick(nil);
+        setViewLevel(0);
         Key:= 0;
       end;
     VK_DIVIDE:
       begin
-        btnCollapseAllClick(nil);
+        setViewLevel(1);
         Key:= 0;
       end;
     VK_A:
@@ -1267,7 +1279,6 @@ end;
 
 procedure TfrmSyncDirsDlg.applyViewSettings;
 begin
-  FView.level := cbViewLevel.ItemIndex;
   FView.showFiles := chkViewFiles.Checked;
   FView.actionsIncludeSubfolders := chkActionsSubfolders.Checked;
 end;
@@ -1295,29 +1306,29 @@ begin
   MainDrawGrid.Invalidate;
 end;
 
-procedure TfrmSyncDirsDlg.cbViewLevelChange(Sender: TObject);
+// Level 0 = all levels; the pressed button follows
+procedure TfrmSyncDirsDlg.setViewLevel(const level: Integer);
+var
+  i: Integer;
 begin
+  for i := 0 to pnlView.ControlCount - 1 do
+    if (pnlView.Controls[i] is TSpeedButton) and (pnlView.Controls[i].Tag = level) then
+      TSpeedButton(pnlView.Controls[i]).Down := True;
+  if level = FView.level then Exit;
+  FView.level := level;
   FView.forgetManualFolds;
-  applyViewSettings;
   refreshView;
+end;
+
+procedure TfrmSyncDirsDlg.sbViewLevelClick(Sender: TObject);
+begin
+  setViewLevel(TControl(Sender).Tag);
 end;
 
 procedure TfrmSyncDirsDlg.chkViewFilesChange(Sender: TObject);
 begin
   applyViewSettings;
   refreshView;
-end;
-
-procedure TfrmSyncDirsDlg.btnExpandAllClick(Sender: TObject);
-begin
-  cbViewLevel.ItemIndex := 0;
-  cbViewLevelChange(Sender);
-end;
-
-procedure TfrmSyncDirsDlg.btnCollapseAllClick(Sender: TObject);
-begin
-  cbViewLevel.ItemIndex := 1;
-  cbViewLevelChange(Sender);
 end;
 
 procedure TfrmSyncDirsDlg.chkActionsSubfoldersChange(Sender: TObject);
