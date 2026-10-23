@@ -705,6 +705,11 @@ var
   // creating a named search template just to skip a folder is too much.
   gSyncDirsExcludeDirs: string;
   gSyncDirsExcludeFiles: string;
+  // The sync dialog's view by folder: fold level (0 = none), files shown,
+  // actions on a folder row applied to its subfolders
+  gSyncDirsViewLevel: Integer;
+  gSyncDirsViewFiles: Boolean;
+  gSyncDirsActionsSubfolders: Boolean;
   gDateTimeFormatSync : String;
 
   { Internal Associations}
@@ -2337,6 +2342,9 @@ begin
   gSyncDirsFileMaskSave := True;
   gSyncDirsExcludeDirs := '';
   gSyncDirsExcludeFiles := '';
+  gSyncDirsViewLevel := 0;
+  gSyncDirsViewFiles := True;
+  gSyncDirsActionsSubfolders := True;
   gDateTimeFormatSync := DefaultDateTimeFormatSync;
 
   { Internal Associations}
@@ -3434,6 +3442,9 @@ begin
       gSyncDirsFileMaskSave := GetAttr(Node, 'FileMask/Save', gSyncDirsFileMaskSave);
       gSyncDirsExcludeDirs := GetValue(Node, 'ExcludeDirectories', gSyncDirsExcludeDirs);
       gSyncDirsExcludeFiles := GetValue(Node, 'ExcludeFiles', gSyncDirsExcludeFiles);
+      gSyncDirsViewLevel := GetValue(Node, 'ViewLevel', gSyncDirsViewLevel);
+      gSyncDirsViewFiles := GetValue(Node, 'ViewFiles', gSyncDirsViewFiles);
+      gSyncDirsActionsSubfolders := GetValue(Node, 'ActionsIncludeSubfolders', gSyncDirsActionsSubfolders);
       gDateTimeFormatSync := GetValidDateTimeFormat(GetValue(Node, 'DateTimeFormat', gDateTimeFormatSync), DefaultDateTimeFormatSync);
     end;
 
@@ -4027,6 +4038,9 @@ begin
     SetAttr(Node, 'FileMask/Save', gSyncDirsFileMaskSave);
     SetValue(Node, 'ExcludeDirectories', gSyncDirsExcludeDirs);
     SetValue(Node, 'ExcludeFiles', gSyncDirsExcludeFiles);
+    SetValue(Node, 'ViewLevel', gSyncDirsViewLevel);
+    SetValue(Node, 'ViewFiles', gSyncDirsViewFiles);
+    SetValue(Node, 'ActionsIncludeSubfolders', gSyncDirsActionsSubfolders);
     SetValue(Node, 'DateTimeFormat', gDateTimeFormatSync);
 
     { Internal Associations}
