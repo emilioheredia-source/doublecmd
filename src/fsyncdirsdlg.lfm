@@ -516,9 +516,101 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
     ParentFont = False
     SimplePanel = False
   end
-  object HeaderDG: TDrawGrid
+  object pnlView: TPanel
     AnchorSideLeft.Control = Owner
     AnchorSideTop.Control = TopPanel
+    AnchorSideTop.Side = asrBottom
+    AnchorSideRight.Control = Owner
+    AnchorSideRight.Side = asrBottom
+    Left = 0
+    Height = 27
+    Top = 110
+    Width = 833
+    Anchors = [akTop, akLeft, akRight]
+    AutoSize = True
+    BevelOuter = bvNone
+    ChildSizing.LeftRightSpacing = 4
+    ChildSizing.TopBottomSpacing = 2
+    ChildSizing.HorizontalSpacing = 8
+    ChildSizing.Layout = cclLeftToRightThenTopToBottom
+    ChildSizing.ControlsPerLine = 6
+    ClientHeight = 27
+    ClientWidth = 833
+    TabOrder = 8
+    object lblViewLevel: TLabel
+      Left = 4
+      Height = 23
+      Top = 2
+      Width = 48
+      Caption = 'Folders:'
+      Layout = tlCenter
+      ParentColor = False
+    end
+    object cbViewLevel: TComboBox
+      Left = 60
+      Height = 23
+      Top = 2
+      Width = 110
+      ItemHeight = 15
+      ItemIndex = 0
+      Items.Strings = (
+        'all levels'
+        'level 1'
+        'level 2'
+        'level 3'
+        'level 4'
+      )
+      OnChange = cbViewLevelChange
+      Style = csDropDownList
+      TabOrder = 0
+      Text = 'all levels'
+    end
+    object chkViewFiles: TCheckBox
+      Left = 178
+      Height = 23
+      Top = 2
+      Width = 50
+      Caption = 'Files'
+      Checked = True
+      OnChange = chkViewFilesChange
+      State = cbChecked
+      TabOrder = 1
+    end
+    object btnExpandAll: TButton
+      Left = 236
+      Height = 23
+      Top = 2
+      Width = 80
+      AutoSize = True
+      Caption = 'Expand all'
+      OnClick = btnExpandAllClick
+      TabOrder = 2
+    end
+    object btnCollapseAll: TButton
+      Left = 324
+      Height = 23
+      Top = 2
+      Width = 84
+      AutoSize = True
+      Caption = 'Collapse all'
+      OnClick = btnCollapseAllClick
+      TabOrder = 3
+    end
+    object chkActionsSubfolders: TCheckBox
+      Left = 416
+      Height = 23
+      Top = 2
+      Width = 180
+      Caption = 'Actions include subfolders'
+      Checked = True
+      OnChange = chkActionsSubfoldersChange
+      State = cbChecked
+      TabOrder = 4
+    end
+  end
+  object HeaderDG: TDrawGrid
+    AnchorSideLeft.Control = Owner
+    AnchorSideTop.Control = pnlView
     AnchorSideTop.Side = asrBottom
     AnchorSideRight.Control = Owner
     AnchorSideRight.Side = asrBottom
