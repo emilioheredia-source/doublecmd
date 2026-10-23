@@ -91,7 +91,9 @@ type
     procedure toggle( const index: Integer );
     // The row list indexes the selected grid rows stand for
     procedure rowListIndexes( const viewIndexes: TIntegerList; const target: TIntegerList );
-    // The last grid row still under the folder row at index (the row itself for a file)
+    // The last grid row an action on the row at index reaches: the subtree
+    // of an open folder, or just its own files when actions do not include
+    // subfolders; the row itself for a file or a folded folder
     function lastRowUnder( const index: Integer ): Integer;
 
     property level: Integer read _level write _level;
@@ -410,12 +412,19 @@ var
 begin
   Result:= index;
   folder:= _view[index];
-  if folder.kind = vrFile then
+  if folder.kind <> vrFolder then
     Exit;
-  while (Result + 1 < _count) and
-        (_view[Result + 1].rowFirst >= folder.rowFirst) and
-        (_view[Result + 1].rowLast <= folder.rowLast) do
-    Inc( Result );
+  if _actionsIncludeSubfolders then begin
+    while (Result + 1 < _count) and
+          (_view[Result + 1].rowFirst >= folder.rowFirst) and
+          (_view[Result + 1].rowLast <= folder.rowLast) do
+      Inc( Result );
+  end else begin
+    while (Result + 1 < _count) and
+          (_view[Result + 1].kind = vrFile) and
+          (_view[Result + 1].dirIndex = folder.dirIndex) do
+      Inc( Result );
+  end;
 end;
 
 end.
