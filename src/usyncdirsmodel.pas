@@ -239,6 +239,10 @@ type
   TTwoLevelTree = class
   private
     _dirs: TStringListEx;
+    // _dirs keeps the scan order for display and is not sorted, so looking a
+    // path up in it is a linear search; with tens of thousands of folders
+    // that is minutes per compare. This sorted copy maps a path to its index.
+    _index: TStringListEx;
   public
     constructor Create;
     destructor Destroy; override;
@@ -829,6 +833,9 @@ begin
   _dirs:= TStringListEx.Create;
   _dirs.OwnsObjects:= True;
   _dirs.CaseSensitive:= FileNameCaseSensitive;
+  _index:= TStringListEx.Create;
+  _index.CaseSensitive:= FileNameCaseSensitive;
+  _index.Sorted:= True;
   // since the default comparison function performs a simple string comparison
   // without considering the path structure, the resulting path order does not
   // follow standard conventions.
@@ -846,11 +853,13 @@ end;
 destructor TTwoLevelTree.Destroy;
 begin
   FreeAndNil( _dirs );
+  FreeAndNil( _index );
 end;
 
 function TTwoLevelTree.addDir(const dirPath: String; const item: TTwoLevelTreeDirItem): Integer;
 begin
   Result:= _dirs.AddObject( dirPath, item );
+  _index.AddObject( dirPath, TObject(PtrInt(Result)) );
 end;
 
 procedure TTwoLevelTree.incParentDirRecChildrenCount(
@@ -879,6 +888,7 @@ end;
 procedure TTwoLevelTree.Clear;
 begin
   _dirs.Clear;
+  _index.Clear;
 end;
 
 function TTwoLevelTree.Count: Integer;
@@ -887,8 +897,13 @@ begin
 end;
 
 function TTwoLevelTree.indexOfDir(const dirPath: String): Integer;
+var
+  i: Integer;
 begin
-  Result:= _dirs.IndexOf( dirPath );
+  if _index.Find( dirPath, i ) then
+    Result:= PtrInt( _index.Objects[i] )
+  else
+    Result:= -1;
 end;
 
 function TTwoLevelTree.dirPath(const dirIndex: Integer): String;
