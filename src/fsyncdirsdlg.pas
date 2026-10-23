@@ -97,6 +97,7 @@ type
     sbLevel3: TSpeedButton;
     sbLevel4: TSpeedButton;
     chkViewFiles: TCheckBox;
+    chkViewIndent: TCheckBox;
     chkActionsSubfolders: TCheckBox;
     edPath1: TDirectoryEdit;
     edPath2: TDirectoryEdit;
@@ -155,6 +156,7 @@ type
     procedure cbExtFilterChange(Sender: TObject);
     procedure sbViewLevelClick(Sender: TObject);
     procedure chkViewFilesChange(Sender: TObject);
+    procedure chkViewIndentChange(Sender: TObject);
     procedure chkActionsSubfoldersChange(Sender: TObject);
     procedure btnCompareClick(Sender: TObject);
     procedure btnSynchronizeClick(Sender: TObject);
@@ -266,6 +268,10 @@ type
     procedure setViewLevel(const level: Integer);
     procedure refreshView;
     procedure toggleFolderRow(const viewIndex: Integer);
+    function clickedFoldMarker(const viewIndex, X: Integer): Boolean;
+    function rowIndentation(const depth: Integer): Integer;
+    function folderRowName(const dirIndex: Integer): String;
+    function fileRowName(const rowIndex: Integer): String;
     procedure drawFolderRow(const viewRow: TSyncViewRow; const summary: TSyncDirSummary;
                             const aRect: TRect; const aState: TGridDrawState);
     procedure SetPanelWatchers(AEnabled: Boolean);
@@ -394,6 +400,39 @@ uses
   uFileSourceManager, uFileSourceProperty, uShowMsg,
   fDeleteDlg, uTrash, uOperationsManager, uOSForms,
   uWfxPluginFileSource, WfxPlugin;
+
+// With "Indent" on, rows are indented by their depth in the tree and show
+// their own name: a folder's files and subfolders sit one step to the right
+// of it. Off, every row shows its full relative path, as upstream drew it.
+function TfrmSyncDirsDlg.rowIndentation(const depth: Integer): Integer;
+const
+  STEP = 16;
+begin
+  if NOT chkViewIndent.Checked then
+    Exit(0);
+  Result := Max(0, depth - 1) * STEP;
+end;
+
+function TfrmSyncDirsDlg.folderRowName(const dirIndex: Integer): String;
+begin
+  Result := FFullTree.dirPath(dirIndex);
+  if chkViewIndent.Checked then
+    Result := ExtractFileName(Result);
+  Result := Result + PathDelim;
+end;
+
+function TfrmSyncDirsDlg.fileRowName(const rowIndex: Integer): String;
+begin
+  Result := FFilteredList.path(rowIndex);
+  if chkViewIndent.Checked then
+    Result := ExtractFileName(Result);
+end;
+
+procedure TfrmSyncDirsDlg.chkViewIndentChange(Sender: TObject);
+begin
+  MainDrawGrid.Invalidate;
+end;
+
 
 {$R *.lfm}
 
@@ -679,13 +718,34 @@ begin
     Exit;
 
   MainDrawGrid.MouseToCell(X, Y, c, r);
-  if (r < 0) or (r >= FView.Count)
-  or (x - 2 < hCols[3].Left)
+  if (r < 0) or (r >= FView.Count) then
+    Exit;
+
+  if clickedFoldMarker(r, X) then
+  begin
+    toggleFolderRow(r);
+    Exit;
+  end;
+
+  if (x - 2 < hCols[3].Left)
   or (x - 2 > hCols[3].Left + hCols[3].Width)
   then
     Exit;
 
   toggleSelectionAction;
+end;
+
+// The [+]/[-] marker at the start of a folder row
+function TfrmSyncDirsDlg.clickedFoldMarker(const viewIndex, X: Integer): Boolean;
+const
+  MARKER_WIDTH = 24;
+var
+  markerLeft: Integer;
+begin
+  if FView.row(viewIndex).kind = vrFile then
+    Exit(False);
+  markerLeft := hCols[0].Left + 2 + rowIndentation(FView.row(viewIndex).depth);
+  Result := (X >= markerLeft) and (X < markerLeft + MARKER_WIDTH);
 end;
 
 procedure TfrmSyncDirsDlg.RestoreProperties(Sender: TObject);
@@ -730,6 +790,7 @@ begin
   gSyncDirsExcludeFiles         := Trim(cbExcludeFiles.Text);
   gSyncDirsViewLevel            := FView.level;
   gSyncDirsViewFiles            := chkViewFiles.Checked;
+  gSyncDirsViewIndent           := chkViewIndent.Checked;
   gSyncDirsActionsSubfolders    := chkActionsSubfolders.Checked;
   glsSyncMaskHistory.Assign(cbExtFilter.Items);
   // Exclusion history is shared with the Find files dialog: the same folder
@@ -812,6 +873,7 @@ begin
   cbExcludeFiles.Text    := gSyncDirsExcludeFiles;
   UpdateExcludeFieldsState;
   chkViewFiles.Checked   := gSyncDirsViewFiles;
+  chkViewIndent.Checked  := gSyncDirsViewIndent;
   chkActionsSubfolders.Checked := gSyncDirsActionsSubfolders;
   applyViewSettings;
   setViewLevel(gSyncDirsViewLevel);
@@ -873,15 +935,6 @@ begin
   part(summary.undecided, 'skip');
 end;
 
-// Rows are indented by their depth in the tree, so a folder's files and
-// subfolders sit one step to the right of it
-function depthIndentation(const depth: Integer): Integer;
-const
-  STEP = 16;
-begin
-  Result := Max(0, depth - 1) * STEP;
-end;
-
 procedure TfrmSyncDirsDlg.drawFolderRow(const viewRow: TSyncViewRow;
   const summary: TSyncDirSummary; const aRect: TRect; const aState: TGridDrawState);
 var
@@ -907,15 +960,14 @@ begin
       Font.Color := gColors.SyncDirs^.UnknownColor
     else
       Font.Color := clWindowText;
-    // The folder's own name: its parent is the row above it
-    folderText := ExtractFileName(FFullTree.dirPath(viewRow.dirIndex)) + PathDelim;
+    folderText := folderRowName(viewRow.dirIndex);
     if viewRow.kind = vrFoldedFolder then
       folderText := '[+] ' + folderText
     else
       folderText := '[-] ' + folderText;
     with hCols[0] do
       TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
-        Left + 2 + depthIndentation(viewRow.depth), aRect.Top + 2, folderText);
+        Left + 2 + rowIndentation(viewRow.depth), aRect.Top + 2, folderText);
     with hCols[1] do
       TextRect(Rect(Left, aRect.Top, hCols[2].Left + hCols[2].Width, aRect.Bottom),
         Left + 2, aRect.Top + 2, folderSummaryText(summary));
@@ -968,8 +1020,8 @@ begin
       begin
         with hCols[0] do
           TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
-            Left + 2 + LEFT_FILE_INDENTATION + depthIndentation(viewRow.depth), aRect.Top + 2,
-            ExtractFileName(FFilteredList.path(viewRow.rowIndex)));
+            Left + 2 + LEFT_FILE_INDENTATION + rowIndentation(viewRow.depth), aRect.Top + 2,
+            fileRowName(viewRow.rowIndex));
         s := IntToStrTS(rec.leftFile.Size);
         with hCols[1] do begin
           x := Left + Width - 8 - TextWidth(s);
@@ -1121,12 +1173,19 @@ procedure TfrmSyncDirsDlg.pmGridMenuPopup(Sender: TObject);
     fromIndex: Integer;
     toIndex: Integer;
   begin
-    if MainDrawGrid.HasMultiSelection then
-      Exit;
-    if MainDrawGrid.Selection.Height>0 then
-      Exit;
-
     fromIndex:= MainDrawGrid.Row;
+    // A folder row under the cursor is always selected with what the action
+    // will reach, so a change of the subfolders option shows at once; a
+    // selection made by hand elsewhere is kept
+    if (fromIndex < 0) or (fromIndex >= FView.Count) then
+      Exit;
+    if FView.row(fromIndex).kind = vrFile then begin
+      if MainDrawGrid.HasMultiSelection then
+        Exit;
+      if MainDrawGrid.Selection.Height>0 then
+        Exit;
+    end;
+
     toIndex:= FView.lastRowUnder( fromIndex );
     MainDrawGrid.Selection:= TGridRect.Create(0,fromIndex,3,toIndex);
   end;
