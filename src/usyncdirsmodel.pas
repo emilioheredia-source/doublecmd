@@ -994,27 +994,38 @@ begin
   self.Delete( index );
 end;
 
+// A folder row with no action of its own is shown only when a file row
+// follows it, that is, when it has something visible inside. Decided from
+// the end in one pass and rebuilt in one go: deleting rows one by one
+// shifted the rest of the list each time, a cost growing with the square
+// of the row count.
 procedure TFlatDirFileList.clearInvisibleDirs;
 var
   i: Integer;
   rec: TSyncRec;
+  keep: array of Boolean;
+  nextKeptIsFile: Boolean = False;
+  kept: TStringListEx;
 begin
+  SetLength( keep, self.Count );
   for i:= self.Count-1 downto 0 do begin
     rec:= self.fileSyncRec( i );
-    if rec.isFile then
-      continue;
-    // Always shown: it is why the result is partial
-    if rec.isUnreadable then
-      continue;
-    if rec.state <> srsDoNothing then
-      continue;
-    if i + 1 < self.Count then begin
-      rec:= self.fileSyncRec(i+1);
-      if rec.isFile then
-        continue;
-    end;
-    self.Delete(i);
+    // Unreadable folders are always shown: they are why the result is partial
+    if rec.isFile or rec.isUnreadable or (rec.state <> srsDoNothing) then
+      keep[i]:= True
+    else
+      keep[i]:= nextKeptIsFile;
+    if keep[i] then
+      nextKeptIsFile:= rec.isFile;
   end;
+  kept:= TStringListEx.Create;
+  kept.CaseSensitive:= FileNameCaseSensitive;
+  kept.Capacity:= self.Count;
+  for i:= 0 to self.Count-1 do
+    if keep[i] then
+      kept.AddObject( _list[i], _list.Objects[i] );
+  _list.Free;
+  _list:= kept;
 end;
 
 procedure TFlatDirFileList.Clear;
