@@ -35,7 +35,7 @@ uses
   uFileSourceOperationMessageBoxesUI, uFormCommands, uHotkeyManager, uClassesEx,
   uFileSourceOperationOptions, uFileSourceDeleteOperation, KASProgressBar,
   uMasks, uSearchTemplate, uFileSystemUtil, fSyncDirsPerformDlg,
-  uSyncDirsModel, uSyncDirsService;
+  uSyncDirsModel, uSyncDirsService, uSyncDirsView;
 
 const
   HotkeysCategory = 'Synchronize Directories';
@@ -89,6 +89,13 @@ type
     lblExcludeDirs: TLabel;
     lblExcludeFiles: TLabel;
     pnlExclude: TPanel;
+    pnlView: TPanel;
+    lblViewLevel: TLabel;
+    cbViewLevel: TComboBox;
+    chkViewFiles: TCheckBox;
+    btnExpandAll: TButton;
+    btnCollapseAll: TButton;
+    chkActionsSubfolders: TCheckBox;
     edPath1: TDirectoryEdit;
     edPath2: TDirectoryEdit;
     HeaderDG: TDrawGrid;
@@ -144,6 +151,11 @@ type
     procedure btnCloseClick(Sender: TObject);
     procedure btnSearchTemplateClick(Sender: TObject);
     procedure cbExtFilterChange(Sender: TObject);
+    procedure cbViewLevelChange(Sender: TObject);
+    procedure chkViewFilesChange(Sender: TObject);
+    procedure btnExpandAllClick(Sender: TObject);
+    procedure btnCollapseAllClick(Sender: TObject);
+    procedure chkActionsSubfoldersChange(Sender: TObject);
     procedure btnCompareClick(Sender: TObject);
     procedure btnSynchronizeClick(Sender: TObject);
     procedure edPath1AcceptDirectory(Sender: TObject; var Value: String);
@@ -196,6 +208,8 @@ type
     FAddresses: TDoublePaths;
     hCols: array [0..6] of record Left, Width: Integer end;
     FFilteredCount: TSyncDirsFlatCount;
+    // What the grid shows: the row list seen by folder (see uSyncDirsView)
+    FView: TSyncDirsView;
     FOperation: TFileSourceOperation;
     FileExistsOption: TFileSourceOperationOptionFileExists;
     SymLinkOption: TFileSourceOperationOptionSymLink;
@@ -248,6 +262,11 @@ type
     procedure UpdateExcludeFieldsState;
     function createExclusionTemplate: TSearchTemplate;
     procedure takeRunOptions(const dialog: TfrmSyncDirsPerformDlg);
+    procedure applyViewSettings;
+    procedure refreshView;
+    procedure toggleFolderRow(const viewIndex: Integer);
+    procedure drawFolderRow(const viewRow: TSyncViewRow; const summary: TSyncDirSummary;
+                            const aRect: TRect; const aState: TGridDrawState);
     procedure SetPanelWatchers(AEnabled: Boolean);
     procedure ApplyCopyOptions(const operation: TFileSourceOperation);
     procedure RememberCopyOptions(const operation: TFileSourceOperation);
@@ -659,7 +678,7 @@ begin
     Exit;
 
   MainDrawGrid.MouseToCell(X, Y, c, r);
-  if (r < 0) or (r >= FFilteredList.Count)
+  if (r < 0) or (r >= FView.Count)
   or (x - 2 < hCols[3].Left)
   or (x - 2 > hCols[3].Left + hCols[3].Width)
   then
@@ -708,6 +727,9 @@ begin
     gSyncDirsByContent          := chkByContent.Checked;
   gSyncDirsExcludeDirs          := Trim(cbExcludeDirs.Text);
   gSyncDirsExcludeFiles         := Trim(cbExcludeFiles.Text);
+  gSyncDirsViewLevel            := cbViewLevel.ItemIndex;
+  gSyncDirsViewFiles            := chkViewFiles.Checked;
+  gSyncDirsActionsSubfolders    := chkActionsSubfolders.Checked;
   glsSyncMaskHistory.Assign(cbExtFilter.Items);
   // Exclusion history is shared with the Find files dialog: the same folder
   // and file patterns get skipped in both places.
@@ -788,6 +810,10 @@ begin
   cbExcludeFiles.Items.Assign(glsSearchExcludeFiles);
   cbExcludeFiles.Text    := gSyncDirsExcludeFiles;
   UpdateExcludeFieldsState;
+  cbViewLevel.ItemIndex  := Min(gSyncDirsViewLevel, cbViewLevel.Items.Count - 1);
+  chkViewFiles.Checked   := gSyncDirsViewFiles;
+  chkActionsSubfolders.Checked := gSyncDirsActionsSubfolders;
+  applyViewSettings;
 
   HMSync := HotMan.Register(Self, HotkeysCategory);
   HMSync.RegisterActionList(ActionList);
@@ -808,16 +834,85 @@ end;
 procedure TfrmSyncDirsDlg.MainDrawGridDblClick(Sender: TObject);
 var
   r, x: Integer;
+  viewRow: TSyncViewRow;
   rec: TSyncRec;
 begin
   r := MainDrawGrid.Row;
-  if (r < 0) or (r >= FFilteredList.Count) then Exit;
+  if (r < 0) or (r >= FView.Count) then Exit;
+  viewRow := FView.row(r);
+  if viewRow.kind <> vrFile then
+  begin
+    toggleFolderRow(r);
+    Exit;
+  end;
   x := MainDrawGrid.ScreenToClient(Mouse.CursorPos).X;
   if (x > hCols[3].Left) and (x < hCols[3].Left + hCols[3].Width) then Exit;
-  rec := FFilteredList.fileSyncRec(r);
-  if rec.isDir or NOT rec.hasFilesOnBothSides or (rec.state = srsEqual) then
+  rec := viewRow.rec;
+  if NOT rec.hasFilesOnBothSides or (rec.state = srsEqual) then
     Exit;
   PrepareToolData(self.leftFS, rec.leftFile, self.rightFS, rec.rightFile, @ShowDifferByGlobList);
+end;
+
+// The summary a folder row shows: what is beneath it, by direction
+function folderSummaryText(const summary: TSyncDirSummary): String;
+  procedure part(const count: Integer; const what: String);
+  begin
+    if count > 0 then
+      Result := Result + '  ' + IntToStrTS(count) + ' ' + what;
+  end;
+begin
+  Result := '';
+  part(summary.copyToRight, '->');
+  part(summary.copyToLeft, '<-');
+  part(summary.deleteLeft, 'del <');
+  part(summary.deleteRight, 'del >');
+  part(summary.conflicts, '!');
+  part(summary.unreadable, rsSyncUnreadable);
+  part(summary.equal, '=');
+  part(summary.undecided, 'skip');
+end;
+
+procedure TfrmSyncDirsDlg.drawFolderRow(const viewRow: TSyncViewRow;
+  const summary: TSyncDirSummary; const aRect: TRect; const aState: TGridDrawState);
+var
+  folderText: String;
+begin
+  with MainDrawGrid.Canvas do
+  begin
+    if gdSelected in aState then
+      Brush.Color := gColors.SyncDirs^.DirSelectedColor
+    else begin
+      {$IFDEF DARWIN}
+      Brush.Color := clInfoBk;
+      {$ELSE}
+      Brush.Color := clBtnFace;
+      {$ENDIF}
+    end;
+    FillRect(aRect);
+    Font.Bold := True;
+    if viewRow.rec.isUnreadable or (summary.unreadable > 0) or (summary.conflicts > 0) then
+      Font.Color := clRed
+    else if summary.changedOnBothSides then
+      // Newer files on both sides: the folder to look at file by file
+      Font.Color := gColors.SyncDirs^.UnknownColor
+    else
+      Font.Color := clWindowText;
+    folderText := FFullTree.dirPath(viewRow.dirIndex) + PathDelim;
+    if viewRow.kind = vrFoldedFolder then
+      folderText := '[+] ' + folderText
+    else
+      folderText := '[-] ' + folderText;
+    with hCols[0] do
+      TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
+        Left + 2, aRect.Top + 2, folderText);
+    with hCols[1] do
+      TextRect(Rect(Left, aRect.Top, hCols[2].Left + hCols[2].Width, aRect.Bottom),
+        Left + 2, aRect.Top + 2, folderSummaryText(summary));
+    if viewRow.rec.isUnreadableOnSide(dsRight) then
+      with hCols[4] do
+        TextRect(Rect(Left, aRect.Top, hCols[5].Left + hCols[5].Width, aRect.Bottom),
+          Left + 2, aRect.Top + 2, rsSyncUnreadable);
+  end;
 end;
 
 procedure TfrmSyncDirsDlg.MainDrawGridDrawCell(Sender: TObject; aCol,
@@ -825,43 +920,27 @@ procedure TfrmSyncDirsDlg.MainDrawGridDrawCell(Sender: TObject; aCol,
 const
   LEFT_FILE_INDENTATION = 8;
 var
+  viewRow: TSyncViewRow;
   rec: TSyncRec;
+  rowAction: TSyncRecState;
   x: Integer;
   s: string;
 begin
-  if (FFilteredList = nil) or (aRow >= FFilteredList.Count) then Exit;
+  if (FView = nil) or (aRow >= FView.Count) then Exit;
+  viewRow := FView.row(aRow);
+  rec := viewRow.rec;
   with MainDrawGrid.Canvas do
   begin
-    rec := FFilteredList.fileSyncRec(aRow);
-    if rec.isDir then
+    if viewRow.kind <> vrFile then
     begin
-      if gdSelected in aState then begin
-        Brush.Color:= gColors.SyncDirs^.DirSelectedColor
-      end else begin
-        {$IFDEF DARWIN}
-        Brush.Color := clInfoBk;
-        {$ELSE}
-        Brush.Color := clBtnFace;
-        {$ENDIF}
-      end;
-      FillRect(aRect);
-      Font.Bold := True;
-      if rec.isUnreadable then
-        Font.Color := clRed
-      else
-        Font.Color := clWindowText;
-      with hCols[0] do
-        TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
-          Left + 2, aRect.Top + 2, FFilteredList.path(aRow));
-      if rec.isUnreadableOnSide(dsLeft) then
-        with hCols[1] do
-          TextRect(Rect(Left, aRect.Top, hCols[2].Left + hCols[2].Width, aRect.Bottom),
-            Left + 2, aRect.Top + 2, rsSyncUnreadable);
-      if rec.isUnreadableOnSide(dsRight) then
-        with hCols[4] do
-          TextRect(Rect(Left, aRect.Top, hCols[5].Left + hCols[5].Width, aRect.Bottom),
-            Left + 2, aRect.Top + 2, rsSyncUnreadable);
+      drawFolderRow(viewRow, FView.summaryOf(aRow), aRect, aState);
+      // The folder's own action (empty directories), else the one action
+      // everything beneath shares
+      rowAction := rec.action;
+      if rowAction = srsDoNothing then
+        rowAction := FView.summaryOf(aRow).singleAction;
     end else begin
+      rowAction := rec.action;
       with gColors.SyncDirs^ do
       begin
         case rec.state of
@@ -878,7 +957,7 @@ begin
       begin
         with hCols[0] do
           TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
-            Left + 2 + LEFT_FILE_INDENTATION, aRect.Top + 2, FFilteredList.path(aRow));
+            Left + 2 + LEFT_FILE_INDENTATION, aRect.Top + 2, FFilteredList.path(viewRow.rowIndex));
         s := IntToStrTS(rec.leftFile.Size);
         with hCols[1] do begin
           x := Left + Width - 8 - TextWidth(s);
@@ -892,7 +971,7 @@ begin
       end;
       if rec.hasRightFile then
       begin
-        TextOut(hCols[6].Left + 2, aRect.Top + 2, FFilteredList.path(aRow));
+        TextOut(hCols[6].Left + 2, aRect.Top + 2, FFilteredList.path(viewRow.rowIndex));
         s := IntToStrTS(rec.rightFile.Size);
         with hCols[5] do begin
           x := Left + Width - 8 - TextWidth(s);
@@ -905,10 +984,10 @@ begin
             Left + 2, aRect.Top + 2, s)
       end;
     end;
-    if rec.isFile or (rec.state<>srsDoNothing) then begin
+    if (viewRow.kind = vrFile) or (rowAction <> srsDoNothing) then begin
       ImageList1.Draw(MainDrawGrid.Canvas,
         hCols[3].Left + (hCols[3].Width - ImageList1.Width) div 2 - 2,
-        (aRect.Top + aRect.Bottom - ImageList1.Height - 1) div 2, Ord(rec.action));
+        (aRect.Top + aRect.Bottom - ImageList1.Height - 1) div 2, Ord(rowAction));
     end;
   end;
 end;
@@ -922,6 +1001,30 @@ begin
     VK_SPACE:
       begin
         toggleSelectionAction;
+        Key:= 0;
+      end;
+    VK_RIGHT, VK_ADD:
+      if (MainDrawGrid.Row >= 0) and (MainDrawGrid.Row < FView.Count) and
+         (FView.row(MainDrawGrid.Row).kind = vrFoldedFolder) then
+      begin
+        toggleFolderRow(MainDrawGrid.Row);
+        Key:= 0;
+      end;
+    VK_LEFT, VK_SUBTRACT:
+      if (MainDrawGrid.Row >= 0) and (MainDrawGrid.Row < FView.Count) and
+         (FView.row(MainDrawGrid.Row).kind = vrFolder) then
+      begin
+        toggleFolderRow(MainDrawGrid.Row);
+        Key:= 0;
+      end;
+    VK_MULTIPLY:
+      begin
+        btnExpandAllClick(nil);
+        Key:= 0;
+      end;
+    VK_DIVIDE:
+      begin
+        btnCollapseAllClick(nil);
         Key:= 0;
       end;
     VK_A:
@@ -987,8 +1090,8 @@ var
   rec: TSyncRec;
 begin
   r := MainDrawGrid.Row;
-  if (r < 0) or (r >= FFilteredList.Count) then Exit;
-  rec := FFilteredList.fileSyncRec(r);
+  if (r < 0) or (r >= FView.Count) then Exit;
+  rec := FView.row(r).rec;
   if rec.isFile then
   begin
     if Sender = MenuItemViewLeft then
@@ -1012,7 +1115,7 @@ procedure TfrmSyncDirsDlg.pmGridMenuPopup(Sender: TObject);
       Exit;
 
     fromIndex:= MainDrawGrid.Row;
-    toIndex:= FFilteredList.lastFileInCurrentDir( fromIndex );
+    toIndex:= FView.lastRowUnder( fromIndex );
     MainDrawGrid.Selection:= TGridRect.Create(0,fromIndex,3,toIndex);
   end;
 
@@ -1142,15 +1245,84 @@ begin
     Include( Result, TSyncDirsFilterFlag.ffSingle );
 end;
 
+// The row list indexes behind the selected grid rows: a folder row stands
+// for the rows beneath it
 function TfrmSyncDirsDlg.createSelectionIndexes: TIntegerList;
 var
   i: Integer;
+  viewIndexes: TIntegerList;
 begin
   Result:= TIntegerList.Create;
-  for i:= 0 to self.MainDrawGrid.RowCount-1 do begin
-    if MainDrawGrid.IsCellSelected[0,i] then
-      Result.Add( i );
+  viewIndexes:= TIntegerList.Create;
+  try
+    for i:= 0 to self.MainDrawGrid.RowCount-1 do begin
+      if MainDrawGrid.IsCellSelected[0,i] then
+        viewIndexes.Add( i );
+    end;
+    FView.rowListIndexes( viewIndexes, Result );
+  finally
+    viewIndexes.Free;
   end;
+end;
+
+procedure TfrmSyncDirsDlg.applyViewSettings;
+begin
+  FView.level := cbViewLevel.ItemIndex;
+  FView.showFiles := chkViewFiles.Checked;
+  FView.actionsIncludeSubfolders := chkActionsSubfolders.Checked;
+end;
+
+// Rebuild the grid rows from the row list, keeping the cursor in range
+procedure TfrmSyncDirsDlg.refreshView;
+var
+  r: Integer;
+begin
+  r := MainDrawGrid.Row;
+  FView.build;
+  MainDrawGrid.RowCount := FView.Count;
+  if (FView.Count > 0) and (r >= 0) then
+    MainDrawGrid.Row := Min(r, FView.Count - 1);
+  MainDrawGrid.Invalidate;
+end;
+
+procedure TfrmSyncDirsDlg.toggleFolderRow(const viewIndex: Integer);
+begin
+  if (viewIndex < 0) or (viewIndex >= FView.Count) then Exit;
+  if FView.row(viewIndex).kind = vrFile then Exit;
+  FView.toggle(viewIndex);
+  MainDrawGrid.RowCount := FView.Count;
+  MainDrawGrid.Row := viewIndex;
+  MainDrawGrid.Invalidate;
+end;
+
+procedure TfrmSyncDirsDlg.cbViewLevelChange(Sender: TObject);
+begin
+  FView.forgetManualFolds;
+  applyViewSettings;
+  refreshView;
+end;
+
+procedure TfrmSyncDirsDlg.chkViewFilesChange(Sender: TObject);
+begin
+  applyViewSettings;
+  refreshView;
+end;
+
+procedure TfrmSyncDirsDlg.btnExpandAllClick(Sender: TObject);
+begin
+  cbViewLevel.ItemIndex := 0;
+  cbViewLevelChange(Sender);
+end;
+
+procedure TfrmSyncDirsDlg.btnCollapseAllClick(Sender: TObject);
+begin
+  cbViewLevel.ItemIndex := 1;
+  cbViewLevelChange(Sender);
+end;
+
+procedure TfrmSyncDirsDlg.chkActionsSubfoldersChange(Sender: TObject);
+begin
+  applyViewSettings;
 end;
 
 procedure TfrmSyncDirsDlg.SetSortIndex(AValue: Integer);
@@ -1199,6 +1371,7 @@ begin
   TopPanel.Enabled := False;
   try
     FFullTree.Clear;
+    FView.forgetManualFolds;
     FCompareOption.Free;
     FCompareOption:= self.createCompareOption;
     MainDrawGrid.RowCount := 0;
@@ -1212,8 +1385,9 @@ end;
 procedure TfrmSyncDirsDlg.FillFoundItemsDG;
 begin
   InitVisibleItems;
+  FView.build;
   MainDrawGrid.ColCount := 1;
-  MainDrawGrid.RowCount := FFilteredList.Count;
+  MainDrawGrid.RowCount := FView.Count;
   MainDrawGrid.Invalidate;
   FFilteredCount:= FFilteredList.flatCount;
   UpdateStatusBar;
@@ -1371,6 +1545,7 @@ begin
     indexes.Free;
     MainDrawGrid.EndUpdate;
   end;
+  refreshView;
 end;
 
 procedure TfrmSyncDirsDlg.doCopyProperties(const targetSide: TDoubleSide);
@@ -1494,7 +1669,7 @@ end;
 
 procedure TfrmSyncDirsDlg.checkContentThreadUpdateGrid;
 begin
-  MainDrawGrid.Invalidate;
+  refreshView;
   UpdateStatusBar;
 end;
 
@@ -1965,6 +2140,7 @@ begin
   FSortService := TSyncDirsSortService.Create;
   FFullTree := TTwoLevelTree.Create;
   FFilteredList := TFlatDirFileList.Create(FFullTree);
+  FView := TSyncDirsView.Create(FFullTree, FFilteredList);
   FFileViews[dsLeft] := FileView1;
   FFileViews[dsRight] := FileView2;
   self.leftFS := FileView1.FileSource;
@@ -2013,6 +2189,7 @@ begin
   FFileSourceOperationMessageBoxesUI.Free;
   FSelectedFiles[dsLeft].Free;
   FSelectedFiles[dsRight].Free;
+  FView.Free;
   FFilteredList.Free;
   FFullTree.Free;
   FSortService.Free;
