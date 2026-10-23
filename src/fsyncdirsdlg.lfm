@@ -533,7 +533,7 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
     ChildSizing.TopBottomSpacing = 2
     ChildSizing.HorizontalSpacing = 8
     ChildSizing.Layout = cclLeftToRightThenTopToBottom
-    ChildSizing.ControlsPerLine = 9
+    ChildSizing.ControlsPerLine = 6
     ClientHeight = 27
     ClientWidth = 833
     TabOrder = 8
@@ -547,55 +547,26 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
       ParentColor = False
     end
     object sbLevelAll: TSpeedButton
-      Left = 60
+      Left = 90
       Height = 23
       Top = 2
-      Width = 28
+      Width = 36
+      AllowAllUp = True
       Caption = 'All'
       Down = True
       GroupIndex = 2
-      OnClick = sbViewLevelClick
-      Tag = 0
+      OnClick = sbLevelAllClick
     end
-    object sbLevel1: TSpeedButton
-      Left = 96
+    object seViewLevel: TSpinEdit
+      Left = 134
       Height = 23
       Top = 2
-      Width = 28
-      Caption = '1'
-      GroupIndex = 2
-      OnClick = sbViewLevelClick
-      Tag = 1
-    end
-    object sbLevel2: TSpeedButton
-      Left = 132
-      Height = 23
-      Top = 2
-      Width = 28
-      Caption = '2'
-      GroupIndex = 2
-      OnClick = sbViewLevelClick
-      Tag = 2
-    end
-    object sbLevel3: TSpeedButton
-      Left = 168
-      Height = 23
-      Top = 2
-      Width = 28
-      Caption = '3'
-      GroupIndex = 2
-      OnClick = sbViewLevelClick
-      Tag = 3
-    end
-    object sbLevel4: TSpeedButton
-      Left = 204
-      Height = 23
-      Top = 2
-      Width = 28
-      Caption = '4'
-      GroupIndex = 2
-      OnClick = sbViewLevelClick
-      Tag = 4
+      Width = 50
+      MaxValue = 99
+      MinValue = 1
+      OnChange = seViewLevelChange
+      TabOrder = 0
+      Value = 1
     end
     object chkViewFiles: TCheckBox
       Left = 178
@@ -606,7 +577,7 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
       Checked = True
       OnChange = chkViewFilesChange
       State = cbChecked
-      TabOrder = 0
+      TabOrder = 1
     end
     object chkViewIndent: TCheckBox
       Left = 300
@@ -628,7 +599,7 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
       Checked = True
       OnChange = chkActionsSubfoldersChange
       State = cbChecked
-      TabOrder = 1
+      TabOrder = 3
     end
   end
   object HeaderDG: TDrawGrid

@@ -707,7 +707,8 @@ var
   gSyncDirsExcludeFiles: string;
   // The sync dialog's view by folder: fold level (0 = none), files shown,
   // actions on a folder row applied to its subfolders
-  gSyncDirsViewLevel: Integer;
+  gSyncDirsViewLevel: Integer;          // 0 = all levels
+  gSyncDirsViewFoldLevel: Integer;      // the level "All" switches back to
   gSyncDirsViewFiles: Boolean;
   gSyncDirsViewIndent: Boolean;
   gSyncDirsActionsSubfolders: Boolean;
@@ -2344,6 +2345,7 @@ begin
   gSyncDirsExcludeDirs := '';
   gSyncDirsExcludeFiles := '';
   gSyncDirsViewLevel := 0;
+  gSyncDirsViewFoldLevel := 1;
   gSyncDirsViewFiles := True;
   gSyncDirsViewIndent := True;
   gSyncDirsActionsSubfolders := True;
@@ -3445,6 +3447,7 @@ begin
       gSyncDirsExcludeDirs := GetValue(Node, 'ExcludeDirectories', gSyncDirsExcludeDirs);
       gSyncDirsExcludeFiles := GetValue(Node, 'ExcludeFiles', gSyncDirsExcludeFiles);
       gSyncDirsViewLevel := GetValue(Node, 'ViewLevel', gSyncDirsViewLevel);
+      gSyncDirsViewFoldLevel := GetValue(Node, 'ViewFoldLevel', gSyncDirsViewFoldLevel);
       gSyncDirsViewFiles := GetValue(Node, 'ViewFiles', gSyncDirsViewFiles);
       gSyncDirsViewIndent := GetValue(Node, 'ViewIndent', gSyncDirsViewIndent);
       gSyncDirsActionsSubfolders := GetValue(Node, 'ActionsIncludeSubfolders', gSyncDirsActionsSubfolders);
@@ -4042,6 +4045,7 @@ begin
     SetValue(Node, 'ExcludeDirectories', gSyncDirsExcludeDirs);
     SetValue(Node, 'ExcludeFiles', gSyncDirsExcludeFiles);
     SetValue(Node, 'ViewLevel', gSyncDirsViewLevel);
+    SetValue(Node, 'ViewFoldLevel', gSyncDirsViewFoldLevel);
     SetValue(Node, 'ViewFiles', gSyncDirsViewFiles);
     SetValue(Node, 'ViewIndent', gSyncDirsViewIndent);
     SetValue(Node, 'ActionsIncludeSubfolders', gSyncDirsActionsSubfolders);

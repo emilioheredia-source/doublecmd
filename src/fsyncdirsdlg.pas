@@ -29,7 +29,7 @@ interface
 
 uses
   Classes, SysUtils, IntegerList, FileUtil, Forms, Controls, Graphics, Dialogs, StdCtrls,
-  ExtCtrls, Buttons, ComCtrls, Grids, Menus, ActnList, EditBtn,
+  ExtCtrls, Buttons, ComCtrls, Grids, Menus, ActnList, EditBtn, Spin,
   DCOSUtils,
   uFileView, uFileSource, uFileSourceCopyOperation, uFile, uFileSourceOperation,
   uFileSourceOperationMessageBoxesUI, uFormCommands, uHotkeyManager, uClassesEx,
@@ -92,10 +92,7 @@ type
     pnlView: TPanel;
     lblViewLevel: TLabel;
     sbLevelAll: TSpeedButton;
-    sbLevel1: TSpeedButton;
-    sbLevel2: TSpeedButton;
-    sbLevel3: TSpeedButton;
-    sbLevel4: TSpeedButton;
+    seViewLevel: TSpinEdit;
     chkViewFiles: TCheckBox;
     chkViewIndent: TCheckBox;
     chkActionsSubfolders: TCheckBox;
@@ -154,7 +151,8 @@ type
     procedure btnCloseClick(Sender: TObject);
     procedure btnSearchTemplateClick(Sender: TObject);
     procedure cbExtFilterChange(Sender: TObject);
-    procedure sbViewLevelClick(Sender: TObject);
+    procedure sbLevelAllClick(Sender: TObject);
+    procedure seViewLevelChange(Sender: TObject);
     procedure chkViewFilesChange(Sender: TObject);
     procedure chkViewIndentChange(Sender: TObject);
     procedure chkActionsSubfoldersChange(Sender: TObject);
@@ -188,6 +186,9 @@ type
   private
     { private declarations }
     FCancel: Boolean;
+    // What the list shows: nothing yet, a whole compare, or a cancelled one
+    FCompareState: (csNotCompared, csCompared, csCancelled);
+    FSettingViewLevel: Boolean;
     FScanning: Boolean;
     // Compare progress: shown at most every 50 ms, never going back
     FLastMessagesTime: QWord;
@@ -375,6 +376,11 @@ resourcestring
     + ' Skipping it leaves the folder untouched on both sides.';
   rsSyncUnreadable = '<could not be read>';
   rsSyncFoldersUnreadable = '%d folder(s) could not be read';
+  rsSyncNotCompared = 'Not compared yet: press Compare';
+  rsSyncCompareCancelled = 'Compare cancelled, the list is incomplete.';
+  rsSyncCompareCancelledWarning = 'The compare was cancelled, so the list covers'
+    + ' only part of the tree. Only what it shows will be synchronized; nothing'
+    + ' that was not listed is copied or deleted. Continue?';
   rsSyncUnreadableWarning = '%d folder(s) could not be read. They are left'
     + ' untouched on both sides and will not be synchronized. Continue?';
   rsSyncTypeConflicts = '%d item(s) differ in type (red)';
@@ -789,6 +795,7 @@ begin
   gSyncDirsExcludeDirs          := Trim(cbExcludeDirs.Text);
   gSyncDirsExcludeFiles         := Trim(cbExcludeFiles.Text);
   gSyncDirsViewLevel            := FView.level;
+  gSyncDirsViewFoldLevel        := seViewLevel.Value;
   gSyncDirsViewFiles            := chkViewFiles.Checked;
   gSyncDirsViewIndent           := chkViewIndent.Checked;
   gSyncDirsActionsSubfolders    := chkActionsSubfolders.Checked;
@@ -876,7 +883,9 @@ begin
   chkViewIndent.Checked  := gSyncDirsViewIndent;
   chkActionsSubfolders.Checked := gSyncDirsActionsSubfolders;
   applyViewSettings;
+  seViewLevel.Value := EnsureRange(gSyncDirsViewFoldLevel, seViewLevel.MinValue, seViewLevel.MaxValue);
   setViewLevel(gSyncDirsViewLevel);
+  UpdateStatusBar;
 
   HMSync := HotMan.Register(Self, HotkeysCategory);
   HMSync.RegisterActionList(ActionList);
@@ -1365,23 +1374,37 @@ begin
   MainDrawGrid.Invalidate;
 end;
 
-// Level 0 = all levels; the pressed button follows
+// Level 0 = all levels. "All" and the spin box show it: "All" pressed for
+// 0, else released with the level in the box (which keeps its value while
+// "All" is pressed, so one click on "All" goes back to it)
 procedure TfrmSyncDirsDlg.setViewLevel(const level: Integer);
-var
-  i: Integer;
 begin
-  for i := 0 to pnlView.ControlCount - 1 do
-    if (pnlView.Controls[i] is TSpeedButton) and (pnlView.Controls[i].Tag = level) then
-      TSpeedButton(pnlView.Controls[i]).Down := True;
+  FSettingViewLevel := True;
+  try
+    sbLevelAll.Down := (level = 0);
+    if level > 0 then
+      seViewLevel.Value := level;
+  finally
+    FSettingViewLevel := False;
+  end;
   if level = FView.level then Exit;
   FView.level := level;
   FView.forgetManualFolds;
   refreshView;
 end;
 
-procedure TfrmSyncDirsDlg.sbViewLevelClick(Sender: TObject);
+procedure TfrmSyncDirsDlg.sbLevelAllClick(Sender: TObject);
 begin
-  setViewLevel(TControl(Sender).Tag);
+  if sbLevelAll.Down then
+    setViewLevel(0)
+  else
+    setViewLevel(seViewLevel.Value);
+end;
+
+procedure TfrmSyncDirsDlg.seViewLevelChange(Sender: TObject);
+begin
+  if FSettingViewLevel then Exit;
+  setViewLevel(seViewLevel.Value);
 end;
 
 procedure TfrmSyncDirsDlg.chkViewFilesChange(Sender: TObject);
@@ -1558,6 +1581,10 @@ begin
       notifySyncSearch(FS_STATUS_END);
     end;
 
+    if FCancel then
+      FCompareState := csCancelled
+    else
+      FCompareState := csCompared;
     FillFoundItemsDG;
     if FCancel then
       Exit;
@@ -1575,6 +1602,11 @@ end;
 procedure TfrmSyncDirsDlg.UpdateStatusBar;
 var s: string;
 begin
+  if FCompareState = csNotCompared then
+  begin
+    StatusBar1.Panels[0].Text := rsSyncNotCompared;
+    Exit;
+  end;
   s := Format(rsFilesFound, [FFilteredCount.total, FFilteredCount.equal, FFilteredCount.notEqual, FFilteredCount.leftUnique, FFilteredCount.rightUnique]);
   if FFilteredCount.unreadable > 0 then
     s := s + '  ' + Format(rsSyncFoldersUnreadable, [FFilteredCount.unreadable]);
@@ -1583,6 +1615,8 @@ begin
   if Assigned(FCheckContentThread)
   and not FCheckContentThread.Done then
     s := s + ' ...';
+  if FCompareState = csCancelled then
+    s := rsSyncCompareCancelled + '  ' + s;
   StatusBar1.Panels[0].Text := s;
 end;
 
@@ -1806,9 +1840,10 @@ begin
   end;
 end;
 
-// Folders that could not be read and type conflicts without an action are
-// left alone on both sides; a conflict with an action replaces the other
-// side. Say so before synchronizing.
+// A cancelled compare lists only part of the tree; folders that could not
+// be read and type conflicts without an action are left alone on both
+// sides; a conflict with an action replaces the other side. Say so before
+// synchronizing.
 function TfrmSyncDirsDlg.confirmSkippedItems(const syncCount: TSyncDirsSyncCount): Boolean;
 
   function warn(const message: String; const count: Integer): Boolean;
@@ -1818,7 +1853,8 @@ function TfrmSyncDirsDlg.confirmSkippedItems(const syncCount: TSyncDirsSyncCount
   end;
 
 begin
-  Result:= warn(rsSyncUnreadableWarning, FFilteredCount.unreadable) and
+  Result:= warn(rsSyncCompareCancelledWarning, Ord(FCompareState = csCancelled)) and
+           warn(rsSyncUnreadableWarning, FFilteredCount.unreadable) and
            warn(rsSyncTypeConflictWarning, syncCount.conflictKeepCount) and
            warn(rsSyncTypeConflictReplace, syncCount.conflictReplaceCount);
 end;
