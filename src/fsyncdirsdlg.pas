@@ -29,7 +29,7 @@ interface
 
 uses
   Classes, SysUtils, IntegerList, FileUtil, Forms, Controls, Graphics, Dialogs, StdCtrls,
-  ExtCtrls, Buttons, ComCtrls, Grids, Menus, ActnList, EditBtn, Spin,
+  ExtCtrls, Buttons, ComCtrls, Grids, Menus, ActnList, EditBtn,
   DCOSUtils,
   uFileView, uFileSource, uFileSourceCopyOperation, uFile, uFileSourceOperation,
   uFileSourceOperationMessageBoxesUI, uFormCommands, uHotkeyManager, uClassesEx,
@@ -91,8 +91,7 @@ type
     pnlExclude: TPanel;
     pnlView: TPanel;
     lblViewLevel: TLabel;
-    sbLevelAll: TSpeedButton;
-    seViewLevel: TSpinEdit;
+    cbViewLevel: TComboBox;
     chkViewFiles: TCheckBox;
     chkViewIndent: TCheckBox;
     chkActionsSubfolders: TCheckBox;
@@ -151,8 +150,7 @@ type
     procedure btnCloseClick(Sender: TObject);
     procedure btnSearchTemplateClick(Sender: TObject);
     procedure cbExtFilterChange(Sender: TObject);
-    procedure sbLevelAllClick(Sender: TObject);
-    procedure seViewLevelChange(Sender: TObject);
+    procedure cbViewLevelChange(Sender: TObject);
     procedure chkViewFilesChange(Sender: TObject);
     procedure chkViewIndentChange(Sender: TObject);
     procedure chkActionsSubfoldersChange(Sender: TObject);
@@ -188,7 +186,6 @@ type
     FCancel: Boolean;
     // What the list shows: nothing yet, a whole compare, or a cancelled one
     FCompareState: (csNotCompared, csCompared, csCancelled);
-    FSettingViewLevel: Boolean;
     FScanning: Boolean;
     // Compare progress: shown at most every 50 ms, never going back
     FLastMessagesTime: QWord;
@@ -405,7 +402,11 @@ uses
   LCLVersion, uTypes, uFileSystemCopyOperation, uFileSystemDeleteOperation, uFindFiles,
   uFileSourceManager, uFileSourceProperty, uShowMsg,
   fDeleteDlg, uTrash, uOperationsManager, uOSForms,
-  uWfxPluginFileSource, WfxPlugin;
+  uWfxPluginFileSource, WfxPlugin
+  {$IF DEFINED(LCLGTK2)}
+  , uGtk2ListCombo
+  {$ENDIF}
+  ;
 
 // With "Indent" on, rows are indented by their depth in the tree and show
 // their own name: a folder's files and subfolders sit one step to the right
@@ -795,7 +796,6 @@ begin
   gSyncDirsExcludeDirs          := Trim(cbExcludeDirs.Text);
   gSyncDirsExcludeFiles         := Trim(cbExcludeFiles.Text);
   gSyncDirsViewLevel            := FView.level;
-  gSyncDirsViewFoldLevel        := seViewLevel.Value;
   gSyncDirsViewFiles            := chkViewFiles.Checked;
   gSyncDirsViewIndent           := chkViewIndent.Checked;
   gSyncDirsActionsSubfolders    := chkActionsSubfolders.Checked;
@@ -883,8 +883,10 @@ begin
   chkViewIndent.Checked  := gSyncDirsViewIndent;
   chkActionsSubfolders.Checked := gSyncDirsActionsSubfolders;
   applyViewSettings;
-  seViewLevel.Value := EnsureRange(gSyncDirsViewFoldLevel, seViewLevel.MinValue, seViewLevel.MaxValue);
   setViewLevel(gSyncDirsViewLevel);
+  {$IF DEFINED(LCLGTK2)}
+  ShowDropDownAsList(cbViewLevel);
+  {$ENDIF}
   UpdateStatusBar;
 
   HMSync := HotMan.Register(Self, HotkeysCategory);
@@ -1374,37 +1376,23 @@ begin
   MainDrawGrid.Invalidate;
 end;
 
-// Level 0 = all levels. "All" and the spin box show it: "All" pressed for
-// 0, else released with the level in the box (which keeps its value while
-// "All" is pressed, so one click on "All" goes back to it)
+// Level 0 = all levels; the list's item index is the level
 procedure TfrmSyncDirsDlg.setViewLevel(const level: Integer);
+var
+  shown: Integer;
 begin
-  FSettingViewLevel := True;
-  try
-    sbLevelAll.Down := (level = 0);
-    if level > 0 then
-      seViewLevel.Value := level;
-  finally
-    FSettingViewLevel := False;
-  end;
-  if level = FView.level then Exit;
-  FView.level := level;
+  shown := EnsureRange(level, 0, cbViewLevel.Items.Count - 1);
+  if cbViewLevel.ItemIndex <> shown then
+    cbViewLevel.ItemIndex := shown;
+  if shown = FView.level then Exit;
+  FView.level := shown;
   FView.forgetManualFolds;
   refreshView;
 end;
 
-procedure TfrmSyncDirsDlg.sbLevelAllClick(Sender: TObject);
+procedure TfrmSyncDirsDlg.cbViewLevelChange(Sender: TObject);
 begin
-  if sbLevelAll.Down then
-    setViewLevel(0)
-  else
-    setViewLevel(seViewLevel.Value);
-end;
-
-procedure TfrmSyncDirsDlg.seViewLevelChange(Sender: TObject);
-begin
-  if FSettingViewLevel then Exit;
-  setViewLevel(seViewLevel.Value);
+  setViewLevel(cbViewLevel.ItemIndex);
 end;
 
 procedure TfrmSyncDirsDlg.chkViewFilesChange(Sender: TObject);
