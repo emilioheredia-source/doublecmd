@@ -269,9 +269,14 @@ type
     function clickedFoldMarker(const viewIndex, X: Integer): Boolean;
     function rowIndentation(const depth: Integer): Integer;
     function folderRowName(const dirIndex: Integer): String;
-    function fileRowName(const rowIndex: Integer): String;
     procedure drawFolderRow(const viewRow: TSyncViewRow; const summary: TSyncDirSummary;
                             const aRect: TRect; const aState: TGridDrawState);
+    procedure drawFileRow(const viewRow: TSyncViewRow; const aRect: TRect);
+    procedure drawFileSide(const aFile: TFile; const fileName: String;
+                           const nameCol, sizeCol, dateCol, indent: Integer; const aRect: TRect);
+    procedure drawActionIcon(const rowAction: TSyncRecState; const aRect: TRect);
+    function folderRowAction(const viewIndex: Integer): TSyncRecState;
+    function toggleCursorFolder(const kind: TSyncViewRowKind): Boolean;
     procedure SetPanelWatchers(AEnabled: Boolean);
     procedure ApplyCopyOptions(const operation: TFileSourceOperation);
     procedure RememberCopyOptions(const operation: TFileSourceOperation);
@@ -408,9 +413,10 @@ uses
   {$ENDIF}
   ;
 
-// With "Indent" on, rows are indented by their depth in the tree and show
-// their own name: a folder's files and subfolders sit one step to the right
-// of it. Off, every row shows its full relative path, as upstream drew it.
+// With "Indent" on, rows are indented by their depth in the tree and a
+// folder row shows its own name: its files and subfolders sit one step to
+// the right of it. Off, as upstream drew it: no indentation and folder rows
+// with their path from the root. File rows show the file name either way.
 function TfrmSyncDirsDlg.rowIndentation(const depth: Integer): Integer;
 const
   STEP = 16;
@@ -426,13 +432,6 @@ begin
   if chkViewIndent.Checked then
     Result := ExtractFileName(Result);
   Result := Result + PathDelim;
-end;
-
-function TfrmSyncDirsDlg.fileRowName(const rowIndex: Integer): String;
-begin
-  Result := FFilteredList.path(rowIndex);
-  if chkViewIndent.Checked then
-    Result := ExtractFileName(Result);
 end;
 
 procedure TfrmSyncDirsDlg.chkViewIndentChange(Sender: TObject);
@@ -946,8 +945,38 @@ begin
   part(summary.undecided, 'skip');
 end;
 
+// Red: something inside is left alone whatever the action (a conflict or
+// an unreadable folder); the "unknown" colour: newer files on both sides,
+// the folder to look at file by file
+function folderRowColor(const viewRow: TSyncViewRow; const summary: TSyncDirSummary): TColor;
+begin
+  if viewRow.rec.isUnreadable or (summary.unreadable > 0) or (summary.conflicts > 0) then
+    Result := clRed
+  else if summary.changedOnBothSides then
+    Result := gColors.SyncDirs^.UnknownColor
+  else
+    Result := clWindowText;
+end;
+
+function fileRowColor(const rec: TSyncRec): TColor;
+begin
+  if rec.isTypeConflict then
+    Exit(clRed);
+  with gColors.SyncDirs^ do
+    case rec.state of
+      srsNotEq:       Result := UnknownColor;
+      srsCopyToLeft:  Result := RightColor;
+      srsCopyToRight: Result := LeftColor;
+      srsDeleteLeft:  Result := LeftColor;
+      srsDeleteRight: Result := RightColor;
+      else            Result := clWindowText;
+    end;
+end;
+
 procedure TfrmSyncDirsDlg.drawFolderRow(const viewRow: TSyncViewRow;
   const summary: TSyncDirSummary; const aRect: TRect; const aState: TGridDrawState);
+const
+  FOLD_MARKER: array[Boolean] of String = ('[-] ', '[+] ');
 var
   folderText: String;
 begin
@@ -955,27 +984,12 @@ begin
   begin
     if gdSelected in aState then
       Brush.Color := gColors.SyncDirs^.DirSelectedColor
-    else begin
-      {$IFDEF DARWIN}
-      Brush.Color := clInfoBk;
-      {$ELSE}
-      Brush.Color := clBtnFace;
-      {$ENDIF}
-    end;
+    else
+      Brush.Color := {$IFDEF DARWIN}clInfoBk{$ELSE}clBtnFace{$ENDIF};
     FillRect(aRect);
     Font.Bold := True;
-    if viewRow.rec.isUnreadable or (summary.unreadable > 0) or (summary.conflicts > 0) then
-      Font.Color := clRed
-    else if summary.changedOnBothSides then
-      // Newer files on both sides: the folder to look at file by file
-      Font.Color := gColors.SyncDirs^.UnknownColor
-    else
-      Font.Color := clWindowText;
-    folderText := folderRowName(viewRow.dirIndex);
-    if viewRow.kind = vrFoldedFolder then
-      folderText := '[+] ' + folderText
-    else
-      folderText := '[-] ' + folderText;
+    Font.Color := folderRowColor(viewRow, summary);
+    folderText := FOLD_MARKER[viewRow.kind = vrFoldedFolder] + folderRowName(viewRow.dirIndex);
     with hCols[0] do
       TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
         Left + 2 + rowIndentation(viewRow.depth), aRect.Top + 2, folderText);
@@ -989,82 +1003,91 @@ begin
   end;
 end;
 
-procedure TfrmSyncDirsDlg.MainDrawGridDrawCell(Sender: TObject; aCol,
-  aRow: Integer; aRect: TRect; aState: TGridDrawState);
+procedure TfrmSyncDirsDlg.drawFileRow(const viewRow: TSyncViewRow; const aRect: TRect);
 const
   LEFT_FILE_INDENTATION = 8;
 var
-  viewRow: TSyncViewRow;
   rec: TSyncRec;
+  fileName: String;
+  indent: Integer;
+begin
+  rec := viewRow.rec;
+  MainDrawGrid.Canvas.Font.Color := fileRowColor(rec);
+  fileName := FFilteredList.path(viewRow.rowIndex);
+  indent := rowIndentation(viewRow.depth);
+  if rec.hasLeftFile then
+    drawFileSide(rec.leftFile, fileName, 0, 1, 2, LEFT_FILE_INDENTATION + indent, aRect);
+  if rec.hasRightFile then
+    drawFileSide(rec.rightFile, fileName, 6, 5, 4, indent, aRect);
+end;
+
+// One side of a file row: the fileName, the size right-aligned, the date
+procedure TfrmSyncDirsDlg.drawFileSide(const aFile: TFile; const fileName: String;
+  const nameCol, sizeCol, dateCol, indent: Integer; const aRect: TRect);
+var
+  s: String;
+begin
+  with MainDrawGrid.Canvas do
+  begin
+    with hCols[nameCol] do
+      TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
+        Left + 2 + indent, aRect.Top + 2, fileName);
+    s := IntToStrTS(aFile.Size);
+    with hCols[sizeCol] do
+      TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
+        Left + Width - 8 - TextWidth(s), aRect.Top + 2, s);
+    s := FormatDateTime(gDateTimeFormatSync, aFile.ModificationTime);
+    with hCols[dateCol] do
+      TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
+        Left + 2, aRect.Top + 2, s);
+  end;
+end;
+
+procedure TfrmSyncDirsDlg.drawActionIcon(const rowAction: TSyncRecState; const aRect: TRect);
+begin
+  ImageList1.Draw(MainDrawGrid.Canvas,
+    hCols[3].Left + (hCols[3].Width - ImageList1.Width) div 2 - 2,
+    (aRect.Top + aRect.Bottom - ImageList1.Height - 1) div 2, Ord(rowAction));
+end;
+
+// The folder's own rowAction (empty directories), else the one rowAction
+// everything beneath shares
+function TfrmSyncDirsDlg.folderRowAction(const viewIndex: Integer): TSyncRecState;
+begin
+  Result := FView.row(viewIndex).rec.action;
+  if Result = srsDoNothing then
+    Result := FView.summaryOf(viewIndex).singleAction;
+end;
+
+procedure TfrmSyncDirsDlg.MainDrawGridDrawCell(Sender: TObject; aCol,
+  aRow: Integer; aRect: TRect; aState: TGridDrawState);
+var
+  viewRow: TSyncViewRow;
   rowAction: TSyncRecState;
-  x: Integer;
-  s: string;
 begin
   if (FView = nil) or (aRow >= FView.Count) then Exit;
   viewRow := FView.row(aRow);
-  rec := viewRow.rec;
-  with MainDrawGrid.Canvas do
+  if viewRow.kind = vrFile then
   begin
-    if viewRow.kind <> vrFile then
-    begin
-      drawFolderRow(viewRow, FView.summaryOf(aRow), aRect, aState);
-      // The folder's own action (empty directories), else the one action
-      // everything beneath shares
-      rowAction := rec.action;
-      if rowAction = srsDoNothing then
-        rowAction := FView.summaryOf(aRow).singleAction;
-    end else begin
-      rowAction := rec.action;
-      with gColors.SyncDirs^ do
-      begin
-        case rec.state of
-        srsNotEq:       Font.Color := UnknownColor;
-        srsCopyToLeft:    Font.Color := RightColor;
-        srsCopyToRight:   Font.Color := LeftColor;
-        srsDeleteLeft:  Font.Color := LeftColor;
-        srsDeleteRight: Font.Color := RightColor;
-        else Font.Color := clWindowText;
-        end;
-      end;
-      if rec.isTypeConflict then Font.Color := clRed;
-      if rec.hasLeftFile then
-      begin
-        with hCols[0] do
-          TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
-            Left + 2 + LEFT_FILE_INDENTATION + rowIndentation(viewRow.depth), aRect.Top + 2,
-            fileRowName(viewRow.rowIndex));
-        s := IntToStrTS(rec.leftFile.Size);
-        with hCols[1] do begin
-          x := Left + Width - 8 - TextWidth(s);
-          TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
-            x, aRect.Top + 2, s);
-        end;
-        s := FormatDateTime(gDateTimeFormatSync, rec.leftFile.ModificationTime);
-        with hCols[2] do
-          TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
-            Left + 2, aRect.Top + 2, s)
-      end;
-      if rec.hasRightFile then
-      begin
-        TextOut(hCols[6].Left + 2, aRect.Top + 2, FFilteredList.path(viewRow.rowIndex));
-        s := IntToStrTS(rec.rightFile.Size);
-        with hCols[5] do begin
-          x := Left + Width - 8 - TextWidth(s);
-          TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
-            x, aRect.Top + 2, s);
-        end;
-        s := FormatDateTime(gDateTimeFormatSync, rec.rightFile.ModificationTime);
-        with hCols[4] do
-          TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
-            Left + 2, aRect.Top + 2, s)
-      end;
-    end;
-    if (viewRow.kind = vrFile) or (rowAction <> srsDoNothing) then begin
-      ImageList1.Draw(MainDrawGrid.Canvas,
-        hCols[3].Left + (hCols[3].Width - ImageList1.Width) div 2 - 2,
-        (aRect.Top + aRect.Bottom - ImageList1.Height - 1) div 2, Ord(rowAction));
-    end;
+    drawFileRow(viewRow, aRect);
+    drawActionIcon(viewRow.rec.action, aRect);
+    Exit;
   end;
+  drawFolderRow(viewRow, FView.summaryOf(aRow), aRect, aState);
+  rowAction := folderRowAction(aRow);
+  if rowAction <> srsDoNothing then
+    drawActionIcon(rowAction, aRect);
+end;
+
+// Opens or closes the folder under the cursor when it is of that kind
+function TfrmSyncDirsDlg.toggleCursorFolder(const kind: TSyncViewRowKind): Boolean;
+var
+  r: Integer;
+begin
+  r := MainDrawGrid.Row;
+  Result := (r >= 0) and (r < FView.Count) and (FView.row(r).kind = kind);
+  if Result then
+    toggleFolderRow(r);
 end;
 
 procedure TfrmSyncDirsDlg.MainDrawGridKeyDown(Sender: TObject; var Key: Word;
@@ -1079,19 +1102,11 @@ begin
         Key:= 0;
       end;
     VK_RIGHT, VK_ADD:
-      if (MainDrawGrid.Row >= 0) and (MainDrawGrid.Row < FView.Count) and
-         (FView.row(MainDrawGrid.Row).kind = vrFoldedFolder) then
-      begin
-        toggleFolderRow(MainDrawGrid.Row);
+      if toggleCursorFolder(vrFoldedFolder) then
         Key:= 0;
-      end;
     VK_LEFT, VK_SUBTRACT:
-      if (MainDrawGrid.Row >= 0) and (MainDrawGrid.Row < FView.Count) and
-         (FView.row(MainDrawGrid.Row).kind = vrFolder) then
-      begin
-        toggleFolderRow(MainDrawGrid.Row);
+      if toggleCursorFolder(vrFolder) then
         Key:= 0;
-      end;
     VK_MULTIPLY:
       begin
         setViewLevel(0);
