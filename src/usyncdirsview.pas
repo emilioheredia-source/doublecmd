@@ -69,9 +69,14 @@ type
     _opened: TFPList;                     // folders opened or closed by hand (TSyncDirRec)
     _closed: TFPList;
     procedure collectRows;
+    procedure clearDirInfo;
+    function folderOfRow( const rec: TSyncRec ): Integer;
     procedure collectSubtrees;
     procedure emitRows;
+    procedure addFolderRow( const dirIndex, depth: Integer; const kind: TSyncViewRowKind );
+    procedure addFileRows( const dirIndex, depth: Integer );
     procedure addRow( const row: TSyncViewRow );
+    procedure rowsReachedBy( const viewRow: TSyncViewRow; out first, last: Integer );
     function depthOf( const dirIndex: Integer ): Integer;
     function isFolded( const dirIndex, depth: Integer ): Boolean;
   public
@@ -129,14 +134,11 @@ begin
   else Result:= srsDeleteRight;
 end;
 
-// Where one row counts in its folder's summary
-procedure countRow( var summary: TSyncDirSummary; const rec: TSyncRec );
+// Counts a copy or delete action; False for any other action
+function countAction( var summary: TSyncDirSummary; const action: TSyncRecState ): Boolean;
 begin
-  if rec.isUnreadable then
-    Inc( summary.unreadable )
-  else if rec.isTypeConflict then
-    Inc( summary.conflicts )
-  else case rec.action of
+  Result:= True;
+  case action of
     srsCopyToRight: Inc( summary.copyToRight );
     srsCopyToLeft:  Inc( summary.copyToLeft );
     srsDeleteLeft:  Inc( summary.deleteLeft );
@@ -147,13 +149,25 @@ begin
         Inc( summary.deleteRight );
       end;
     else
-      if rec.isFile then begin
-        if rec.state = srsEqual then
-          Inc( summary.equal )
-        else
-          Inc( summary.undecided );
-      end;
+      Result:= False;
   end;
+end;
+
+// Where one row counts in its folder's summary. A folder's own row counts
+// only when it is unreadable, a conflict or has an action (empty folders);
+// a file without an action is equal or left alone.
+procedure countRow( var summary: TSyncDirSummary; const rec: TSyncRec );
+begin
+  if rec.isUnreadable then
+    Inc( summary.unreadable )
+  else if rec.isTypeConflict then
+    Inc( summary.conflicts )
+  else if countAction( summary, rec.action ) or rec.isDir then
+    Exit
+  else if rec.state = srsEqual then
+    Inc( summary.equal )
+  else
+    Inc( summary.undecided );
 end;
 
 procedure addSummary( var summary: TSyncDirSummary; const other: TSyncDirSummary );
@@ -207,6 +221,27 @@ var
   i, d: Integer;
   rec: TSyncRec;
 begin
+  clearDirInfo;
+  for i:= 0 to _rows.Count - 1 do begin
+    rec:= _rows.fileSyncRec( i );
+    d:= folderOfRow( rec );
+    if d < 0 then continue;
+    if rec.isDir then
+      _dirs[d].ownRow:= i
+    else begin
+      if _dirs[d].fileFirst < 0 then _dirs[d].fileFirst:= i;
+      _dirs[d].fileLast:= i;
+    end;
+    if _dirs[d].first < 0 then _dirs[d].first:= i;
+    _dirs[d].last:= i;
+    countRow( _dirs[d].summary, rec );
+  end;
+end;
+
+procedure TSyncDirsView.clearDirInfo;
+var
+  d: Integer;
+begin
   SetLength( _dirs, _tree.Count );
   for d:= 0 to High(_dirs) do begin
     _dirs[d]:= Default( TDirInfo );
@@ -216,22 +251,16 @@ begin
     _dirs[d].first:= -1;
     _dirs[d].last:= -1;
   end;
-  for i:= 0 to _rows.Count - 1 do begin
-    rec:= _rows.fileSyncRec( i );
-    if rec.isDir then begin
-      d:= _tree.indexOfDir( rec.relPath );
-      if d < 0 then continue;
-      _dirs[d].ownRow:= i;
-    end else begin
-      d:= rec.parentDirIndex;
-      if d < 0 then continue;
-      if _dirs[d].fileFirst < 0 then _dirs[d].fileFirst:= i;
-      _dirs[d].fileLast:= i;
-    end;
-    if _dirs[d].first < 0 then _dirs[d].first:= i;
-    _dirs[d].last:= i;
-    countRow( _dirs[d].summary, rec );
-  end;
+end;
+
+// The tree index of the folder a row belongs to: the folder itself for a
+// folder's own row, the parent for a file
+function TSyncDirsView.folderOfRow( const rec: TSyncRec ): Integer;
+begin
+  if rec.isDir then
+    Result:= _tree.indexOfDir( rec.relPath )
+  else
+    Result:= rec.parentDirIndex;
 end;
 
 // The tree lists a folder before its subfolders, so from the end every
@@ -252,11 +281,13 @@ begin
   end;
 end;
 
+// The grid rows, in tree order. The tree lists a folder's subtree right
+// after it, so a folded folder's subtree is skipped by depth alone. The
+// root has no row of its own: its files come first.
 procedure TSyncDirsView.emitRows;
 var
-  d, i, depth: Integer;
+  d, depth: Integer;
   foldedDepth: Integer = MaxInt;
-  folder, fileRow: TSyncViewRow;
 begin
   _count:= 0;
   for d:= 0 to High(_dirs) do begin
@@ -264,35 +295,52 @@ begin
     if depth > foldedDepth then continue;     // inside a folded folder
     foldedDepth:= MaxInt;
     if _dirs[d].first < 0 then continue;      // nothing visible beneath
-    if depth > 0 then begin
-      folder:= Default( TSyncViewRow );
-      folder.rec:= _tree.dirItem(d).dirSyncRec;
-      folder.dirIndex:= d;
-      folder.depth:= depth;
-      folder.rowIndex:= _dirs[d].ownRow;
-      folder.rowFirst:= _dirs[d].first;
-      folder.rowLast:= _dirs[d].last;
-      if isFolded( d, depth ) then begin
-        folder.kind:= vrFoldedFolder;
-        addRow( folder );
-        foldedDepth:= depth;
-        continue;
-      end;
-      folder.kind:= vrFolder;
-      addRow( folder );
+    if (depth > 0) and isFolded( d, depth ) then begin
+      addFolderRow( d, depth, vrFoldedFolder );
+      foldedDepth:= depth;
+      continue;
     end;
-    if NOT _showFiles or (_dirs[d].fileFirst < 0) then continue;
-    for i:= _dirs[d].fileFirst to _dirs[d].fileLast do begin
-      fileRow:= Default( TSyncViewRow );
-      fileRow.kind:= vrFile;
-      fileRow.rec:= _rows.fileSyncRec( i );
-      fileRow.dirIndex:= d;
-      fileRow.depth:= depth + 1;
-      fileRow.rowIndex:= i;
-      fileRow.rowFirst:= i;
-      fileRow.rowLast:= i;
-      addRow( fileRow );
-    end;
+    if depth > 0 then
+      addFolderRow( d, depth, vrFolder );
+    if _showFiles then
+      addFileRows( d, depth );
+  end;
+end;
+
+procedure TSyncDirsView.addFolderRow( const dirIndex, depth: Integer;
+  const kind: TSyncViewRowKind );
+var
+  folder: TSyncViewRow;
+begin
+  folder:= Default( TSyncViewRow );
+  folder.kind:= kind;
+  folder.rec:= _tree.dirItem(dirIndex).dirSyncRec;
+  folder.dirIndex:= dirIndex;
+  folder.depth:= depth;
+  folder.rowIndex:= _dirs[dirIndex].ownRow;
+  folder.rowFirst:= _dirs[dirIndex].first;
+  folder.rowLast:= _dirs[dirIndex].last;
+  addRow( folder );
+end;
+
+// A folder's own files, one step deeper than the folder
+procedure TSyncDirsView.addFileRows( const dirIndex, depth: Integer );
+var
+  i: Integer;
+  fileRow: TSyncViewRow;
+begin
+  if _dirs[dirIndex].fileFirst < 0 then
+    Exit;
+  for i:= _dirs[dirIndex].fileFirst to _dirs[dirIndex].fileLast do begin
+    fileRow:= Default( TSyncViewRow );
+    fileRow.kind:= vrFile;
+    fileRow.rec:= _rows.fileSyncRec( i );
+    fileRow.dirIndex:= dirIndex;
+    fileRow.depth:= depth + 1;
+    fileRow.rowIndex:= i;
+    fileRow.rowFirst:= i;
+    fileRow.rowLast:= i;
+    addRow( fileRow );
   end;
 end;
 
@@ -369,40 +417,41 @@ begin
   emitRows;
 end;
 
+// Overlapping selections (a folder and rows inside it) give each row list
+// index once
 procedure TSyncDirsView.rowListIndexes( const viewIndexes: TIntegerList; const target: TIntegerList );
 var
   seen: array of Boolean;
-
-  procedure take( const first, last: Integer );
-  var
-    i: Integer;
-  begin
-    if first < 0 then Exit;
+  v, i, first, last: Integer;
+begin
+  SetLength( seen, _rows.Count );
+  for v in viewIndexes do begin
+    rowsReachedBy( _view[v], first, last );
+    if first < 0 then continue;
     for i:= first to last do
       if NOT seen[i] then begin
         seen[i]:= True;
         target.Add( i );
       end;
   end;
+end;
 
+// The run of row list indexes an action on a grid row applies to: a
+// folded folder always stands for its subtree, an open one only with
+// "Actions include subfolders"; first < 0 when the row has none (a folder
+// whose own record is not in the row list)
+procedure TSyncDirsView.rowsReachedBy( const viewRow: TSyncViewRow; out first, last: Integer );
 var
-  v: Integer;
-  r: TSyncViewRow;
+  wholeSubtree: Boolean;
 begin
-  SetLength( seen, _rows.Count );
-  for v in viewIndexes do begin
-    r:= _view[v];
-    case r.kind of
-      vrFile:
-        take( r.rowIndex, r.rowIndex );
-      vrFoldedFolder:
-        take( r.rowFirst, r.rowLast );
-      vrFolder:
-        if _actionsIncludeSubfolders then
-          take( r.rowFirst, r.rowLast )
-        else
-          take( r.rowIndex, r.rowIndex );
-    end;
+  wholeSubtree:= (viewRow.kind = vrFoldedFolder) or
+                 ((viewRow.kind = vrFolder) and _actionsIncludeSubfolders);
+  if wholeSubtree then begin
+    first:= viewRow.rowFirst;
+    last:= viewRow.rowLast;
+  end else begin
+    first:= viewRow.rowIndex;
+    last:= viewRow.rowIndex;
   end;
 end;
 
