@@ -533,7 +533,7 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
     ChildSizing.TopBottomSpacing = 2
     ChildSizing.HorizontalSpacing = 8
     ChildSizing.Layout = cclLeftToRightThenTopToBottom
-    ChildSizing.ControlsPerLine = 6
+    ChildSizing.ControlsPerLine = 5
     ClientHeight = 27
     ClientWidth = 833
     TabOrder = 8
@@ -546,27 +546,31 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
       Layout = tlCenter
       ParentColor = False
     end
-    object sbLevelAll: TSpeedButton
+    object cbViewLevel: TComboBox
       Left = 90
       Height = 23
       Top = 2
-      Width = 36
-      AllowAllUp = True
-      Caption = 'All'
-      Down = True
-      GroupIndex = 2
-      OnClick = sbLevelAllClick
-    end
-    object seViewLevel: TSpinEdit
-      Left = 134
-      Height = 23
-      Top = 2
-      Width = 50
-      MaxValue = 99
-      MinValue = 1
-      OnChange = seViewLevelChange
+      Width = 70
+      DropDownCount = 11
+      ItemHeight = 15
+      ItemIndex = 0
+      Items.Strings = (
+        'All'
+        '1'
+        '2'
+        '3'
+        '4'
+        '5'
+        '6'
+        '7'
+        '8'
+        '9'
+        '10'
+      )
+      OnChange = cbViewLevelChange
+      Style = csDropDownList
       TabOrder = 0
-      Value = 1
+      Text = 'All'
     end
     object chkViewFiles: TCheckBox
       Left = 178
