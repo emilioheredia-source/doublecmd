@@ -154,6 +154,10 @@ type
 
   tDuplicatedRename = (drLegacyWithCopy, drLikeWindows7, drLikeTC);
 
+  // What the delete dialog has selected when it opens; ddsCommand is the
+  // command's own choice (recycle bin setting, Shift, parameters)
+  TDeleteDialogStart = (ddsCommand, ddsTrash, ddsDelete, ddsWipe, ddsLastChoice);
+
   TBriefViewMode = (bvmFixedWidth, bvmFixedCount, bvmAutoSize);
 
   TFiltersOnNewSearch = (fonsKeep, fonsClear, fonsPrompt);
@@ -516,6 +520,8 @@ var
   gProcessComments: Boolean;
   gShowCopyTabSelectPanel:boolean;
   gUseTrash : Boolean; // if using delete to trash by default
+  gDeleteDialogStart: TDeleteDialogStart;
+  gDeleteDialogLastChoice: TDeleteDialogStart; // ddsCommand until a choice is made
   gRenameSelOnlyName:boolean;
   gDefaultDropEffect: Boolean;
   gShowDialogOnDragDrop: Boolean;
@@ -2108,6 +2114,8 @@ begin
   gRenameSelOnlyName := False;
   gShowCopyTabSelectPanel := False;
   gUseTrash := True;
+  gDeleteDialogStart := ddsCommand;
+  gDeleteDialogLastChoice := ddsCommand;
   gSkipFileOpError := False;
   gTypeOfDuplicatedRename := drLegacyWithCopy;
   gDefaultDropEffect:= True;
@@ -3107,6 +3115,10 @@ begin
       gRenameSelOnlyName := GetValue(Node, 'RenameSelOnlyName', gRenameSelOnlyName);
       gShowCopyTabSelectPanel := GetValue(Node, 'ShowCopyTabSelectPanel', gShowCopyTabSelectPanel);
       gUseTrash := GetValue(Node, 'UseTrash', gUseTrash);
+      gDeleteDialogStart := TDeleteDialogStart(GetValue(Node, 'DeleteDialogStart', Integer(gDeleteDialogStart)));
+      gDeleteDialogLastChoice := TDeleteDialogStart(GetValue(Node, 'DeleteDialogLastChoice', Integer(gDeleteDialogLastChoice)));
+      if not (gDeleteDialogLastChoice in [ddsTrash..ddsWipe]) then
+        gDeleteDialogLastChoice := ddsCommand;
       gSkipFileOpError := GetValue(Node, 'SkipFileOpError', gSkipFileOpError);
       gTypeOfDuplicatedRename := tDuplicatedRename(GetValue(Node, 'TypeOfDuplicatedRename', Integer(gTypeOfDuplicatedRename)));
       gDefaultDropEffect := GetValue(Node, 'DefaultDropEffect', gDefaultDropEffect);
@@ -3811,6 +3823,8 @@ begin
     SetValue(Node, 'RenameSelOnlyName', gRenameSelOnlyName);
     SetValue(Node, 'ShowCopyTabSelectPanel', gShowCopyTabSelectPanel);
     SetValue(Node, 'UseTrash', gUseTrash);
+    SetValue(Node, 'DeleteDialogStart', Integer(gDeleteDialogStart));
+    SetValue(Node, 'DeleteDialogLastChoice', Integer(gDeleteDialogLastChoice));
     SetValue(Node, 'SkipFileOpError', gSkipFileOpError);
     SetValue(Node, 'TypeOfDuplicatedRename', Integer(gTypeOfDuplicatedRename));
     SetValue(Node, 'DefaultDropEffect', gDefaultDropEffect);
