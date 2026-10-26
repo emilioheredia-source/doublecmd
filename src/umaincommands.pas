@@ -2672,11 +2672,12 @@ var
   Operation: TFileSourceOperation;
   bRecycle: Boolean;
   bConfirmation, HasConfirmationParam: Boolean;
+  CommandChoosesMode: Boolean;
   Confirmed: Boolean;
   Param, ParamTrashCan: String;
   BoolValue: Boolean;
   TrashAvailable, WipeAvailable: Boolean;
-  DeleteMode: TDeleteMode;
+  DeleteMode, StartMode: TDeleteMode;
   QueueId: TOperationsManagerQueueIdentifier = FreeOperationsQueueId;
 begin
   with frmMain.ActiveFrame do
@@ -2689,25 +2690,42 @@ begin
 
     bRecycle := gUseTrash;
     HasConfirmationParam := False;
+    // Shift or an explicit parameter beats the "Delete dialog starts with" option
+    CommandChoosesMode := False;
 
     for Param in Params do
     begin
       if Param = 'recycle' then
-        bRecycle := True
+      begin
+        bRecycle := True;
+        CommandChoosesMode := True;
+      end
       else if Param = 'norecycle' then
-        bRecycle := False
+      begin
+        bRecycle := False;
+        CommandChoosesMode := True;
+      end
       else if Param = 'recyclesetting' then
         bRecycle := gUseTrash
       else if Param = 'recyclesettingrev' then
-        bRecycle := not gUseTrash
+      begin
+        bRecycle := not gUseTrash;
+        CommandChoosesMode := True;
+      end
       else if GetParamValue(Param, 'trashcan', ParamTrashCan) then
       begin
         if ParamTrashCan = 'setting' then
           bRecycle := gUseTrash
         else if ParamTrashCan = 'reversesetting' then
-          bRecycle := not gUseTrash
+        begin
+          bRecycle := not gUseTrash;
+          CommandChoosesMode := True;
+        end
         else if GetBoolValue(ParamTrashCan, BoolValue) then
+        begin
           bRecycle := BoolValue;
+          CommandChoosesMode := True;
+        end;
       end
       else if GetParamBoolValue(Param, 'confirmation', BoolValue) then
       begin
@@ -2780,9 +2798,18 @@ begin
       if not bConfirmation then
         Confirmed := True
       else if TrashAvailable or WipeAvailable then
+      begin
+        DeleteMode := DeleteDialogStartMode(DeleteMode, not CommandChoosesMode,
+                                            TrashAvailable, WipeAvailable);
+        StartMode := DeleteMode;
         Confirmed := ShowDeleteDialog(frmMain, MsgTrash, MsgNoTrash, MsgWipe,
                                       FileSource, QueueId,
-                                      TrashAvailable, WipeAvailable, DeleteMode)
+                                      TrashAvailable, WipeAvailable, DeleteMode);
+        // Only a changed selection counts, so a drive without a recycle bin
+        // doesn't overwrite the remembered choice with its fallback
+        if Confirmed and (DeleteMode <> StartMode) then
+          RememberDeleteMode(DeleteMode);
+      end
       else
         Confirmed := ShowDeleteDialog(frmMain, Message, FileSource, QueueId);
       if Confirmed then

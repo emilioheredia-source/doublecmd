@@ -99,6 +99,33 @@ inherited frmOptionsFileOperations: TfrmOptionsFileOperations
       OnChange = cbDeleteToTrashChange
       TabOrder = 4
     end
+    object lblDeleteDialogStart: TLabel
+      AnchorSideLeft.Control = lblProgressKind
+      AnchorSideTop.Control = cmbDeleteDialogStart
+      AnchorSideTop.Side = asrCenter
+      Left = 10
+      Height = 20
+      Top = 158
+      Width = 190
+      Caption = 'Delete dialog st&arts with:'
+      FocusControl = cmbDeleteDialogStart
+      ParentColor = False
+    end
+    object cmbDeleteDialogStart: TComboBoxAutoWidth
+      AnchorSideLeft.Control = lblDeleteDialogStart
+      AnchorSideLeft.Side = asrBottom
+      AnchorSideTop.Control = cbDeleteToTrash
+      AnchorSideTop.Side = asrBottom
+      Left = 204
+      Height = 28
+      Top = 154
+      Width = 100
+      BorderSpacing.Left = 4
+      BorderSpacing.Top = 4
+      ItemHeight = 20
+      Style = csDropDownList
+      TabOrder = 5
+    end
     object cbCopyConfirmation: TCheckBox
       AnchorSideLeft.Control = lblProgressKind
       AnchorSideTop.Control = bvlConfirmations
@@ -108,7 +135,7 @@ inherited frmOptionsFileOperations: TfrmOptionsFileOperations
       Top = 186
       Width = 127
       Caption = 'Cop&y operation'
-      TabOrder = 5
+      TabOrder = 6
     end
     object cbMoveConfirmation: TCheckBox
       AnchorSideLeft.Control = lblProgressKind
@@ -119,7 +146,7 @@ inherited frmOptionsFileOperations: TfrmOptionsFileOperations
       Top = 214
       Width = 130
       Caption = '&Move operation'
-      TabOrder = 6
+      TabOrder = 7
     end
     object cbDeleteConfirmation: TCheckBox
       AnchorSideLeft.Control = lblProgressKind
@@ -130,7 +157,7 @@ inherited frmOptionsFileOperations: TfrmOptionsFileOperations
       Top = 242
       Width = 137
       Caption = '&Delete operation'
-      TabOrder = 7
+      TabOrder = 8
     end
     object cbDeleteToTrashConfirmation: TCheckBox
       AnchorSideLeft.Control = lblProgressKind
@@ -141,11 +168,11 @@ inherited frmOptionsFileOperations: TfrmOptionsFileOperations
       Top = 270
       Width = 191
       Caption = 'D&elete to trash operation'
-      TabOrder = 8
+      TabOrder = 9
     end
     object bvlConfirmations: TDividerBevel
       AnchorSideLeft.Control = lblProgressKind
-      AnchorSideTop.Control = cbDeleteToTrash
+      AnchorSideTop.Control = cmbDeleteDialogStart
       AnchorSideTop.Side = asrBottom
       AnchorSideRight.Control = gbUserInterface
       AnchorSideRight.Side = asrBottom
@@ -167,7 +194,7 @@ inherited frmOptionsFileOperations: TfrmOptionsFileOperations
       Top = 298
       Width = 199
       Caption = 'Verify checksum operation'
-      TabOrder = 9
+      TabOrder = 10
     end
     object cbTestArchiveConfirmation: TCheckBox
       AnchorSideLeft.Control = cbVerifyChecksumConfirmation
@@ -178,7 +205,7 @@ inherited frmOptionsFileOperations: TfrmOptionsFileOperations
       Top = 323
       Width = 161
       Caption = 'Test archive operation'
-      TabOrder = 10
+      TabOrder = 11
     end
   end
   object gbExecutingOperations: TGroupBox[1]
