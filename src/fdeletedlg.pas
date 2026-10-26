@@ -32,10 +32,44 @@ function ShowDeleteDialog(TheOwner: TComponent; const TrashMessage, DeleteMessag
   FileSource: IFileSource; out QueueId: TOperationsManagerQueueIdentifier;
   ShowTrash, ShowWipe: Boolean; var DeleteMode: TDeleteMode): Boolean; overload;
 
+// Mode the dialog opens with: the "Delete dialog starts with" option, or
+// CommandMode when the option leaves it to the command (or UseOption is
+// False); a mode that isn't shown falls back to deleting permanently
+function DeleteDialogStartMode(CommandMode: TDeleteMode; UseOption, ShowTrash, ShowWipe: Boolean): TDeleteMode;
+// Kept for the "last choice" option
+procedure RememberDeleteMode(Mode: TDeleteMode);
+
 implementation
 
 uses
-  LCLType, fMain, uOSForms;
+  LCLType, fMain, uOSForms, uGlobs;
+
+function DeleteDialogStartMode(CommandMode: TDeleteMode; UseOption, ShowTrash, ShowWipe: Boolean): TDeleteMode;
+var
+  Start: TDeleteDialogStart;
+begin
+  Result := CommandMode;
+  if UseOption then
+  begin
+    Start := gDeleteDialogStart;
+    if Start = ddsLastChoice then
+      Start := gDeleteDialogLastChoice;
+    case Start of
+      ddsTrash:  Result := dmTrash;
+      ddsDelete: Result := dmDelete;
+      ddsWipe:   Result := dmWipe;
+    end;
+  end;
+  if ((Result = dmTrash) and not ShowTrash) or ((Result = dmWipe) and not ShowWipe) then
+    Result := dmDelete;
+end;
+
+procedure RememberDeleteMode(Mode: TDeleteMode);
+const
+  Choices: array[TDeleteMode] of TDeleteDialogStart = (ddsTrash, ddsDelete, ddsWipe);
+begin
+  gDeleteDialogLastChoice := Choices[Mode];
+end;
 
 function ShowDeleteDialog(TheOwner: TComponent; const Message: String; FileSource: IFileSource;
   out QueueId: TOperationsManagerQueueIdentifier): Boolean;
