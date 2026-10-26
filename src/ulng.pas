@@ -938,6 +938,7 @@ resourcestring
   rsOptNewFilesPosition = 'at the top of the file list;after directories (if directories are sorted before files);at sorted position;at the bottom of the file list';
   rsOptUpdatedFilesPosition = 'don''t change position;use the same setting as for new files;to sorted position';
   rsOptFileOperationsProgressKind = 'separate window;minimized separate window;operations panel';
+  rsOptDeleteDialogStart = 'the command (recycle bin setting, Shift);Move to Recycle Bin;Delete permanently;Wipe (secure erase);my last choice';
   rsOptTypeOfDuplicatedRename = 'DC legacy - Copy (x) filename.ext;Windows - filename (x).ext;Other - filename(x).ext';
   // Keyboard
   rsOptLetters = 'None;Command Line;Quick Search;Quick Filter';

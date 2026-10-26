@@ -46,6 +46,7 @@ type
     cbMoveConfirmation: TCheckBox;
     cbDeleteConfirmation: TCheckBox;
     cbDeleteToTrashConfirmation: TCheckBox;
+    cmbDeleteDialogStart: TComboBoxAutoWidth;
     cbVerifyChecksumConfirmation: TCheckBox;
     cbTestArchiveConfirmation: TCheckBox;
     cmbTypeOfDuplicatedRename: TComboBoxAutoWidth;
@@ -56,6 +57,7 @@ type
     lblHashBufferSize: TLabel;
     lblTypeOfDuplicatedRename: TLabel;
     lblBufferSize: TLabel;
+    lblDeleteDialogStart: TLabel;
     lblProgressKind: TLabel;
     lblWipePassNumber: TLabel;
     seWipePassNumber: TSpinEdit;
@@ -95,6 +97,7 @@ procedure TfrmOptionsFileOperations.Init;
 begin
   ParseLineToList(rsOptFileOperationsProgressKind, cbProgressKind.Items);
   ParseLineToList(rsOptTypeOfDuplicatedRename, cmbTypeOfDuplicatedRename.Items);
+  ParseLineToList(rsOptDeleteDialogStart, cmbDeleteDialogStart.Items);
 end;
 
 procedure TfrmOptionsFileOperations.cbDeleteToTrashChange(Sender: TObject);
@@ -121,6 +124,7 @@ begin
   cbProcessComments.Checked        := gProcessComments;
   cbShowCopyTabSelectPanel.Checked := gShowCopyTabSelectPanel;
   cbDeleteToTrash.Checked          := gUseTrash;
+  cmbDeleteDialogStart.ItemIndex   := Integer(gDeleteDialogStart);
   cbRenameSelOnlyName.Checked      := gRenameSelOnlyName;
 
   case gFileOperationsProgressKind of
@@ -152,6 +156,7 @@ begin
   gProcessComments        := cbProcessComments.Checked;
   gShowCopyTabSelectPanel := cbShowCopyTabSelectPanel.Checked;
   gUseTrash               := cbDeleteToTrash.Checked;
+  gDeleteDialogStart      := TDeleteDialogStart(cmbDeleteDialogStart.ItemIndex);
   gRenameSelOnlyName      := cbRenameSelOnlyName.Checked;
 
   case cbProgressKind.ItemIndex of

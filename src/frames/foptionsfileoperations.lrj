@@ -9,6 +9,7 @@
 {"hash":173011838,"name":"tfrmoptionsfileoperations.cbmoveconfirmation.caption","sourcebytes":[38,77,111,118,101,32,111,112,101,114,97,116,105,111,110],"value":"&Move operation"},
 {"hash":357918,"name":"tfrmoptionsfileoperations.cbdeleteconfirmation.caption","sourcebytes":[38,68,101,108,101,116,101,32,111,112,101,114,97,116,105,111,110],"value":"&Delete operation"},
 {"hash":258035118,"name":"tfrmoptionsfileoperations.cbdeletetotrashconfirmation.caption","sourcebytes":[68,38,101,108,101,116,101,32,116,111,32,116,114,97,115,104,32,111,112,101,114,97,116,105,111,110],"value":"D&elete to trash operation"},
+{"hash":47834650,"name":"tfrmoptionsfileoperations.lbldeletedialogstart.caption","sourcebytes":[68,101,108,101,116,101,32,100,105,97,108,111,103,32,115,116,38,97,114,116,115,32,119,105,116,104,58],"value":"Delete dialog st&arts with:"},
 {"hash":151930842,"name":"tfrmoptionsfileoperations.bvlconfirmations.caption","sourcebytes":[83,104,111,119,32,99,111,110,102,105,114,109,97,116,105,111,110,32,119,105,110,100,111,119,32,102,111,114,58],"value":"Show confirmation window for:"},
 {"hash":207724030,"name":"tfrmoptionsfileoperations.cbverifychecksumconfirmation.caption","sourcebytes":[86,101,114,105,102,121,32,99,104,101,99,107,115,117,109,32,111,112,101,114,97,116,105,111,110],"value":"Verify checksum operation"},
 {"hash":170065262,"name":"tfrmoptionsfileoperations.cbtestarchiveconfirmation.caption","sourcebytes":[84,101,115,116,32,97,114,99,104,105,118,101,32,111,112,101,114,97,116,105,111,110],"value":"Test archive operation"},
