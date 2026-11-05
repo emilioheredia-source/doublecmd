@@ -79,6 +79,7 @@ object frmFileProperties: TfrmFileProperties
     Anchors = [akLeft, akBottom]
     BorderSpacing.Bottom = 11
     Cancel = True
+    Default = True
     DefaultCaption = True
     ModalResult = 2
     Kind = bkClose

@@ -37,6 +37,7 @@ type
     property {%H-}Commands: TFormCommands read FCommands implements IFormCommands;
   protected
     procedure DoAutoSize; override;
+    procedure DoShow; override;
   public
     constructor Create(TheOwner: TComponent); override;
     constructor Create(TheOwner: TComponent; FileSource: IFileSource); reintroduce;
@@ -51,7 +52,7 @@ var
 implementation
 
 uses
-  LCLStrConsts, DCStrUtils, uFileSourceProperty, uHotkeyManager, uGlobs;
+  LCLStrConsts, DCStrUtils, uFileSourceProperty, uHotkeyManager, uGlobs, uOSForms;
 
 {$R *.lfm}
 
@@ -99,6 +100,12 @@ end;
 function TfrmButtonForm.GetQueueIdentifier: TOperationsManagerQueueIdentifier;
 begin
   Result:= FQueueIdentifier;
+end;
+
+procedure TfrmButtonForm.DoShow;
+begin
+  inherited DoShow;
+  PlaceOverFrmMain(Self);
 end;
 
 procedure TfrmButtonForm.DoAutoSize;

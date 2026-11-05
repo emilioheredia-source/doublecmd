@@ -25,6 +25,8 @@ type
     procedure btnAutoCompleteClick(Sender: TObject);
     procedure FormCreate(Sender: TObject);
     procedure RefreshExample;
+  protected
+    procedure DoShow; override;
   public
 
   end;
@@ -36,7 +38,13 @@ implementation
 {$R *.lfm}
 
 uses
-  DCStrUtils, uGlobs;
+  DCStrUtils, uGlobs, uOSForms;
+
+procedure TfrmMkDir.DoShow;
+begin
+  inherited DoShow;
+  PlaceOverFrmMain(Self);
+end;
 
 function sReplace(sMask: string): string;
 var
