@@ -35,7 +35,8 @@ implementation
 {$R *.lfm}
 
 uses
-  LazFileUtils, uLng, uGlobs, uLog, uShowMsg, DCStrUtils, DCOSUtils, uAdministrator;
+  LazFileUtils, uLng, uGlobs, uLog, uShowMsg, DCStrUtils, DCOSUtils, uAdministrator,
+  uOSForms;
 
 function ShowSymLinkForm(TheOwner: TComponent; const sExistingFile, sLinkToCreate, CurrentPath: String): Boolean;
 begin
@@ -98,6 +99,7 @@ end;
 
 procedure TfrmSymLink.FormShow(Sender: TObject);
 begin
+  PlaceOverFrmMain(Self);
   edtLinkToCreate.SelectAll;
 end;
 

@@ -43,6 +43,7 @@ object DialogBox: TDialogBox
     Anchors = [akTop, akRight]
     BorderSpacing.Right = 12
     Caption = '&OK'
+    Default = True
     TabOrder = 1
     OnClick = ButtonClick
   end

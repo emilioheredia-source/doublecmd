@@ -81,6 +81,8 @@ type
     FOperationOptionsUIClass: TFileSourceOperationOptionsUIClass;
     FOperationOptionsUI: TFileSourceOperationOptionsUI;
     FCurrentCopyDlgNameSelectionStep: TCurrentCopyDlgNameSelectionStep;
+    FFocusPathOnActivate: Boolean;
+    FKeyPressedSinceShow: Boolean;
 
     function GetQueueIdentifier: TOperationsManagerQueueIdentifier;
     procedure SetQueueIdentifier(AValue: TOperationsManagerQueueIdentifier);
@@ -90,6 +92,7 @@ type
                                     {%H-}Shift: TShiftState; {%H-}X, {%H-}Y: Integer);
     procedure ShowOptions(bShow: Boolean);
     procedure UpdateSize;
+    function IsEarlyEnterOnOptions(Key: Word; Shift: TShiftState): Boolean;
 
     function getFilesAtPath(
       const path: String;
@@ -97,6 +100,10 @@ type
       const sort: TFileSortType ): TStringList;
 
     property {%H-}Commands: TFormCommands read FCommands implements IFormCommands;
+
+  protected
+    procedure Activate; override;
+    procedure KeyUp(var Key: Word; Shift: TShiftState); override;
 
   public
     constructor Create(TheOwner: TComponent; DialogType: TCopyMoveDlgType;
@@ -118,7 +125,8 @@ implementation
 {$R *.lfm}
 
 uses
-  LazUTF8, fMain, LCLType, LCLVersion, uGlobs, uLng, uHotkeyManager, DCStrUtils;
+  LazUTF8, fMain, LCLType, LCLVersion, uGlobs, uLng, uHotkeyManager, DCStrUtils,
+  uOSForms;
 
 const
   HotkeysCategory = 'Copy/Move Dialog';
@@ -329,11 +337,37 @@ begin
   if gShowCopyTabSelectPanel then
     ShowTabsSelector;
 
+  // Done after the tab buttons have set the width.
+  PlaceOverFrmMain(Self);
+
   edtDst.SelectAll;
   FCurrentCopyDlgNameSelectionStep := ccdnssWholeCompleteFilename;
   edtDst.SetFocus;
+  FFocusPathOnActivate := True;
+  FKeyPressedSinceShow := False;
 
   btnCreateSpecialQueue.Left:= btnAddToQueue.BoundsRect.Right;
+end;
+
+{ Enter typed right after F5 (even before the dialog shows up) must reach
+  Start, the default button. That only holds while the path box has the
+  focus, so make sure it has it once the window is really active. }
+procedure TfrmCopyDlg.Activate;
+begin
+  inherited Activate;
+  if not FFocusPathOnActivate then Exit;
+  FFocusPathOnActivate := False;
+  if edtDst.CanFocus and not edtDst.Focused then
+    edtDst.SetFocus;
+end;
+
+{ With Windows autocomplete on, the path box swallows Tab's key-down and
+  moves the focus on key-up instead, so a Tab is only seen here. }
+procedure TfrmCopyDlg.KeyUp(var Key: Word; Shift: TShiftState);
+begin
+  if Key = VK_TAB then
+    FKeyPressedSinceShow := True;
+  inherited KeyUp(Key, Shift);
 end;
 
 procedure TfrmCopyDlg.mnuNewQueueClick(Sender: TObject);
@@ -361,6 +395,16 @@ end;
 procedure TfrmCopyDlg.FormKeyDown(Sender: TObject; var Key: Word;
   Shift: TShiftState);
 begin
+  if IsEarlyEnterOnOptions(Key, Shift) then
+  begin
+    Key := 0;
+    btnOK.Click;
+    Exit;
+  end;
+  // Shift/Ctrl/Alt still held from the F5/F6 shortcut are not a choice.
+  if not (Key in [VK_SHIFT, VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN]) then
+    FKeyPressedSinceShow := True;
+
   if gShowCopyTabSelectPanel and (Integer(Key) - VK_1 < pnlSelector.ControlCount) then
   begin
     if (ssAlt in Shift) or (edtDst.Focused = False) then
@@ -390,6 +434,15 @@ begin
   {$ENDIF}
 end;
 
+{ An Enter that lands on Options before any other key was pressed in the
+  dialog was typed ahead (F5, Enter) and meant Start. Once the user has
+  pressed a key here, e.g. Tab to reach Options, Enter on it opens Options. }
+function TfrmCopyDlg.IsEarlyEnterOnOptions(Key: Word; Shift: TShiftState): Boolean;
+begin
+  Result := (Key = VK_RETURN) and (Shift = []) and
+            not FKeyPressedSinceShow and btnOptions.Focused;
+end;
+
 procedure TfrmCopyDlg.FormPaint(Sender: TObject);
 begin
   OnPaint := nil;
@@ -415,8 +468,11 @@ begin
   btnOptions.Enabled := not btnOptions.Enabled;
   ClientWidth := pnlOptions.Width + ChildSizing.LeftRightSpacing * 2;
   pnlOptions.Anchors := pnlOptions.Anchors + [akRight];
-  MoveToDefaultPosition;
+  CenterFormOnFrmMain(Self);
   Constraints.MinWidth := 0;
+  // The Options button has just disabled itself while holding the focus, so
+  // Enter would no longer reach Start (the default button). Hand it back.
+  edtDst.SetFocus;
 end;
 
 procedure TfrmCopyDlg.btnSaveOptionsClick(Sender: TObject);

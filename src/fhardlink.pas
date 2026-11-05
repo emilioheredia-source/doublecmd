@@ -34,7 +34,8 @@ implementation
 {$R *.lfm}
 
 uses
-  LazFileUtils, uLng, uGlobs, uLog, uShowMsg, DCStrUtils, DCOSUtils, uAdministrator;
+  LazFileUtils, uLng, uGlobs, uLog, uShowMsg, DCStrUtils, DCOSUtils, uAdministrator,
+  uOSForms;
 
 function ShowHardLinkForm(TheOwner: TComponent; const sExistingFile, sLinkToCreate, CurrentPath: String): Boolean;
 begin
@@ -94,6 +95,7 @@ end;
 
 procedure TfrmHardLink.FormShow(Sender: TObject);
 begin
+  PlaceOverFrmMain(Self);
   edtLinkToCreate.SelectAll;
 end;
 

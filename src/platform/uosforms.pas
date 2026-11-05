@@ -142,11 +142,19 @@ function GetFrmMainMonitor: TMonitor;
    non-primary monitors even when the window is maximized.
 }
 procedure CenterFormOnFrmMain(AForm: TCustomForm);
+{en
+   For plain TForm dialogs: centers AForm over frmMain and switches it to
+   poDesigned, so LCL's own owner/main-form centering (which can put the
+   dialog at (0,0) on the wrong monitor) does not move it again.
+   Call it when the dialog is shown, once its size is known.
+   Does nothing while frmMain does not exist yet (startup dialogs).
+}
+procedure PlaceOverFrmMain(AForm: TCustomForm);
 
 implementation
 
 uses
-  ExtDlgs, LCLProc, Menus, Dialogs, Graphics, InterfaceBase, WSForms, LCLIntf,
+  ExtDlgs, LCLProc, Menus, Dialogs, Graphics, InterfaceBase, WSForms, LCLIntf, Math,
   LCLVersion, fMain, uConnectionManager, uShowMsg, uLng, uDCUtils, uDebug
   {$IF DEFINED(MSWINDOWS)}
   , LCLStrConsts, ComObj, ActiveX, DCOSUtils, uOSUtils, uFileSystemFileSource
@@ -353,6 +361,11 @@ begin
   else
     Result := frmMain.BoundsRect;
 end;
+
+function GetFrmMainMonitorRect: TRect;
+begin
+  Result := GetFrmMainMonitor.BoundsRect;
+end;
 {$ELSE}
 { On non-GTK2 backends frmMain.Monitor and BoundsRect are reliable. }
 function GetFrmMainMonitor: TMonitor;
@@ -360,10 +373,37 @@ begin
   Result := frmMain.Monitor;
 end;
 
+{$IF DEFINED(MSWINDOWS)}
+{ Asks Windows directly. LCL caches the window bounds and its monitor list,
+  and right after a monitor sleeps or wakes a cached monitor can report an
+  empty rectangle, which used to send dialogs to (0,0). }
+function GetFrmMainBoundsRect: TRect;
+begin
+  if not GetWindowRect(frmMain.Handle, Result) then
+    Result := frmMain.BoundsRect;
+end;
+
+function GetFrmMainMonitorRect: TRect;
+var
+  Info: TMonitorInfo;
+begin
+  Info.cbSize := SizeOf(Info);
+  if GetMonitorInfo(MonitorFromWindow(frmMain.Handle, MONITOR_DEFAULTTONEAREST), @Info) then
+    Result := Info.rcWork
+  else
+    Result := Default(TRect);
+end;
+{$ELSE}
 function GetFrmMainBoundsRect: TRect;
 begin
   Result := frmMain.BoundsRect;
 end;
+
+function GetFrmMainMonitorRect: TRect;
+begin
+  Result := frmMain.Monitor.BoundsRect;
+end;
+{$ENDIF}
 {$ENDIF}
 
 { Centers AForm over frmMain's window, clamped to the monitor so it stays
@@ -371,19 +411,29 @@ end;
   prevent the WM from overriding the placement. }
 procedure CenterFormOnFrmMain(AForm: TCustomForm);
 var
-  Frm: TRect;
-  Mon: TMonitor;
+  Frm, Area: TRect;
+  X, Y: Integer;
 begin
   Frm := GetFrmMainBoundsRect;
-  Mon := GetFrmMainMonitor;
-  AForm.Left := Frm.Left + (Frm.Right  - Frm.Left - AForm.Width)  div 2;
-  AForm.Top  := Frm.Top  + (Frm.Bottom - Frm.Top  - AForm.Height) div 2;
-  if AForm.Left < Mon.Left then AForm.Left := Mon.Left;
-  if AForm.Top  < Mon.Top  then AForm.Top  := Mon.Top;
-  if AForm.Left + AForm.Width  > Mon.Left + Mon.Width  then
-    AForm.Left := Mon.Left + Mon.Width  - AForm.Width;
-  if AForm.Top  + AForm.Height > Mon.Top  + Mon.Height then
-    AForm.Top  := Mon.Top  + Mon.Height - AForm.Height;
+  Area := GetFrmMainMonitorRect;
+  X := Frm.Left + (Frm.Width  - AForm.Width)  div 2;
+  Y := Frm.Top  + (Frm.Height - AForm.Height) div 2;
+  { An empty monitor rectangle means the lookup failed: keep the dialog
+    over the main window rather than clamping it to nowhere. The outer Max
+    keeps the title bar on screen when the dialog is bigger than the monitor. }
+  if not IsRectEmpty(Area) then
+  begin
+    X := Max(Area.Left, Min(Area.Right  - AForm.Width,  X));
+    Y := Max(Area.Top,  Min(Area.Bottom - AForm.Height, Y));
+  end;
+  AForm.SetBounds(X, Y, AForm.Width, AForm.Height);
+end;
+
+procedure PlaceOverFrmMain(AForm: TCustomForm);
+begin
+  if not (Assigned(frmMain) and frmMain.HandleAllocated) then Exit;
+  AForm.Position := poDesigned;
+  CenterFormOnFrmMain(AForm);
 end;
 
 { Fallback for startup dialogs shown before frmMain is ready.

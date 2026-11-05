@@ -97,6 +97,7 @@ object frmFileUnlock: TfrmFileUnlock
     Width = 62
     Anchors = [akRight, akBottom]
     AutoSize = True
+    Cancel = True
     Caption = 'Close'
     ModalResult = 11
     TabOrder = 3
