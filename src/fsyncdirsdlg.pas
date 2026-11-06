@@ -656,7 +656,7 @@ begin
     chkVerify.Visible := TSyncDirsUtil.supportsVerify(FCmpFileSources);
     chkVerify.Checked := gOperationOptionVerify;
     chkOverwriteReadOnly.Checked := gSyncDirsOverwriteReadOnly;
-    chkDeleteToTrash.Checked := gUseTrash;
+    chkDeleteToTrash.Checked := gSyncDirsDeleteToTrash;
     // A mirror keeps the empty folders the source has and loses the ones
     // it does not; deleting all of them on a side is no part of it
     chkDeleteLeftAllEmptyDirs.Visible := NOT chkAsymmetric.Checked;
@@ -1903,6 +1903,7 @@ begin
   SkipFlags := Default(TFileSystemOperationHelperSkipFlags);
   ResetDeleteOptions;
   FDeleteToTrash := dialog.chkDeleteToTrash.Checked;
+  gSyncDirsDeleteToTrash := FDeleteToTrash;
 end;
 
 // Whether the local trash can take what is deleted on this side
@@ -1921,8 +1922,8 @@ var
   rightCount: Integer;
 
   // Trash or delete is asked along with the confirmation when the trash is
-  // available, preset from the global setting; the choice holds for this
-  // delete only
+  // available, preset from the last choice made in this dialog, and the
+  // answer is kept for the next one
   function confirmed: Boolean;
   var
     trashAvailable: Boolean;
@@ -1947,6 +1948,7 @@ var
     Result:= ShowDeleteDialog(Self, Message, Message, EmptyStr,
                dialogSource, queueId, True, False, deleteMode);
     FDeleteToTrash:= (deleteMode = dmTrash);
+    if Result then gSyncDirsDeleteToTrash:= FDeleteToTrash;
   end;
 
 begin
@@ -2146,7 +2148,7 @@ begin
   FDeleteSkipErrors := gSkipFileOpError;
   FDeleteReadOnlyOption := fsoogNone;
   FDeleteDirectlyOption := fsoogNone;
-  FDeleteToTrash := gUseTrash;
+  FDeleteToTrash := gSyncDirsDeleteToTrash;
 end;
 
 procedure TfrmSyncDirsDlg.ApplyDeleteOptions(const operation: TFileSourceOperation);
