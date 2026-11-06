@@ -698,6 +698,9 @@ var
   gSyncDirsAsymmetric,
   gSyncDirsIgnoreDate,
   gSyncDirsOverwriteReadOnly,
+  // The confirmation's "Delete to recycle bin"; follows UseTrash until the
+  // dialog has saved a choice of its own
+  gSyncDirsDeleteToTrash,
   gSyncDirsShowFilterCopyRight,
   gSyncDirsShowFilterEqual,
   gSyncDirsShowFilterNotEqual,
@@ -2340,6 +2343,7 @@ begin
   gSyncDirsAsymmetric := False;
   gSyncDirsIgnoreDate := False;
   gSyncDirsOverwriteReadOnly := True;
+  gSyncDirsDeleteToTrash := True;
   gSyncDirsShowFilterCopyRight := True;
   gSyncDirsShowFilterEqual := True;
   gSyncDirsShowFilterNotEqual := True;
@@ -3436,6 +3440,7 @@ begin
       end;
 
     { SyncDirs }
+    gSyncDirsDeleteToTrash := gUseTrash;
     Node := Root.FindNode('SyncDirs');
     if Assigned(Node) then
     begin
@@ -3445,6 +3450,7 @@ begin
       gSyncDirsAsymmetric := GetValue(Node, 'Asymmetric', gSyncDirsAsymmetric);
       gSyncDirsIgnoreDate := GetValue(Node, 'IgnoreDate', gSyncDirsIgnoreDate);
       gSyncDirsOverwriteReadOnly := GetValue(Node, 'OverwriteReadOnly', gSyncDirsOverwriteReadOnly);
+      gSyncDirsDeleteToTrash := GetValue(Node, 'DeleteToTrash', gSyncDirsDeleteToTrash);
       gSyncDirsShowFilterCopyRight := GetValue(Node, 'FilterCopyRight', gSyncDirsShowFilterCopyRight);
       gSyncDirsShowFilterEqual := GetValue(Node, 'FilterEqual', gSyncDirsShowFilterEqual);
       gSyncDirsShowFilterNotEqual := GetValue(Node, 'FilterNotEqual', gSyncDirsShowFilterNotEqual);
@@ -4044,6 +4050,7 @@ begin
     SetValue(Node, 'Asymmetric', gSyncDirsAsymmetric);
     SetValue(Node, 'IgnoreDate', gSyncDirsIgnoreDate);
     SetValue(Node, 'OverwriteReadOnly', gSyncDirsOverwriteReadOnly);
+    SetValue(Node, 'DeleteToTrash', gSyncDirsDeleteToTrash);
     SetValue(Node, 'FilterCopyRight', gSyncDirsShowFilterCopyRight);
     SetValue(Node, 'FilterEqual', gSyncDirsShowFilterEqual);
     SetValue(Node, 'FilterNotEqual', gSyncDirsShowFilterNotEqual);
