@@ -64,6 +64,9 @@ type
     // fresh operation per directory batch, so it reads this back and applies it
     // to the next one to make the answer hold for the whole run.
     FSkipAllErrors: Boolean;
+    // "Skip all" answered for a pipe, socket or device; carried over by the
+    // sync dialog like FSkipAllErrors.
+    FSkipAllSpecialFiles: Boolean;
     // Sent to the plugin as FS_COPYFLAGS_OVERWRITE_READONLY with every
     // overwrite or resume, so it may make a read-only target writable first.
     FOverwriteReadOnly: Boolean;
@@ -83,6 +86,7 @@ type
     function RetryOnError(const sMessage: String): Boolean;
     function CopyErrorMessage(aFile: TFile; const TargetName: String; ErrorCode: Integer): String;
     function CopiedFile(aNode: TFileTreeNode): TFile;
+    function SkipSpecialFile(aFile: TFile): Boolean;
     function ProcessItem(aNode: TFileTreeNode; const TargetName: String): Integer;
     procedure LogMessage(sMessage: String; logOptions: TLogOptions; logMsgType: TLogMsgType);
 
@@ -121,6 +125,7 @@ type
 
     property FileExistsOption: TFileSourceOperationOptionFileExists read FFileExistsOption write FFileExistsOption;
     property SkipAllErrors: Boolean read FSkipAllErrors write FSkipAllErrors;
+    property SkipAllSpecialFiles: Boolean read FSkipAllSpecialFiles write FSkipAllSpecialFiles;
     property OverwriteReadOnly: Boolean read FOverwriteReadOnly write FOverwriteReadOnly;
     property CopyAttributesOptions: TCopyAttributesOptions read FCopyAttributesOptions write FCopyAttributesOptions;
     property RenameMask: String read FRenameMask write FRenameMask;
@@ -394,6 +399,31 @@ begin
     Result := aNode.SubNodes[0].TheFile;
 end;
 
+// A pipe, socket or device cannot be uploaded: opening a FIFO for reading
+// waits for a writer that may never come, and the plugin would hang in it.
+// Asks like the file system copy does. True when the item is to be skipped.
+function TWfxPluginOperationHelper.SkipSpecialFile(aFile: TFile): Boolean;
+begin
+  Result := False;
+{$IF DEFINED(UNIX)}
+  if (FMode <> wpohmCopyIn) or aFile.IsDirectory or aFile.IsLink or
+     fpS_ISREG(aFile.Attributes) then Exit;
+
+  Result := True;
+  if FSkipAllSpecialFiles then Exit;
+
+  case AskQuestion('', Format(rsMsgCannotCopySpecialFile, [LineEnding + aFile.FullPath]),
+                   [fsourSkip, fsourSkipAll, fsourAbort],
+                   fsourSkip, fsourAbort) of
+    fsourSkip: ;
+    fsourSkipAll:
+      FSkipAllSpecialFiles := True;
+    else
+      AbortOperation;
+  end;
+{$ENDIF}
+end;
+
 function TWfxPluginOperationHelper.ProcessNode(aFileTreeNode: TFileTreeNode;
   CurrentTargetPath: String): Integer;
 var
@@ -433,6 +463,14 @@ begin
     end;
 
     UpdateStatistics(FStatistics^);
+
+    if SkipSpecialFile(CopiedFile(CurrentSubNode)) then
+    begin
+      Result := FS_FILE_NOTSUPPORTED;
+      LogMessage(CopyErrorMessage(aFile, TargetName, Result), [log_vfs_op], lmtError);
+      CheckOperationState;
+      Continue;
+    end;
 
     // A failed item can be retried (a dropped connection, a file in use);
     // the byte count is put back so a retry does not count it twice

@@ -28,6 +28,7 @@ type
     FStatistics: TFileSourceCopyOperationStatistics; // local copy of statistics
     // Options
     FInfoOperation: LongInt;
+    FSkipAllSpecialFiles: Boolean;
     procedure SetNeedsConnection(AValue: Boolean);
 
   protected
@@ -48,6 +49,8 @@ type
     class function GetOptionsUIClass: TFileSourceOperationOptionsUIClass; override;
 
     property NeedsConnection: Boolean read FNeedsConnection write SetNeedsConnection;
+    // "Skip all" for pipes, sockets and devices; see TWfxPluginOperationHelper
+    property SkipAllSpecialFiles: Boolean read FSkipAllSpecialFiles write FSkipAllSpecialFiles;
 
   end;
 
@@ -167,6 +170,7 @@ begin
   FOperationHelper.RenameMask := RenameMask;
   FOperationHelper.FileExistsOption := FileExistsOption;
   FOperationHelper.SkipAllErrors := SkipAllErrors;
+  FOperationHelper.SkipAllSpecialFiles := FSkipAllSpecialFiles;
   FOperationHelper.OverwriteReadOnly := OverwriteReadOnly;
   FOperationHelper.CopyAttributesOptions := CopyAttributesOptions;
 
@@ -188,6 +192,7 @@ begin
   end;
   FileExistsOption := FOperationHelper.FileExistsOption;
   SkipAllErrors := FOperationHelper.SkipAllErrors;
+  FSkipAllSpecialFiles := FOperationHelper.SkipAllSpecialFiles;
   FOperationHelper.Free;
 end;
 

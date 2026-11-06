@@ -405,6 +405,7 @@ uses
   uDCUtils, uFileSourceOperationTypes, uShowForm, uAdministrator,
   uOSUtils, uLng, Math, uClipboard, fMaskInputDlg,
   LCLVersion, uTypes, uFileSystemCopyOperation, uFileSystemDeleteOperation, uFindFiles,
+  uWfxPluginCopyInOperation,
   uFileSourceManager, uFileSourceProperty, uShowMsg,
   fDeleteDlg, uTrash, uOperationsManager, uOSForms,
   uWfxPluginFileSource, WfxPlugin
@@ -2115,7 +2116,9 @@ begin
     TFileSystemCopyOperation(operation).Verify := VerifyOption;
     TFileSystemCopyOperation(operation).SetPropertyError := SetPropertyError;
     TFileSystemCopyOperation(operation).SkipFlags := SkipFlags;
-  end;
+  end
+  else if operation is TWfxPluginCopyInOperation then
+    TWfxPluginCopyInOperation(operation).SkipAllSpecialFiles := SkipFlags.SkipAllSpecialFiles;
 end;
 
 procedure TfrmSyncDirsDlg.RememberCopyOptions(const operation: TFileSourceOperation);
@@ -2130,6 +2133,10 @@ begin
   begin
     SetPropertyError := TFileSystemCopyOperation(operation).SetPropertyError;
     SkipFlags := TFileSystemCopyOperation(operation).SkipFlags;
+  end
+  else if operation is TWfxPluginCopyInOperation then
+  begin
+    SkipFlags.SkipAllSpecialFiles := TWfxPluginCopyInOperation(operation).SkipAllSpecialFiles;
   end;
 end;
 

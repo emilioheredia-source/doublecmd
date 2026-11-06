@@ -992,11 +992,26 @@ var
   FtpSend: TFTPSendEx;
   sFileName: AnsiString;
   FileName: AnsiString;
+  Attr: Cardinal; // TFileAttrs; DCBasicTypes would clash with WfxPlugin's PFileTime
 begin
   Result := FS_FILE_WRITEERROR;
   if GetConnectionByPath(RemoteName, FtpSend, sFileName) then
   try
     FileName:= UTF16ToUTF8(UnicodeString(LocalName));
+{$IF DEFINED(UNIX)}
+    // A pipe, socket or device has no contents to send, and opening a FIFO
+    // for reading waits for a writer that may never come: the upload would
+    // hang where it cannot be cancelled. Links are followed, so a link to a
+    // directory or a dangling link still goes through (SFTP recreates those).
+    Attr:= mbFileGetAttrNoLinks(FileName);
+    if (Attr <> faInvalidAttributes) and not (FPS_ISREG(Attr) or FPS_ISDIR(Attr)) then
+    begin
+      LogProc(PluginNumber, MSGTYPE_IMPORTANTERROR,
+              PWideChar(CeUtf8ToUtf16('Upload ' + FileName +
+                                      ' - not a regular file (pipe, socket or device)')));
+      Exit(FS_FILE_NOTSUPPORTED);
+    end;
+{$ENDIF}
     // Skip the per-file existence probe when the target directory is one we
     // just created this operation (known-empty): the file cannot pre-exist.
     if (CopyFlags and FS_COPYFLAGS_FORCE = 0) and
