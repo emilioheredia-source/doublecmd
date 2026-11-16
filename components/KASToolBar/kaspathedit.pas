@@ -70,6 +70,9 @@ type
     FStringList: TStringList;
     FObjectTypes: TObjectTypes;
     FFileSortType: TFileSortType;
+{$IF DEFINED(LCLWIN32)}
+    FTabDownOnEnter: Boolean;
+{$ENDIF}
   private
     procedure setTextAndSelect( newText:String );
     procedure handleSpecialKeys( var Key: Word );
@@ -90,6 +93,9 @@ type
 {$ENDIF}
 {$IF DEFINED(LCLCOCOA)}
     procedure TextChanged; override;
+{$ENDIF}
+{$IF DEFINED(LCLWIN32)}
+    procedure DoEnter; override;
 {$ENDIF}
     procedure DoExit; override;
     procedure VisibleChanged; override;
@@ -339,9 +345,23 @@ begin
   SelLength:= UTF8Length(Text)-SelStart;
 end;
 
+{$IF DEFINED(LCLWIN32)}
+{ A Tab still held down when the edit gets the focus was pressed somewhere
+  else (e.g. Tab to switch panels, then F5 opened this dialog). Its key-up
+  must not move the focus on. }
+procedure TKASPathEdit.DoEnter;
+begin
+  FTabDownOnEnter:= (GetKeyState(VK_TAB) < 0);
+  inherited DoEnter;
+end;
+{$ENDIF}
+
 procedure TKASPathEdit.DoExit;
 begin
   HideListBox;
+{$IF DEFINED(LCLWIN32)}
+  FTabDownOnEnter:= False;
+{$ENDIF}
   inherited DoExit;
 end;
 
@@ -446,7 +466,12 @@ begin
 {$IF DEFINED(LCLWIN32)}
   // Windows auto-completer eats the TAB so LCL doesn't get it and doesn't move to next control.
   if not FAutoComplete and (Key = VK_TAB) then
-    GetParentForm(Self).SelectNext(Self, True, True);
+  begin
+    if FTabDownOnEnter then
+      FTabDownOnEnter:= False
+    else
+      GetParentForm(Self).SelectNext(Self, not (ssShift in Shift), True);
+  end;
 {$ENDIF}
 end;
 
