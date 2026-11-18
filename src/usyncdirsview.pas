@@ -100,6 +100,9 @@ type
     // of an open folder, or just its own files when actions do not include
     // subfolders; the row itself for a file or a folded folder
     function lastRowUnder( const index: Integer ): Integer;
+    // The grid row that shows a row of the grid before a refold: the row
+    // itself if it is still there, else the folded folder that holds it
+    function rowShowing( const before: TSyncViewRow ): Integer;
 
     property level: Integer read _level write _level;
     property showFiles: Boolean read _showFiles write _showFiles;
@@ -473,6 +476,29 @@ begin
           (_view[Result + 1].kind = vrFile) and
           (_view[Result + 1].dirIndex = folder.dirIndex) do
       Inc( Result );
+  end;
+end;
+
+function TSyncDirsView.rowShowing( const before: TSyncViewRow ): Integer;
+var
+  i, target: Integer;
+  sameRow: Boolean;
+begin
+  Result:= 0;
+  // A folder row is found by its folder, a file row by its row list index;
+  // a folder's subtree is one run of the row list, so the folder that
+  // holds the row is the last one, in tree order, whose run contains it
+  target:= before.rowFirst;
+  for i:= 0 to _count - 1 do begin
+    if before.kind = vrFile then
+      sameRow:= (_view[i].kind = vrFile) and (_view[i].rowIndex = before.rowIndex)
+    else
+      sameRow:= (_view[i].kind <> vrFile) and (_view[i].dirIndex = before.dirIndex);
+    if sameRow then
+      Exit( i );
+    if (_view[i].kind <> vrFile) and
+       (_view[i].rowFirst <= target) and (target <= _view[i].rowLast) then
+      Result:= i;
   end;
 end;
 
