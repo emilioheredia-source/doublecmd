@@ -36,6 +36,8 @@ type
 
     procedure EachViewUpdateHeader(AFileView: TFileView; {%H-}UserData: Pointer);
 
+    procedure LayoutLabels;
+
     function getFilesAtPath(
       const path: String;
       const types: TObjectTypes;
@@ -94,7 +96,7 @@ type
 implementation
 
 uses
-  LCLType, Graphics, uDCUtils, DCOSUtils, DCStrUtils, uKeyboard,
+  LCLType, Graphics, Math, uDCUtils, DCOSUtils, DCStrUtils, uKeyboard,
   fMain, uFileSourceUtil, uGlobs, uPixMapManager, uLng, uFileFunctions,
   uFileSource, uArchiveFileSource, uFileViewWithPanels, uVfsModule;
 
@@ -286,17 +288,18 @@ begin
 
   FAddressLabel := TPathLabel.Create(Self, False);
   FAddressLabel.Parent := Self;
-  FAddressLabel.BorderSpacing.Bottom := 1;
+  FAddressLabel.AutoSize := False;
 
   FPathLabel := TPathLabel.Create(Self, True);
   FPathLabel.Parent := Self;
 
   UpdateColor;
 
-  // Display path below address.
-  // For correct alignment, first put path at the top, then address at the top.
-  FPathLabel.Align := alTop;
-  FAddressLabel.Align := alTop;
+  // The address (a plugin's wfx://NAME, an archive's file) and the path on
+  // one line, so a panel on a plugin or in an archive lists its files at the
+  // same height as a local one; the widths are set in LayoutLabels
+  FAddressLabel.Align := alLeft;
+  FPathLabel.Align := alClient;
 
   FPathEdit:= TKASPathEdit.Create(FPathLabel);
   FPathEdit.Parent:= Self;
@@ -338,40 +341,70 @@ end;
 procedure TFileViewHeader.HeaderResize(Sender: TObject);
 begin
   UpdateAddressLabel;
-  UpdatePathLabel;
 end;
 
 // 1. in most cases, as not to bother users,
 //    the Header does not need to show hint,
-// 2. so set hint to the full path, only when the path in PathLabel is shortened
-//    due to insufficient width
+// 2. so set hint to the full location, only when the path or the address is
+//    shortened due to insufficient width
 procedure TFileViewHeader.HeaderShowHint(Sender: TObject; HintInfo: PHintInfo);
+var
+  address: String;
 begin
   HintInfo^.HintStr := '';
-  if FFileView.CurrentAddress<>'' then
-    exit;
+  address := FFileView.CurrentAddress;
+  if (IncludeTrailingPathDelimiter(FPathLabel.Caption) <> FFileView.CurrentPath) or
+     (FAddressLabel.Caption <> address) then
+    HintInfo^.HintStr := address + FFileView.CurrentPath;
+end;
 
-  if IncludeTrailingPathDelimiter(FPathLabel.Caption) <> FFileView.CurrentPath then
-    HintInfo^.HintStr := FFileView.CurrentPath;
+// The address (a plugin's wfx://NAME, an archive's file) and the path share
+// one line, so both are laid out together whenever either one changes. The
+// path keeps the width it needs, the address gets the rest but at least half
+// of the line; when both are too long each is shortened in its half. Widths
+// come from the header, not from the labels, which are not laid out again
+// until later.
+procedure TFileViewHeader.LayoutLabels;
+var
+  address, path: String;
+  addressWidth: Integer;
+begin
+  address := FFileView.CurrentAddress;
+  FAddressLabel.Visible := address <> '';
+  if FFileView.FileSourcesCount = 0 then
+    Exit;
+  path := FFileView.CurrentPath;
+  // measure with the fonts the labels are drawn with
+  FAddressLabel.Canvas.Font := FAddressLabel.Font;
+  FPathLabel.Canvas.Font := FPathLabel.Font;
+  addressWidth := 0;
+  if address = '' then
+    FPathLabel.LeftSpacing := FAddressLabel.LeftSpacing
+  else
+  begin
+    // the path goes on right after the address, as one location
+    FPathLabel.LeftSpacing := 0;
+    // MinimizeFilePath keeps a path whole only with the width of 'XXX' to spare
+    addressWidth := Max(ClientWidth - FPathLabel.Canvas.TextWidth(path + 'XXX'),
+                        ClientWidth div 2);
+    FAddressLabel.Caption := MinimizeFilePath(address, FAddressLabel.Canvas,
+                                              addressWidth - FAddressLabel.LeftSpacing);
+    addressWidth := Max(Min(FAddressLabel.Canvas.TextWidth(FAddressLabel.Caption) +
+                            FAddressLabel.LeftSpacing, addressWidth), 1);
+    FAddressLabel.Width := addressWidth;
+  end;
+  FPathLabel.Caption := MinimizeFilePath(path, FPathLabel.Canvas,
+                                         ClientWidth - addressWidth - FPathLabel.LeftSpacing);
 end;
 
 procedure TFileViewHeader.UpdateAddressLabel;
 begin
-  if FFileView.CurrentAddress = '' then
-  begin
-    FAddressLabel.Visible := False;
-  end
-  else
-  begin
-    FAddressLabel.Top:= 0;
-    FAddressLabel.Caption := FFileView.CurrentAddress;
-    FAddressLabel.Visible := True;
-  end;
+  LayoutLabels;
 end;
 
 procedure TFileViewHeader.UpdatePathLabel;
 begin
-  FPathLabel.Caption := MinimizeFilePath(FFileView.CurrentPath, FPathLabel.Canvas, FPathLabel.Width);
+  LayoutLabels;
 end;
 
 procedure TFileViewHeader.UpdateColor;
