@@ -92,6 +92,8 @@ type
     pnlView: TPanel;
     lblViewLevel: TLabel;
     cbViewLevel: TComboBox;
+    btnExpandAll: TButton;
+    btnCollapseAll: TButton;
     chkViewFiles: TCheckBox;
     chkViewIndent: TCheckBox;
     chkActionsSubfolders: TCheckBox;
@@ -151,6 +153,8 @@ type
     procedure btnSearchTemplateClick(Sender: TObject);
     procedure cbExtFilterChange(Sender: TObject);
     procedure cbViewLevelChange(Sender: TObject);
+    procedure btnExpandAllClick(Sender: TObject);
+    procedure btnCollapseAllClick(Sender: TObject);
     procedure chkViewFilesChange(Sender: TObject);
     procedure chkViewIndentChange(Sender: TObject);
     procedure chkActionsSubfoldersChange(Sender: TObject);
@@ -264,7 +268,9 @@ type
     procedure takeRunOptions(const dialog: TfrmSyncDirsPerformDlg);
     procedure applyViewSettings;
     procedure setViewLevel(const level: Integer);
+    procedure foldAllAt(const level: Integer);
     procedure refreshView;
+    procedure refoldView;
     procedure toggleFolderRow(const viewIndex: Integer);
     function clickedFoldMarker(const viewIndex, X: Integer): Boolean;
     function rowIndentation(const depth: Integer): Integer;
@@ -1110,12 +1116,12 @@ begin
         Key:= 0;
     VK_MULTIPLY:
       begin
-        setViewLevel(0);
+        foldAllAt(0);
         Key:= 0;
       end;
     VK_DIVIDE:
       begin
-        setViewLevel(1);
+        foldAllAt(1);
         Key:= 0;
       end;
     VK_A:
@@ -1382,6 +1388,25 @@ begin
   MainDrawGrid.Invalidate;
 end;
 
+// Rebuild after the folds changed, keeping the cursor on the same file or
+// folder, or on the folded folder it went into
+procedure TfrmSyncDirsDlg.refoldView;
+var
+  r: Integer;
+  current: TSyncViewRow;
+  hadRow: Boolean;
+begin
+  r := MainDrawGrid.Row;
+  hadRow := (r >= 0) and (r < FView.Count);
+  if hadRow then
+    current := FView.row(r);
+  FView.build;
+  MainDrawGrid.RowCount := FView.Count;
+  if hadRow and (FView.Count > 0) then
+    MainDrawGrid.Row := FView.rowShowing(current);
+  MainDrawGrid.Invalidate;
+end;
+
 procedure TfrmSyncDirsDlg.toggleFolderRow(const viewIndex: Integer);
 begin
   if (viewIndex < 0) or (viewIndex >= FView.Count) then Exit;
@@ -1403,7 +1428,34 @@ begin
   if shown = FView.level then Exit;
   FView.level := shown;
   FView.forgetManualFolds;
-  refreshView;
+  refoldView;
+end;
+
+// Every folder folded by the level again, the folds made by hand forgotten,
+// also when the level is already the one asked for: 0 opens everything,
+// 1 leaves only the top-level folders
+procedure TfrmSyncDirsDlg.foldAllAt(const level: Integer);
+begin
+  if level <> FView.level then
+    setViewLevel(level)
+  else begin
+    FView.forgetManualFolds;
+    refoldView;
+  end;
+end;
+
+procedure TfrmSyncDirsDlg.btnExpandAllClick(Sender: TObject);
+begin
+  foldAllAt(0);
+  if MainDrawGrid.CanFocus then
+    MainDrawGrid.SetFocus;
+end;
+
+procedure TfrmSyncDirsDlg.btnCollapseAllClick(Sender: TObject);
+begin
+  foldAllAt(1);
+  if MainDrawGrid.CanFocus then
+    MainDrawGrid.SetFocus;
 end;
 
 procedure TfrmSyncDirsDlg.cbViewLevelChange(Sender: TObject);

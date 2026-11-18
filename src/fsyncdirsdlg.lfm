@@ -533,7 +533,7 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
     ChildSizing.TopBottomSpacing = 2
     ChildSizing.HorizontalSpacing = 8
     ChildSizing.Layout = cclLeftToRightThenTopToBottom
-    ChildSizing.ControlsPerLine = 5
+    ChildSizing.ControlsPerLine = 7
     ClientHeight = 27
     ClientWidth = 833
     TabOrder = 8
@@ -572,8 +572,34 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
       TabOrder = 0
       Text = 'All'
     end
+    object btnExpandAll: TButton
+      Left = 168
+      Height = 23
+      Top = 2
+      Width = 80
+      AutoSize = True
+      Caption = 'Expand all'
+      Hint = 'Open every folder, also the ones closed by hand (*)'
+      OnClick = btnExpandAllClick
+      ParentShowHint = False
+      ShowHint = True
+      TabOrder = 1
+    end
+    object btnCollapseAll: TButton
+      Left = 256
+      Height = 23
+      Top = 2
+      Width = 80
+      AutoSize = True
+      Caption = 'Collapse all'
+      Hint = 'Fold everything into the top-level folders, also the ones opened by hand (/)'
+      OnClick = btnCollapseAllClick
+      ParentShowHint = False
+      ShowHint = True
+      TabOrder = 2
+    end
     object chkViewFiles: TCheckBox
-      Left = 178
+      Left = 344
       Height = 23
       Top = 2
       Width = 50
@@ -581,10 +607,10 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
       Checked = True
       OnChange = chkViewFilesChange
       State = cbChecked
-      TabOrder = 1
+      TabOrder = 3
     end
     object chkViewIndent: TCheckBox
-      Left = 300
+      Left = 430
       Height = 23
       Top = 2
       Width = 60
@@ -592,10 +618,10 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
       Checked = True
       OnChange = chkViewIndentChange
       State = cbChecked
-      TabOrder = 2
+      TabOrder = 4
     end
     object chkActionsSubfolders: TCheckBox
-      Left = 416
+      Left = 510
       Height = 23
       Top = 2
       Width = 180
@@ -603,7 +629,7 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
       Checked = True
       OnChange = chkActionsSubfoldersChange
       State = cbChecked
-      TabOrder = 3
+      TabOrder = 5
     end
   end
   object HeaderDG: TDrawGrid
