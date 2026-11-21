@@ -19,6 +19,20 @@ msgstr ""
 "X-Poedit-Basepath: .\n"
 "X-Poedit-SearchPathExcluded-0: .\n"
 
+#: fsetfileproperties.rssetfilepropertiesloadfromactivepanel
+msgctxt "fsetfileproperties.rssetfilepropertiesloadfromactivepanel"
+msgid "Active panel (source)"
+msgstr "Ενεργό πάνελ (πηγή)"
+
+#: fsetfileproperties.rssetfilepropertiesloadfromclipboard
+msgid "Clipboard"
+msgstr "Πρόχειρο"
+
+#: fsetfileproperties.rssetfilepropertiesloadfrominactivepanel
+msgctxt "fsetfileproperties.rssetfilepropertiesloadfrominactivepanel"
+msgid "Inactive panel (target)"
+msgstr "Ανενεργό πάνελ (στόχος)"
+
 #: fsyncdirsdlg.rscomparingpercent
 #, object-pascal-format
 msgid "Comparing... %d%% (ESC to cancel)"
@@ -6195,6 +6209,14 @@ msgstr "Εργασία Αντιγραφής"
 msgid "&Delete operation"
 msgstr "Λειτουργία διαγραφής"
 
+#: tfrmoptionsfileoperations.cbdeletehiddensystemconfirmation.caption
+msgid "Delete hidden/system files"
+msgstr ""
+
+#: tfrmoptionsfileoperations.cbdeletereadonlyconfirmation.caption
+msgid "Delete read-only files"
+msgstr ""
+
 #: tfrmoptionsfileoperations.cbdeletetotrash.caption
 msgid "Dele&te to recycle bin (Shift key reverses this setting)"
 msgstr "Διαγραφή στον κάδο ανακύκλωσης (Το Shift πλήκτρο αναιρεί αυτή τη ρύθμιση)"
@@ -8770,6 +8792,26 @@ msgstr "Επιλογή καθ' 'ονομα/επέκταση:"
 msgid "&2."
 msgstr "2."
 
+#: tfrmselectfileproperties.chkattributes.caption
+msgctxt "tfrmselectfileproperties.chkattributes.caption"
+msgid "File &attributes"
+msgstr ""
+
+#: tfrmselectfileproperties.chkpermissions.caption
+msgctxt "tfrmselectfileproperties.chkpermissions.caption"
+msgid "&Permissions /  Ownership"
+msgstr ""
+
+#: tfrmselectfileproperties.chktime.caption
+msgctxt "tfrmselectfileproperties.chktime.caption"
+msgid "&Timestamp (date+time)"
+msgstr ""
+
+#: tfrmselectfileproperties.chkxattributes.caption
+msgctxt "tfrmselectfileproperties.chkxattributes.caption"
+msgid "&Extended attributes"
+msgstr ""
+
 #: tfrmselectpathrange.buttonpanel.cancelbutton.caption
 msgctxt "tfrmselectpathrange.buttonpanel.cancelbutton.caption"
 msgid "&Cancel"
@@ -8869,6 +8911,26 @@ msgctxt "TFRMSETFILEPROPERTIES.BTNCANCEL.CAPTION"
 msgid "&Cancel"
 msgstr "Ακύρωση"
 
+#: tfrmsetfileproperties.btnloadadv.caption
+msgctxt "tfrmsetfileproperties.btnloadadv.caption"
+msgid "Advanced(&0)..."
+msgstr ""
+
+#: tfrmsetfileproperties.btnloadfromclipboard.caption
+msgctxt "tfrmsetfileproperties.btnloadfromclipboard.caption"
+msgid "First file in clipboard(&3)"
+msgstr ""
+
+#: tfrmsetfileproperties.btnloadfromsource.caption
+msgctxt "tfrmsetfileproperties.btnloadfromsource.caption"
+msgid "File under cursor in active panel (source)(&1)"
+msgstr ""
+
+#: tfrmsetfileproperties.btnloadfromtarget.caption
+msgctxt "tfrmsetfileproperties.btnloadfromtarget.caption"
+msgid "File in target(&2)"
+msgstr ""
+
 #: tfrmsetfileproperties.btnok.caption
 msgctxt "TFRMSETFILEPROPERTIES.BTNOK.CAPTION"
 msgid "&OK"
@@ -8932,6 +8994,11 @@ msgstr "Συμπεριβαλομένων των υποφακέλων"
 msgctxt "TFRMSETFILEPROPERTIES.CHKSYSTEM.CAPTION"
 msgid "System"
 msgstr "Σύστημα"
+
+#: tfrmsetfileproperties.gbloadattributes.caption
+msgctxt "tfrmsetfileproperties.gbloadattributes.caption"
+msgid "Load attributes from"
+msgstr ""
 
 #: tfrmsetfileproperties.gbtimesamp.caption
 msgid "Timestamp properties"
@@ -9021,6 +9088,15 @@ msgstr " "
 msgctxt "tfrmsetfileproperties.zvlastwritedatetime.textfornulldate"
 msgid " "
 msgstr " "
+
+#: tfrmsetfilepropertiesadvload.gbloadattributes.caption
+msgid "Load these attributes"
+msgstr ""
+
+#: tfrmsetfilepropertiesadvload.rgloadfrom.caption
+msgctxt "tfrmsetfilepropertiesadvload.rgloadfrom.caption"
+msgid "Load attributes from"
+msgstr ""
 
 #: tfrmsortanything.btnsort.caption
 msgid "&Sort"
@@ -9275,8 +9351,8 @@ msgid "only selected"
 msgstr "μόνο το(α) επιλεγμένο(α)"
 
 #: tfrmsyncdirsdlg.chksubdirs.caption
-msgid "Subdirs"
-msgstr "Υποκατάλογοι"
+msgid "subdirs"
+msgstr "υποκατάλογοι"
 
 #: tfrmsyncdirsdlg.groupbox1.caption
 msgid "Show:"
@@ -9389,22 +9465,6 @@ msgstr ""
 
 #: tfrmsyncdirsperformdlg.chkverify.caption
 msgid "Verify"
-msgstr ""
-
-#: tfrmsyncdirsselectpropertiesdlg.chkattributes.caption
-msgid "File &attributes"
-msgstr ""
-
-#: tfrmsyncdirsselectpropertiesdlg.chkpermissions.caption
-msgid "&Permissions /  Ownership"
-msgstr ""
-
-#: tfrmsyncdirsselectpropertiesdlg.chktime.caption
-msgid "&Timestamp (date+time)"
-msgstr ""
-
-#: tfrmsyncdirsselectpropertiesdlg.chkxattributes.caption
-msgid "&Extended attributes"
 msgstr ""
 
 #: tfrmsyncdirsselectpropertiesdlg.lbllabel.caption
@@ -10884,6 +10944,11 @@ msgstr "Αρχεία Μπάρας Εργαλείων DC"
 #: ulng.rsfilterxmlconfigfiles
 msgid ".xml Config files"
 msgstr "Αρχεία Διαμόρφωσης .xml"
+
+#: ulng.rsfindconfirmafteraddtostash
+#, object-pascal-format
+msgid "%d files/directories have been added. Close the search window and open %s now?"
+msgstr ""
 
 #: ulng.rsfinddefinetemplate
 msgid "Define template"
@@ -14742,10 +14807,12 @@ msgid "Will show a simple message"
 msgstr "Θα εμφανίσει ένα απλό μήνυμα"
 
 #: ulng.rsvarsourcepanel
+msgctxt "ulng.rsvarsourcepanel"
 msgid "Active panel (source)"
 msgstr "Ενεργό πάνελ (πηγή)"
 
 #: ulng.rsvartargetpanel
+msgctxt "ulng.rsvartargetpanel"
 msgid "Inactive panel (target)"
 msgstr "Ανενεργό πάνελ (στόχος)"
 

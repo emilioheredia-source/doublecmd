@@ -34,10 +34,6 @@ type
   { TAloneForm }
 
   TAloneForm = class(TForm)
-  {$IF DEFINED(DARWIN) AND DEFINED(LCLQT)}
-  protected
-    procedure DoClose(var CloseAction: TCloseAction); override;
-  {$ENDIF}
   public
     constructor CreateNew(AOwner: TComponent; Num: Integer = 0); override;
   end;
@@ -116,6 +112,10 @@ function SelectDirectoryEx(const Caption, InitialDirectory: string;
 
 {$IF DEFINED(UNIX) AND NOT (DEFINED(DARWIN) OR DEFINED(HAIKU))}
 {en
+   Returns @true when application is running on the native Wayland platform
+}
+function IsWaylandSession: Boolean;
+{en
    Show open with dialog
    @param(FileList List of files to open with)
 }
@@ -189,13 +189,16 @@ uses
     , qt4, qtwidgets
     {$ENDIF}
     {$IF DEFINED(LCLQT5)}
-    , qt5, qtwidgets
+    , qt5, qtwidgets, qtint
     {$ENDIF}
     {$IF DEFINED(LCLQT6)}
-    , qt6, qtwidgets
+    , qt6, qtwidgets, qtint
     {$ENDIF}
     {$IF DEFINED(LCLGTK2)}
     , Gtk2, Gdk2, Glib2, Themes
+    {$ENDIF}
+    {$IF DEFINED(LCLGTK3)}
+    , Gtk3Int
     {$ENDIF}
   {$ENDIF}
   {$IF FPC_FULLVERSION < 30300}
@@ -204,53 +207,6 @@ uses
   , LazLogger, uDCReadSVG, uTurboJPEG;
 
 { TAloneForm }
-
-{$IF DEFINED(DARWIN) AND DEFINED(LCLQT)}
-
-var
-  FMain, FBefore, FCurrent: TCustomForm;
-
-procedure TAloneForm.DoClose(var CloseAction: TCloseAction);
-
-  procedure TrySetFocus(Form: TCustomForm); inline;
-  begin
-    if Form.CanFocus then Form.SetFocus;
-  end;
-
-var
-  psnFront, psnCurrent: ProcessSerialNumber;
-begin
-  inherited DoClose(CloseAction);
-  if (GetCurrentProcess(psnCurrent) = noErr) and (GetFrontProcess(psnFront) = noErr) then
-  begin
-    // Check that our process is active
-    if (psnCurrent.lowLongOfPSN = psnFront.lowLongOfPSN) and
-       (psnCurrent.highLongOfPSN = psnFront.highLongOfPSN) then
-    begin
-      // Restore active form
-      if (Screen.CustomFormIndex(FBefore) < 0) then
-        TrySetFocus(FMain)
-      else if (FBefore <> Self) then
-        TrySetFocus(FBefore)
-      else
-        FBefore:= FMain;
-    end;
-  end;
-end;
-
-procedure ActiveFormChangedHandler(Self, Sender: TObject; Form: TCustomForm);
-begin
-  if (Form is TAloneForm) or (FMain = Form) then
-  begin
-    if FCurrent <> Form then
-    begin
-      FBefore:= FCurrent;
-      FCurrent:= Form;
-    end;
-  end;
-end;
-
-{$ENDIF}
 
 constructor TAloneForm.CreateNew(AOwner: TComponent; Num: Integer);
 begin
@@ -774,8 +730,13 @@ var
 begin
   if not (Form is THintWindow) then
   begin
-    ClassName:= Form.ClassName;
-    QWidget_setWindowRole(QWidget_window(TQtWidget(Form.Handle).GetContainerWidget), @ClassName);
+  {$IF DEFINED(LCLQT6)}
+    if not IsWaylandSession then
+  {$ENDIF}
+    begin
+      ClassName:= Form.ClassName;
+      QWidget_setWindowRole(QWidget_window(TQtWidget(Form.Handle).GetContainerWidget), @ClassName);
+    end;
   end;
 end;
 {$ENDIF}
@@ -914,12 +875,7 @@ begin
   end;
   {$ENDIF}
 
-  {$IF DEFINED(DARWIN) AND DEFINED(LCLQT)}
-  FMain:= MainForm;
-  Handler.Data:= MainForm;
-  Handler.Code:= @ActiveFormChangedHandler;
-  Screen.AddHandlerActiveFormChanged(TScreenFormEvent(Handler), True);
-  {$ELSEIF DEFINED(LCLGTK2) or DEFINED(LCLQT) or DEFINED(LCLQT5) or DEFINED(LCLQT6)}
+  {$IF DEFINED(LCLGTK2) or DEFINED(LCLQT) or DEFINED(LCLQT5) or DEFINED(LCLQT6)}
   Handler.Data:= MainForm;
   Handler.Code:= @ScreenFormEvent;
   ScreenFormEvent(MainForm, MainForm, MainForm);
@@ -1337,6 +1293,30 @@ end;
 {$ENDIF}
 
 {$IF DEFINED(UNIX) AND NOT (DEFINED(DARWIN) OR DEFINED(HAIKU))}
+function IsWaylandSession: Boolean;
+{$IF DEFINED(LCLQT5) or DEFINED(LCLQT6) or DEFINED(LCLGTK3)}
+const
+  FIsWayland: TDuplicates = dupIgnore;
+begin
+  if FIsWayland = dupIgnore then
+  begin
+  {$IFDEF LCLGTK3}
+    with GTK3WidgetSet do
+  {$ENDIF}
+    if IsWayland then
+      FIsWayland:= dupAccept
+    else begin
+      FIsWayland:= dupError;
+    end;
+  end;
+  Result:= (FIsWayland = dupAccept);
+end;
+{$ELSE}
+begin
+  Result:= False;
+end;
+{$ENDIF}
+
 procedure ShowOpenWithDialog(TheOwner: TComponent; const FileList: TStringList);
 begin
   fOpenWith.ShowOpenWithDlg(TheOwner, FileList);

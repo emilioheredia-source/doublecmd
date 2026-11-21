@@ -28,7 +28,8 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, ExtCtrls, StdCtrls, Buttons,
-  uFileSourceSetFilePropertyOperation, DCBasicTypes, DateTimePicker;
+  uFile, uFileProperty, uFileSourceSetFilePropertyOperation, uFileView,
+  DCBasicTypes, DCOSUtils, DateTimePicker;
 
 type
 
@@ -42,6 +43,8 @@ type
     btnLastAccessTime: TSpeedButton;
     btnLastWriteTime: TSpeedButton;
     btnOK: TBitBtn;
+    btnLoadFromSource: TButton;
+    btnLoadFromTarget: TButton;
     cbExecGroup: TCheckBox;
     cbExecOther: TCheckBox;
     cbExecOwner: TCheckBox;
@@ -66,6 +69,7 @@ type
     gbTimeSamp: TGroupBox;
     gbWinAttributes: TGroupBox;
     gbUnixAttributes: TGroupBox;
+    gbLoadAttributes: TGroupBox;
     lblAttrBitsStr: TLabel;
     lblAttrGroupStr: TLabel;
     lblAttrInfo: TLabel;
@@ -86,6 +90,10 @@ type
     procedure btnCreationTimeClick(Sender: TObject);
     procedure btnLastAccessTimeClick(Sender: TObject);
     procedure btnLastWriteTimeClick(Sender: TObject);
+    procedure btnLoadAdvClick(Sender: TObject);
+    procedure btnLoadFromClipboardClick(Sender: TObject);
+    procedure btnLoadFromSourceClick(Sender: TObject);
+    procedure btnLoadFromTargetClick(Sender: TObject);
     procedure SetOtherDateLikeThis(ReferenceZVDateTimePicker:TDateTimePicker);
     procedure btnOKClick(Sender: TObject);
     procedure cbChangeModeClick(Sender: TObject);
@@ -104,6 +112,9 @@ type
     procedure ZVLastAccessDateTimeClick(Sender: TObject);
   private
     FOperation: TFileSourceSetFilePropertyOperation;
+    FSetAttributesOptions: TCopyAttributesOptions;
+    FSourceFrame: TFileView;
+    FTargetFrame: TFileView;
     FChangeTriggersEnabled: Boolean;
     procedure ShowMode(Mode: TFileAttrs);
     procedure ShowAttr(Attr: TFileAttrs);
@@ -111,22 +122,43 @@ type
     function FormatUnixAttributesEx(iAttr: TFileAttrs): String;
     function GetModeFromForm(out ExcludeAttrs: TFileAttrs): TFileAttrs;
     function GetAttrFromForm(out ExcludeAttrs: TFileAttrs): TFileAttrs;
+
+    function CreateNewProperties(const f: TFile): TFileProperties;
+    procedure LoadProperties(const checked: Boolean);
   public
-    constructor Create(aOwner: TComponent; const aOperation: TFileSourceSetFilePropertyOperation); reintroduce;
+    constructor Create(
+      const aOwner: TComponent;
+      const aOperation: TFileSourceSetFilePropertyOperation;
+      const aSourceFrame: TFileView;
+      const aTargetFrame: TFileView ); reintroduce;
   end;
 
-function ShowChangeFilePropertiesDialog(const aOperation: TFileSourceSetFilePropertyOperation): Boolean;
+function ShowChangeFilePropertiesDialog(
+  const aOperation: TFileSourceSetFilePropertyOperation;
+  const aSourceFrame: TFileView;
+  const aTargetFrame: TFileView ): Boolean;
+
+resourcestring
+  rsSetFilePropertiesLoadFromActivePanel = 'Active panel (source)';
+  rsSetFilePropertiesLoadFromInactivePanel = 'Inactive panel (target)';
+  rsSetFilePropertiesLoadFromClipboard = 'Clipboard';
 
 implementation
 
 {$R *.lfm}
 
 uses
-  LCLType, ImgList, EditBtn, DCFileAttributes, DCStrUtils, uDCUtils, uFileProperty, uKeyboard;
+  LCLType, ImgList, EditBtn,
+  uFileSource, uFileSystemFileSource, uFileSourceManager,
+  DCFileAttributes, DCStrUtils, uDCUtils, uKeyboard, uClipboard,
+  fSetFilePropertiesAdvLoad;
 
-function ShowChangeFilePropertiesDialog(const aOperation: TFileSourceSetFilePropertyOperation): Boolean;
+function ShowChangeFilePropertiesDialog(
+  const aOperation: TFileSourceSetFilePropertyOperation;
+  const aSourceFrame: TFileView;
+  const aTargetFrame: TFileView ): Boolean;
 begin
-  with TfrmSetFileProperties.Create(Application, aOperation) do
+  with TfrmSetFileProperties.Create(Application, aOperation, aSourceFrame, aTargetFrame) do
   try
     Result:= (ShowModal = mrOK);
   finally
@@ -209,10 +241,19 @@ begin
   // Called after checking any windows-check
 end;
 
+// on macOS, set Key to #0 in OnKeyPress doesn't prevent Key sending to TEdit
+// because TEdit had handled the Event before calling OnKeyPress
 procedure TfrmSetFileProperties.edtOctalKeyPress(Sender: TObject; var Key: char);
 begin
-  if not ((Key in ['0'..'7']) or (Key = Chr(VK_BACK)) or (Key = Chr(VK_DELETE))) then
-    Key:= #0;
+  case Key of
+    '0'..'7',
+    Chr(VK_BACK),
+    Chr(VK_DELETE),
+    Chr(VK_ESCAPE),
+    Chr(VK_RETURN): ;
+    else
+      Key:= #0;
+  end;
 end;
 
 procedure TfrmSetFileProperties.edtOctalKeyUp(Sender: TObject; var Key: Word;
@@ -223,9 +264,13 @@ begin
   if FChangeTriggersEnabled then
   begin
     FChangeTriggersEnabled := False;
-    AMode:= OctToDec(edtOctal.Text);
-    lblAttrText.Caption:= FormatUnixAttributesEx(AMode);
-    ShowMode(AMode);
+    try
+      AMode:= OctToDec(edtOctal.Text);
+      lblAttrText.Caption:= FormatUnixAttributesEx(AMode);
+      ShowMode(AMode);
+    except
+      on e: EConvertError do;
+    end;
     FChangeTriggersEnabled := True;
   end;
 end;
@@ -373,58 +418,101 @@ begin
   end;
 end;
 
-constructor TfrmSetFileProperties.Create(aOwner: TComponent; const aOperation: TFileSourceSetFilePropertyOperation);
+procedure TfrmSetFileProperties.LoadProperties(const checked: Boolean);
+  procedure loadAttributes;
+  begin
+    if NOT (fpAttributes in FOperation.SupportedProperties) then
+      Exit;
+    UpdateAllowGrayed((FOperation.TargetFiles.Count > 1) or FOperation.TargetFiles[0].IsDirectory);
+    if FOperation.NewProperties[fpAttributes] is TNtfsFileAttributesProperty then
+    begin
+      if FOperation.TargetFiles.Count = 1 then
+        ShowAttr((FOperation.NewProperties[fpAttributes] as TNtfsFileAttributesProperty).Value);
+      gbWinAttributes.Show;
+    end;
+    if FOperation.NewProperties[fpAttributes] is TUnixFileAttributesProperty then
+    begin
+      if FOperation.TargetFiles.Count = 1 then
+        ShowMode((FOperation.NewProperties[fpAttributes] as TUnixFileAttributesProperty).Value);
+      gbUnixAttributes.Show;
+    end;
+  end;
+
+  procedure loadDateTime;
+  begin
+    if (fpCreationTime in FOperation.SupportedProperties) and Assigned(FOperation.NewProperties[fpCreationTime]) then
+    begin
+      ZVCreationDateTime.DateTime:= (FOperation.NewProperties[fpCreationTime] as TFileCreationDateTimeProperty).Value;
+      ZVCreationDateTime.Enabled:= True;
+      chkCreationTime.Enabled:= True;
+      btnCreationTime.Enabled:= True;
+    end;
+    if (fpModificationTime in FOperation.SupportedProperties) and Assigned(FOperation.NewProperties[fpModificationTime]) then
+    begin
+      ZVLastWriteDateTime.DateTime:= (FOperation.NewProperties[fpModificationTime] as TFileModificationDateTimeProperty).Value;
+      ZVLastWriteDateTime.Enabled:= True;
+      chkLastWriteTime.Enabled:= True;
+      btnLastWriteTime.Enabled:= True;
+    end;
+    if (fpLastAccessTime in FOperation.SupportedProperties) and Assigned(FOperation.NewProperties[fpLastAccessTime]) then
+    begin
+      ZVLastAccessDateTime.DateTime:= (FOperation.NewProperties[fpLastAccessTime] as TFileLastAccessDateTimeProperty).Value;
+      ZVLastAccessDateTime.Enabled:= True;
+      chkLastAccessTime.Enabled:= True;
+      btnLastAccessTime.Enabled:= True;
+    end;
+  end;
+
+var
+  lastActiveControl1: TWinControl;
+begin
+  if caoCopyAttributes in FSetAttributesOptions then
+    loadAttributes;
+
+  if caoCopyTime in FSetAttributesOptions then
+    loadDateTime;
+
+  if (checked=False) or (caoCopyTime in FSetAttributesOptions) then begin
+    lastActiveControl1:= self.ActiveControl;
+    if chkCreationTime.Enabled then chkCreationTime.Checked:= checked;
+    if chkLastWriteTime.Enabled then chkLastWriteTime.Checked:= checked;
+    if chkLastAccessTime.Enabled then chkLastAccessTime.Checked:= checked;
+    self.ActiveControl:= lastActiveControl1;
+  end;
+end;
+
+function TfrmSetFileProperties.CreateNewProperties(const f: TFile): TFileProperties;
+var
+  aFileProperties: TFileProperties;
+begin
+  FillByte(aFileProperties, SizeOf(aFileProperties), 0);
+  if fpAttributes in f.SupportedProperties then
+    aFileProperties[fpAttributes]:= f.Properties[fpAttributes].Clone;
+  if fpModificationTime in f.SupportedProperties then
+    aFileProperties[fpModificationTime]:= f.Properties[fpModificationTime].Clone;
+  if fpCreationTime in f.SupportedProperties then
+    aFileProperties[fpCreationTime]:= f.Properties[fpCreationTime].Clone;
+  if fpLastAccessTime in f.SupportedProperties then
+    aFileProperties[fpLastAccessTime]:= f.Properties[fpLastAccessTime].Clone;
+  Result:= aFileProperties;
+end;
+
+constructor TfrmSetFileProperties.Create(
+  const aOwner: TComponent;
+  const aOperation: TFileSourceSetFilePropertyOperation;
+  const aSourceFrame: TFileView;
+  const aTargetFrame: TFileView );
 begin
   inherited Create(aOwner);
   FOperation:= aOperation;
+  FSetAttributesOptions:= [caoCopyTime, caoCopyAttributes];
+  FSourceFrame:= aSourceFrame;
+  FTargetFrame:= aTargetFrame;
   FChangeTriggersEnabled:= True;
   ZVCreationDateTime.DateTime:= NullDate;
   ZVLastWriteDateTime.DateTime:= NullDate;
   ZVLastAccessDateTime.DateTime:= NullDate;
-  // Enable only supported file properties
-  with FOperation do
-  begin
-    if fpAttributes in SupportedProperties then
-      begin
-        UpdateAllowGrayed((TargetFiles.Count > 1) or TargetFiles[0].IsDirectory);
-        if NewProperties[fpAttributes] is TNtfsFileAttributesProperty then
-        begin
-          if TargetFiles.Count = 1 then
-            ShowAttr((NewProperties[fpAttributes] as TNtfsFileAttributesProperty).Value);
-          gbWinAttributes.Show;
-        end;
-        if NewProperties[fpAttributes] is TUnixFileAttributesProperty then
-        begin
-          if TargetFiles.Count = 1 then
-            ShowMode((NewProperties[fpAttributes] as TUnixFileAttributesProperty).Value);
-          gbUnixAttributes.Show;
-        end;
-      end;
-    if (fpCreationTime in SupportedProperties) and Assigned(NewProperties[fpCreationTime]) then
-      begin
-        ZVCreationDateTime.DateTime:= (NewProperties[fpCreationTime] as TFileCreationDateTimeProperty).Value;
-        ZVCreationDateTime.Enabled:= True;
-        chkCreationTime.Enabled:= True;
-        btnCreationTime.Enabled:= True;
-      end;
-    if (fpModificationTime in SupportedProperties) and Assigned(NewProperties[fpModificationTime]) then
-      begin
-        ZVLastWriteDateTime.DateTime:= (NewProperties[fpModificationTime] as TFileModificationDateTimeProperty).Value;
-        ZVLastWriteDateTime.Enabled:= True;
-        chkLastWriteTime.Enabled:= True;
-        btnLastWriteTime.Enabled:= True;
-      end;
-    if (fpLastAccessTime in SupportedProperties) and Assigned(NewProperties[fpLastAccessTime]) then
-      begin
-        ZVLastAccessDateTime.DateTime:= (NewProperties[fpLastAccessTime] as TFileLastAccessDateTimeProperty).Value;
-        ZVLastAccessDateTime.Enabled:= True;
-        chkLastAccessTime.Enabled:= True;
-        btnLastAccessTime.Enabled:= True;
-      end;
-  end;
-  chkCreationTime.Checked:=False;
-  chkLastWriteTime.Checked:=False;
-  chkLastAccessTime.Checked:=False;
+  self.LoadProperties(False);
 end;
 
 procedure TfrmSetFileProperties.btnCreationTimeClick(Sender: TObject);
@@ -439,6 +527,102 @@ begin
   ZVLastWriteDateTime.DateTime:= Now;
   if not chkLastWriteTime.Checked then chkLastWriteTime.Checked:=TRUE;
   if ssCtrl in GetKeyShiftStateEx then SetOtherDateLikeThis(ZVLastWriteDateTime);
+end;
+
+procedure TfrmSetFileProperties.btnLoadAdvClick(Sender: TObject);
+var
+  dialog: TfrmSetFilePropertiesAdvLoad;
+  ret: Integer;
+
+  procedure initDialog;
+  var
+    captions: TStringArray;
+    filenames: TStringArray;
+    i: Integer;
+  begin
+    captions:= [rsSetFilePropertiesLoadFromActivePanel,
+                rsSetFilePropertiesLoadFromInactivePanel,
+                rsSetFilePropertiesLoadFromClipboard];
+    filenames:= [FSourceFrame.GetActiveFileName,
+                 FTargetFrame.GetActiveFileName,
+                 GetFirstFilenameInClipboard];
+    for i:= Low(captions) to High(captions) do begin
+      if filenames[i] <> EmptyStr then
+        dialog.rgLoadFrom.Items[i]:= captions[i] + ': ' + filenames[i]
+      else
+        dialog.rgLoadFrom.Items[i]:= captions[i];
+      dialog.rgLoadFrom.Buttons[i].Enabled:= filenames[i] <> EmptyStr;
+    end;
+
+    dialog.frmProperties.chkTime.Checked:= caoCopyTime in FSetAttributesOptions;
+    dialog.frmProperties.chkAttributes.Checked:= caoCopyAttributes in FSetAttributesOptions
+  end;
+
+  procedure doAdvancedAction;
+  begin
+    FSetAttributesOptions:= [];
+    if dialog.frmProperties.chkTime.Checked then
+      Include(FSetAttributesOptions, caoCopyTime);
+    if dialog.frmProperties.chkAttributes.Checked then
+      Include(FSetAttributesOptions, caoCopyAttributes);
+
+    case dialog.rgLoadFrom.ItemIndex of
+      0: self.btnLoadFromSourceClick(nil);
+      1: self.btnLoadFromTargetClick(nil);
+      2: self.btnLoadFromClipboardClick(nil);
+    end;
+  end;
+
+begin
+  dialog:= TfrmSetFilePropertiesAdvLoad.Create(nil);
+  initDialog;
+  ret:= dialog.ShowModal;
+  if ret = mrOK then
+    doAdvancedAction;
+  dialog.Free;
+end;
+
+procedure TfrmSetFileProperties.btnLoadFromClipboardClick(Sender: TObject);
+var
+  path: String;
+  f: TFile;
+  fs: IFileSource;
+begin
+  path:= GetFirstFilenameInClipboard;
+  if path = EmptyStr then
+    Exit;
+
+  f:= TFile.Create(EmptyStr);
+  f.FullPath:= path;
+  fs:= FileSourceManager.Find(TFileSystemFileSource, EmptyStr);
+  fs.RetrieveProperties(f, [fpAttributes,fpModificationTime,fpCreationTime,fpLastAccessTime,fpChangeTime], []);
+  FOperation.NewProperties:= self.CreateNewProperties(f);
+  self.LoadProperties(True);
+  f.Free;
+end;
+
+procedure TfrmSetFileProperties.btnLoadFromSourceClick(Sender: TObject);
+var
+  f: TFile;
+begin
+  f:= FSourceFrame.CloneActiveFile;
+  if f = nil then
+    Exit;
+  FOperation.NewProperties:= self.CreateNewProperties(f);
+  self.LoadProperties(True);
+  f.Free;
+end;
+
+procedure TfrmSetFileProperties.btnLoadFromTargetClick(Sender: TObject);
+var
+  f: TFile;
+begin
+  f:= FTargetFrame.CloneActiveFile;
+  if f = nil then
+    Exit;
+  FOperation.NewProperties:= self.CreateNewProperties(f);
+  self.LoadProperties(True);
+  f.Free;
 end;
 
 procedure TfrmSetFileProperties.btnLastAccessTimeClick(Sender: TObject);

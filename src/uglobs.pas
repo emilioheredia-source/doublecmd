@@ -93,7 +93,10 @@ type
   { How initially progress is shown for file operations }
   TFileOperationsProgressKind = (fopkSeparateWindow, fopkSeparateWindowMinimized, fopkOperationsPanel);
   { Operations with confirmation }
-  TFileOperationsConfirmation = (focCopy, focMove, focDelete, focDeleteToTrash, focVerifyChecksum, focTestArchive);
+  TFileOperationsConfirmation = (
+    focCopy, focMove,
+    focDelete, focDeleteToTrash, focDeleteReadOnly, focDeleteHiddenSystem,
+    focVerifyChecksum, focTestArchive);
   TFileOperationsConfirmations = set of TFileOperationsConfirmation;
 
   { Multi-Rename }
@@ -242,7 +245,12 @@ const
   // 14 -  Move some colors to colors.json
   // 15 -  Move custom columns colors to colors.json
   // 16 -  Move DirectoryHotList to localconfig.xml
-  ConfigVersion = 16;
+  // 17 -  add focDeleteReadOnly/focDeleteHiddenSystem to gFileOperationsConfirmations, and they need to be enabled by default
+  ConfigVersion = 17;
+
+  twmSingle = 0;
+  twmPerPanel = 1;
+  twmPerTab = 2;
 
   COLORS_JSON = 'colors.json';
 
@@ -322,6 +330,13 @@ var
   gKeyButtonsHeight: TKeyButtonsHeight;
   gDrivesListButtonOptions: TDrivesListButtonOptions;
   gSeparateTree: Boolean;
+  // 0 = Detach, 1 = Sync Panel->Terminal, 2 = Sync Terminal->Panel
+  gTermSyncModeLeft: Integer;
+  gTermSyncModeRight: Integer;
+  gTermSyncDirLeft: Integer;
+  gTermSyncDirRight: Integer;
+
+  gTermWindowMode: Integer;
 
   { Toolbar }
   gMiddleToolBarFlat,
@@ -2082,6 +2097,11 @@ begin
   gCmdLine := True;
   gLogWindow := False;
   gTermWindow := False;
+  gTermWindowMode := twmSingle;
+  gTermSyncModeLeft := 0; // Detach
+  gTermSyncModeRight := 0; // Detach
+  gTermSyncDirLeft := 1;
+  gTermSyncDirRight := 1;
   gKeyButtons := True;
   gKeyButtonsIcons := False;
   gKeyButtonsHeight := kbhNormal;
@@ -2138,7 +2158,7 @@ begin
   gNtfsHourTimeDelay := False;
   gAutoExtractOpenMask := EmptyStr;
   gFileOperationsProgressKind := fopkSeparateWindow;
-  gFileOperationsConfirmations := [focCopy, focMove, focDelete, focDeleteToTrash];
+  gFileOperationsConfirmations := [focCopy, focMove, focDelete, focDeleteToTrash, focDeleteReadOnly, focDeleteHiddenSystem];
   gFileOperationDuration := -1;
 
   { Multi-Rename }
@@ -3032,6 +3052,14 @@ begin
       gCmdLine := GetValue(Node, 'CmdLine', gCmdLine);
       gLogWindow := GetValue(Node, 'LogWindow', gLogWindow);
       gTermWindow := GetValue(Node, 'TermWindow', gTermWindow);
+      if GetValue(Node, 'TermWindowSplit', False) then
+        gTermWindowMode := twmPerPanel
+      else
+        gTermWindowMode := GetValue(Node, 'TermWindowMode', gTermWindowMode);
+      gTermSyncModeLeft := GetValue(Node, 'TermSyncModeLeft', gTermSyncModeLeft);
+      gTermSyncModeRight := GetValue(Node, 'TermSyncModeRight', gTermSyncModeRight);
+      gTermSyncDirLeft := GetValue(Node, 'TermSyncDirLeft', gTermSyncDirLeft);
+      gTermSyncDirRight := GetValue(Node, 'TermSyncDirRight', gTermSyncDirRight);
       gKeyButtons := GetValue(Node, 'KeyButtons', gKeyButtons);
       gKeyButtonsIcons := GetValue(Node, 'KeyButtonsIcons', gKeyButtonsIcons);
       KeyButtonsHeight := GetValue(Node, 'KeyButtonsHeight', Integer(gKeyButtonsHeight));
@@ -3140,6 +3168,12 @@ begin
       gSearchDefaultTemplate := GetValue(Node, 'SearchDefaultTemplate', gSearchDefaultTemplate);
       gFileOperationsProgressKind := TFileOperationsProgressKind(GetValue(Node, 'ProgressKind', Integer(gFileOperationsProgressKind)));
       gFileOperationsConfirmations := TFileOperationsConfirmations(GetValue(Node, 'Confirmations', Integer(gFileOperationsConfirmations)));
+      if (LoadedConfigVersion < 17) then
+      begin
+        Include(gFileOperationsConfirmations, focDeleteReadOnly);
+        Include(gFileOperationsConfirmations, focDeleteHiddenSystem);
+      end;
+
       // Operations sounds
       SubNode := Node.FindNode('Sounds');
       if Assigned(SubNode) then
@@ -3769,6 +3803,11 @@ begin
     SetValue(Node, 'CmdLine', gCmdLine);
     SetValue(Node, 'LogWindow', gLogWindow);
     SetValue(Node, 'TermWindow', gTermWindow);
+    SetValue(Node, 'TermWindowMode', gTermWindowMode);
+    SetValue(Node, 'TermSyncModeLeft', gTermSyncModeLeft);
+    SetValue(Node, 'TermSyncModeRight', gTermSyncModeRight);
+    SetValue(Node, 'TermSyncDirLeft', gTermSyncDirLeft);
+    SetValue(Node, 'TermSyncDirRight', gTermSyncDirRight);
     SetValue(Node, 'KeyButtons', gKeyButtons);
     SetValue(Node, 'KeyButtonsIcons', gKeyButtonsIcons);
     SetValue(Node, 'KeyButtonsHeight', Integer(gKeyButtonsHeight));

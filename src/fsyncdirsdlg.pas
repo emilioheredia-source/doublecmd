@@ -41,11 +41,99 @@ const
   HotkeysCategory = 'Synchronize Directories';
 
 type
+
+  TOnGetColumnPreferedWidth = procedure (const Sender: TObject; const aCol: Integer; var preferedWidth: Integer) of object;
+  TOnGetCellPreferedWidth = procedure (const Sender: TObject; const aCol: Integer; const aRow: Integer; var preferedWidth: Integer) of object;
+
   { TDrawGrid }
 
   TDrawGrid = class(Grids.TDrawGrid)
+  private
+    OnGetColumnPreferedWidth: TOnGetColumnPreferedWidth;
+    OnGetCellPreferedWidth: TOnGetCellPreferedWidth;
+    function calcPreferedWidth(const aCol: Integer): Integer;
   protected
     procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
+    procedure AutoAdjustColumn(aCol: Integer); override;
+  end;
+
+  { TSyncDirsDlgState }
+
+  TSyncDirsDlgState = (
+    sddsWaiting,
+
+    // "Compare" button
+    // running in Main Thread
+    // update statistics of FFilteredCountRec in Status Bar
+    // need to call Application.ProcessMessages()
+    sddsScanning,
+
+    // Compare with "by Content" checkbox
+    // running in Background Thread, but in Main Thread Block other operations
+    // except browsing the Grid, it is not possible to perform other operations
+    // at the same time.
+    // update statistics of FFilteredCountRec in Status Bar
+    // update statistics of FileSize in Progress Bar
+    // NO need to call Application.ProcessMessages()
+    sddsCheckingContent,
+
+    // "Synchronize" button
+    // running in Main Thread
+    // update statistics of FOperation in Progress Bar (FileSize and FileCount)
+    // need to call Application.ProcessMessages()
+    sddsSynchronizing,
+
+    // "Delete left / Delete right / Delete Both" in Popup Context Menu
+    // running in Main Thread
+    // update statistics of FOperation in Progress Bar (FileCount only)
+    // need to call Application.ProcessMessages()
+    sddsDeletingFiles,
+
+    // "Copy file properties" in Popup Context Menu
+    // running in Main Thread
+    // update statistics of FileCount in Progress Bar (FileCount only)
+    // need to call Application.ProcessMessages()
+    sddsCopyingProperties
+  );
+
+  { TSyncDirsDlgStateHelper }
+
+  TSyncDirsDlgStateHelper = class
+  private
+    _state: TSyncDirsDlgState;
+    _running: Boolean;
+
+    constructor Create;
+    procedure enter(const state: TSyncDirsDlgState); inline;
+    procedure stop; inline;
+    procedure reset; inline;
+
+    function isInState(const state: TSyncDirsDlgState): Boolean; inline;
+    function isRunningInState(const state: TSyncDirsDlgState): Boolean; inline;
+    function isRunning: Boolean; inline;
+  end;
+
+  { TSyncDirsDlgProgressHelper }
+
+  TSyncDirsDlgProgressHelper = class
+  private
+    isSize: Boolean;
+
+    panelControl: TPanel;
+    labelControl: TLabel;
+    barControl: TKASProgressBar;
+
+    caption: String;
+    predefinedCaption: String;
+    total: Int64;
+    done: Int64;
+
+    constructor Create(const aIsSize: Boolean; const aPanelControl: TPanel; const aLabelControl: TLabel; const aBarControl: TKASProgressBar);
+
+    procedure open(const aCaption: String; const aTotal: Int64);
+    procedure close;
+    procedure update(const aDone: Int64);
+    procedure updateBarControl;
   end;
 
   { TfrmSyncDirsDlg }
@@ -166,6 +254,8 @@ type
     procedure FormCloseQuery(Sender: TObject; var CanClose: boolean);
     procedure FormCreate(Sender: TObject);
     procedure FormResize(Sender: TObject);
+    procedure MainDrawGridGetCellPreferedWidth(const Sender: TObject;
+      const aCol: Integer; const aRow: Integer; var preferedWidth: Integer);
     procedure MainDrawGridDblClick(Sender: TObject);
     procedure MainDrawGridDrawCell(Sender: TObject; aCol, aRow: Integer;
       aRect: TRect; aState: TGridDrawState);
@@ -178,6 +268,10 @@ type
       Index: Integer);
     procedure HeaderDGHeaderSizing(sender: TObject; const IsColumn: boolean;
       const aIndex, aSize: Integer);
+    procedure HeaderDGHeaderSized(Sender: TObject; IsColumn: Boolean;
+      Index: Integer);
+    procedure HeaderDGGetColumnPreferedWidth(const Sender: TObject;
+      const aCol: Integer; var preferedWidth: Integer);
     procedure FilterSpeedButtonClick(Sender: TObject);
     procedure MenuItemViewClick(Sender: TObject);
     procedure pmGridMenuPopup(Sender: TObject);
@@ -187,16 +281,12 @@ type
     FIniPropStorage: TIniPropStorageEx;
   private
     { private declarations }
-    FCancel: Boolean;
+    FState: TSyncDirsDlgStateHelper;
     // What the list shows: nothing yet, a whole compare, or a cancelled one
     FCompareState: (csNotCompared, csCompared, csCancelled);
-    FScanning: Boolean;
     // Compare progress: shown at most every 50 ms, never going back
     FLastMessagesTime: QWord;
     FScanShownPercent: Integer;
-    // The two source panels, so their directory watchers can be suspended
-    // during bulk copy/delete (avoids one panel reload per ~100 changes)
-    FFileViews: array [TDoubleSide] of TFileView;
     FSortService: TSyncDirsSortService;
     FFullTree: TTwoLevelTree;
     FFilteredList: TFlatDirFileList;
@@ -211,7 +301,7 @@ type
     FCmpFilePaths: TDoublePaths;
     FAddresses: TDoublePaths;
     hCols: array [0..6] of record Left, Width: Integer end;
-    FFilteredCount: TSyncDirsFlatCount;
+    FFilteredCountRec: TSyncDirsFlatCountRec;
     // What the grid shows: the row list seen by folder (see uSyncDirsView)
     FView: TSyncDirsView;
     FOperation: TFileSourceOperation;
@@ -235,23 +325,20 @@ type
     FDeleteStatistics: TFileSourceDeleteOperationStatistics;
     FFileSourceOperationMessageBoxesUI: TFileSourceOperationMessageBoxesUI;
 
-    FFileSizeProgressName: String;
-    FFileSizeProgressTotal: Int64;
-    FFileSizeProgressDone: Int64;
-    FFileCountProgressName: String;
-    FFileCountProgressTotal: Integer;
-    FFileCountProgressDone: Integer;
+    FFileSizeProgressHelper: TSyncDirsDlgProgressHelper;
+    FFileCountProgressHelper: TSyncDirsDlgProgressHelper;
 
     function createCompareOption: TSyncDirsCompareOption;
     function createFilterFlags: TFilterFlags;
     function createSelectionIndexes: TIntegerList;
 
-    procedure toggleSelectionAction;
+    procedure toggleSelectionAction; inline;
     procedure setSelectionAction(const newAction: TSyncRecState);
 
+    function stopOperation: Boolean;
     procedure doCopyProperties(const targetSide: TDoubleSide);
 
-    procedure updateFileCountProgress;
+    function getDisplayText(const aCol: Integer; const aRow: Integer): String;
 
     procedure Compare;
     procedure FillFoundItemsDG;
@@ -283,15 +370,12 @@ type
     procedure drawActionIcon(const rowAction: TSyncRecState; const aRect: TRect);
     function folderRowAction(const viewIndex: Integer): TSyncRecState;
     function toggleCursorFolder(const kind: TSyncViewRowKind): Boolean;
-    procedure SetPanelWatchers(AEnabled: Boolean);
     procedure ApplyCopyOptions(const operation: TFileSourceOperation);
     procedure RememberCopyOptions(const operation: TFileSourceOperation);
     procedure ResetDeleteOptions;
     procedure ApplyDeleteOptions(const operation: TFileSourceOperation);
     procedure RememberDeleteOptions(const operation: TFileSourceOperation);
     function trashAvailableOn(const side: TDoubleSide): Boolean;
-    procedure SetProgressBytes(AProgressBar: TKASProgressBar; CurrentBytes: Int64; TotalBytes: Int64);
-    procedure SetProgressFiles(AProgressBar: TKASProgressBar; CurrentFiles: Int64; TotalFiles: Int64);
 
   private
     function fileProcessorWithUICopyFiles(
@@ -307,33 +391,27 @@ type
       const sourceFile: TFile;
       const targetFile: TFile;
       const attrs: TCopyAttributesOptions ): Boolean;
-    function fileProcessorWithUIDeleteFile(
-      const FileSource: IFileSource;
-      const f: TFile): Boolean;
 
   private
     FCheckContentThread: TSyncDirsCheckContentThread;
     FCheckContentThreadTimerCount: Integer;
-    FCheckContentThreadComparing: Boolean;
   private
     procedure onCheckContentThreadStart;
     procedure onCheckContentThreadFinish;
     procedure onCheckContentThreadReapplyFilter;
-    procedure onCheckContentThreadCountUpdated( const equalInc: Integer; const notEqInc: Integer );
+    procedure onCheckContentThreadCountUpdated( const totalInc: Integer; const equalInc: Integer; const notEqInc: Integer );
 
     procedure checkContentThreadStart;
     procedure checkContentThreadStop;
-    procedure checkContentThreadUpdateGrid;
-    procedure checkContentThreadSetProgressBytes(const AProgressBar: TKASProgressBar; const CurrentBytes: Int64; const TotalBytes: Int64);
+    procedure checkContentThreadUpdateStat(const doneBytes: Int64; const totalBytes: Int64);
 
   private
-    function treeBuilderCheckRunning( const processMessages: Boolean ): Boolean;
     function treeBuilderMaskFilt( const f: TFile ): Boolean;
     function treeBuilderUnreadable( const side: TDoubleSide; const path: String ): TSyncDirsUnreadableAnswer;
     procedure onTreeBuilderUpdateProgress( const percent: Integer );
 
   private
-    function commonCheckRunning: Boolean;
+    function commonCheckRunning(const processMessages: Boolean): Boolean;
 
   private
     property leftFS: IFileSource read FFileSources[dsLeft] write FFileSources[dsLeft];
@@ -405,7 +483,7 @@ procedure ShowSyncDirsDlg(FileView1, FileView2: TFileView);
 implementation
 
 uses
-  fMain, uDebug, fDiffer, fSyncDirsSelectPropertiesDlg,
+  fMain, uDebug, fDiffer, fSyncDirsSelectPropertiesDlg, fSelectFileProperties,
   uGlobs, LCLType, LazUTF8, LazFileUtils,
   uFileSystemFileSource, DCDateTimeUtils,
   uDCUtils, uFileSourceOperationTypes, uShowForm, uAdministrator,
@@ -452,6 +530,9 @@ end;
 const
   GRID_COLUMN_FMT = 'HeaderDG_Column%d_Width';
 
+const
+  LEFT_FILE_INDENTATION = 8;
+
 procedure ShowSyncDirsDlg(FileView1, FileView2: TFileView);
 var
   dlg: TfrmSyncDirsDlg;
@@ -493,6 +574,19 @@ end;
 
 { TDrawGrid }
 
+function TDrawGrid.calcPreferedWidth(const aCol: Integer): Integer;
+var
+  aRow: Integer;
+  currentWidth: Integer;
+begin
+  Result:= 0;
+  for aRow:= GCache.VisibleGrid.Top to GCache.VisibleGrid.Bottom do begin
+    OnGetCellPreferedWidth(self, aCol, aRow, currentWidth);
+    if currentWidth > Result then
+      Result:= currentWidth;
+  end;
+end;
+
 procedure TDrawGrid.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
 var
   C, R: Integer;
@@ -514,6 +608,137 @@ begin
       end;
     end;
   end;
+end;
+
+procedure TDrawGrid.AutoAdjustColumn(aCol: Integer);
+var
+  preferedWidth: Integer;
+  column: TGridColumn;
+begin
+  if NOT Assigned(OnGetColumnPreferedWidth) then
+    Exit;
+
+  OnGetColumnPreferedWidth(self, aCol, preferedWidth);
+  column:= self.Columns[aCol];
+  if preferedWidth < column.MinSize then
+    preferedWidth:= column.MinSize;
+  column.Width:= preferedWidth;
+end;
+
+{ TSyncDirsDlgStateHelper }
+
+constructor TSyncDirsDlgStateHelper.Create;
+begin
+  self.reset;
+end;
+
+procedure TSyncDirsDlgStateHelper.enter(const state: TSyncDirsDlgState);
+begin
+  _state:= state;
+  _running:= True;
+end;
+
+procedure TSyncDirsDlgStateHelper.stop;
+begin
+  _running:= False;
+end;
+
+procedure TSyncDirsDlgStateHelper.reset;
+begin
+  _state:= sddsWaiting;
+  _running:= True;
+end;
+
+function TSyncDirsDlgStateHelper.isInState(const state: TSyncDirsDlgState): Boolean;
+begin
+  Result:= (_state=state);
+end;
+
+function TSyncDirsDlgStateHelper.isRunningInState(const state: TSyncDirsDlgState): Boolean;
+begin
+  Result:= _running AND self.isInState(state);
+end;
+
+function TSyncDirsDlgStateHelper.isRunning: Boolean;
+begin
+  Result:= _running AND NOT self.isInState(sddsWaiting);
+end;
+
+{ TSyncDirsDlgProgressHelper }
+
+constructor TSyncDirsDlgProgressHelper.Create(
+  const aIsSize: Boolean;
+  const aPanelControl: TPanel;
+  const aLabelControl: TLabel;
+  const aBarControl: TKASProgressBar);
+begin
+  self.isSize:= aIsSize;
+  self.panelControl:= aPanelControl;
+  self.labelControl:= aLabelControl;
+  self.barControl:= aBarControl;
+end;
+
+procedure TSyncDirsDlgProgressHelper.open(const aCaption: String; const aTotal: Int64);
+begin
+  self.labelControl.Caption:= aCaption;
+  self.caption:= aCaption;
+  self.predefinedCaption:= EmptyStr;
+  self.total:= aTotal;
+  self.done:= 0;
+  self.updateBarControl;
+  self.panelControl.Show;
+end;
+
+procedure TSyncDirsDlgProgressHelper.close;
+begin
+  self.caption:= EmptyStr;
+  self.panelControl.Hide;
+end;
+
+procedure TSyncDirsDlgProgressHelper.update(const aDone: Int64);
+begin
+  self.done:= aDone;
+  self.updateBarControl;
+end;
+
+procedure TSyncDirsDlgProgressHelper.updateBarControl;
+var
+  barText : String;
+  labelText : String;
+begin
+  if self.caption = EmptyStr then
+    Exit;
+
+  if self.isSize then begin
+    {
+      not all FileSources can provide precise statistical information,
+      nor can they accurately calculate the generated size, for example, MultiArchive/7z.
+      so this check has been added to prevent reporting an erroneous progress exceeding 100%
+    }
+    if self.done > self.total then
+      self.total:= self.done + 1;
+    barText := cnvFormatFileSize(self.done, uoscOperation) + '/' + cnvFormatFileSize(self.total, uoscOperation);
+  end else begin
+    {
+      1. defensively prevent exceeding 100%
+      2. for "Delete all empty directories"
+    }
+    if self.done > self.total then
+      self.total:= self.done;
+    barText := IntToStrTS(self.done) + '/' + IntToStrTS(self.total);
+  end;
+  self.barControl.SetProgress(self.done, self.total, barText);
+
+  {$IFDEF LCLCOCOA}
+  if self.predefinedCaption <> EmptyStr then begin
+    labelText := self.predefinedCaption
+  end else if self.total > 0 then begin
+    labelText := self.caption + ': ' + barText + ' (' + FloatToStrF((self.done / self.total) * 100, ffFixed, 0, 0) + '%)'
+  end else begin
+    labelText := self.caption;
+  end;
+  self.labelControl.Caption := labelText;
+  {$ENDIF}
 end;
 
 { TfrmSyncDirsDlg }
@@ -586,13 +811,7 @@ end;
 
 procedure TfrmSyncDirsDlg.btnAbortClick(Sender: TObject);
 begin
-  if Assigned(FOperation) then
-    FOperation.Stop
-  else if FCheckContentThreadComparing then
-    checkContentThreadStop
-  else begin
-    pnlProgress.Hide;
-  end;
+  self.stopOperation;
 end;
 
 procedure TfrmSyncDirsDlg.btnCompareClick(Sender: TObject);
@@ -604,7 +823,6 @@ begin
   if Trim(cbExcludeFiles.Text) <> EmptyStr then
     InsertFirstItem(Trim(cbExcludeFiles.Text), cbExcludeFiles);
   StatusBar1.Panels[0].Text := Format(rsComparingPercent, [0]);
-  checkContentThreadStop;
   Compare;
 end;
 
@@ -618,6 +836,8 @@ var
   syncCount: TSyncDirsSyncCount;
   syncFlags: TSyncDirsSyncFlags;
   dialog: TfrmSyncDirsPerformDlg;
+  fileSizeVisible: Boolean;
+  fileCountVisible: Boolean;
 begin
   synchronizer:= TSyncDirsSynchronizer.Create( self, self, FFilteredList, FCmpFileSources, FCmpFilePaths );
   syncCount:= synchronizer.count;
@@ -670,6 +890,7 @@ begin
 
     if ShowModal = mrOk then
     begin
+      FState.enter(sddsSynchronizing);
       EnableControls(False);
       takeRunOptions(dialog);
 
@@ -686,25 +907,29 @@ begin
       if chkDeleteRightAllEmptyDirs.Checked then
         Include( syncFlags, sfDeleteRightAllEmptyDirs );
 
-      lblFileSizeProgress.Caption := rsOperCopying;
-      lblFileCountProgress.Caption := rsOperDeleting;
-      pbFileSizeProgress.Position:=0;
-      pbFileCountProgress.Position:=0;
-      pnlFileSizeProgress.Visible:= (sfCopyToLeft in syncFlags) or (sfCopyToRight in syncFlags);
-      pnlFileCountProgress.Visible:= (sfDeleteLeft in syncFlags) or (sfDeleteRight in syncFlags) or
-                                  (sfDeleteLeftAllEmptyDirs in syncFlags) or (sfDeleteRightAllEmptyDirs in syncFlags);
+      fileSizeVisible:= (sfCopyToLeft in syncFlags) or (sfCopyToRight in syncFlags);
+      fileCountVisible:= (sfDeleteLeft in syncFlags) or (sfDeleteRight in syncFlags) or
+                         (sfDeleteLeftAllEmptyDirs in syncFlags) or (sfDeleteRightAllEmptyDirs in syncFlags);
 
-      SetPanelWatchers(False);
-      try
-        synchronizer.sync( syncFlags );
-      finally
-        SetPanelWatchers(True);
-      end;
+      if fileSizeVisible then
+        FFileSizeProgressHelper.open(rsOperCopying, syncCount.copySize)
+      else
+        FFileSizeProgressHelper.close;
+      if fileCountVisible then
+        FFileCountProgressHelper.open(rsOperDeleting, syncCount.deleteCount)
+      else
+        FFileCountProgressHelper.close;
 
-      EnableControls(True);
-      btnCompare.Click;
+      synchronizer.sync( syncFlags );
     end;
   finally
+    if FState.isInState(sddsSynchronizing) then begin
+      FFileSizeProgressHelper.close;
+      FFileCountProgressHelper.close;
+      EnableControls(True);
+      FState.reset;
+      btnCompare.Click;
+    end;
     synchronizer.Free;
     Free;
   end;
@@ -767,14 +992,13 @@ var
 begin
   with HeaderDG.Columns do
   begin
-    for Index := 0 to Count - 1 do
+    for Index := 0 to Count - 2 do
       Items[Index].Width:= StrToIntDef(FIniPropStorage.StoredValue[Format(GRID_COLUMN_FMT, [Index])], Items[Index].Width);
   end;
   RecalcHeaderCols;
 end;
 
-procedure TfrmSyncDirsDlg.FormClose(Sender: TObject;
-  var CloseAction: TCloseAction);
+procedure TfrmSyncDirsDlg.FormClose(Sender: TObject; var CloseAction: TCloseAction);
 var
   Index: Integer;
 begin
@@ -813,28 +1037,14 @@ begin
 
   with HeaderDG.Columns do
   begin
-    for Index := 0 to Count - 1 do
+    for Index := 0 to Count - 2 do
       FIniPropStorage.StoredValue[Format(GRID_COLUMN_FMT, [Index])]:= IntToStr(Items[Index].Width);
   end;
 end;
 
 procedure TfrmSyncDirsDlg.FormCloseQuery(Sender: TObject; var CanClose: boolean);
 begin
-  if Assigned(FOperation) then
-  begin
-    FOperation.Stop;
-    CanClose := False;
-  end
-  else if FScanning then
-  begin
-    FCancel := True;
-    CanClose := False;
-  end
-  else if FCheckContentThreadComparing then
-  begin
-    CanClose := False;
-    checkContentThreadStop;
-  end;
+  CanClose:= NOT self.stopOperation;
 end;
 
 procedure TfrmSyncDirsDlg.FormCreate(Sender: TObject);
@@ -849,14 +1059,25 @@ begin
   begin
     FIniPropStorage.StoredValues.Add.DisplayName:= Format(GRID_COLUMN_FMT, [Index]);
   end;
+  HeaderDG.OnGetColumnPreferedWidth:= @HeaderDGGetColumnPreferedWidth;
 
   {$IFDEF LCLCOCOA}
   pnlProgress.Color:=clBtnHighlight;
   {$ENDIF}
   MainDrawGrid.SelectedColor:= gColors.SyncDirs^.SelectedColor;
+  MainDrawGrid.OnGetCellPreferedWidth:= @MainDrawGridGetCellPreferedWidth;
 
-  lblFileSizeProgress.Caption    := rsOperCopying;
-  lblFileCountProgress.Caption   := rsOperDeleting;
+  FFileSizeProgressHelper:= TSyncDirsDlgProgressHelper.Create(
+    True,
+    pnlFileSizeProgress,
+    lblFileSizeProgress,
+    pbFileSizeProgress);
+  FFileCountProgressHelper:= TSyncDirsDlgProgressHelper.Create(
+    False,
+    pnlFileCountProgress,
+    lblFileCountProgress,
+    pbFileCountProgress);
+
   { settings }
   chkEmptyDir.Checked    := gSyncDirsEmptyDirs;
   chkSubDirs.Checked     := gSyncDirsSubdirs;
@@ -911,6 +1132,38 @@ begin
   pbFileCountProgress.Width:= pbFileSizeProgress.Width;
 end;
 
+// The grid shows the folder view (FView), not the flat list: a grid row is
+// mapped to its flat-list row; folder rows have their own layout and do not
+// size the file columns
+procedure TfrmSyncDirsDlg.MainDrawGridGetCellPreferedWidth(
+  const Sender: TObject;
+  const aCol: Integer;
+  const aRow: Integer;
+  var preferedWidth: Integer);
+var
+  viewRow: TSyncViewRow;
+  s: String;
+begin
+  preferedWidth:= 0;
+  if (FView = nil) or (aRow < 0) or (aRow >= FView.Count) then
+    Exit;
+  viewRow:= FView.row(aRow);
+  if viewRow.kind <> vrFile then
+    Exit;
+
+  s:= getDisplayText(aCol, viewRow.rowIndex);
+  if s = EmptyStr then
+    Exit;
+
+  preferedWidth:= MainDrawGrid.Canvas.TextWidth(s);
+  case aCol of
+    0: Inc(preferedWidth, 2 + LEFT_FILE_INDENTATION + rowIndentation(viewRow.depth) + 2);
+    6: Inc(preferedWidth, 2 + rowIndentation(viewRow.depth) + 2);
+    1, 5: Inc(preferedWidth, 2 + 8);
+    2, 4: Inc(preferedWidth, 2 + 2);
+  end;
+end;
+
 procedure TfrmSyncDirsDlg.MainDrawGridDblClick(Sender: TObject);
 var
   r, x: Integer;
@@ -928,7 +1181,7 @@ begin
   x := MainDrawGrid.ScreenToClient(Mouse.CursorPos).X;
   if (x > hCols[3].Left) and (x < hCols[3].Left + hCols[3].Width) then Exit;
   rec := viewRow.rec;
-  if NOT rec.hasFilesOnBothSides or (rec.state = srsEqual) then
+  if rec.isDir or NOT rec.hasFilesOnBothSides or (rec.state = srsEqual) then
     Exit;
   PrepareToolData(self.leftFS, rec.leftFile, self.rightFS, rec.rightFile, @ShowDifferByGlobList);
 end;
@@ -1011,8 +1264,6 @@ begin
 end;
 
 procedure TfrmSyncDirsDlg.drawFileRow(const viewRow: TSyncViewRow; const aRect: TRect);
-const
-  LEFT_FILE_INDENTATION = 8;
 var
   rec: TSyncRec;
   fileName: String;
@@ -1146,19 +1397,16 @@ end;
 
 procedure TfrmSyncDirsDlg.FormKeyDown(Sender: TObject; var Key: Word;
   Shift: TShiftState);
+var
+  noOperation: Boolean;
 begin
-  if Key = VK_ESCAPE then
-  begin
-    Key := 0;
-    if FScanning then
-      FCancel := True
-    else if FCheckContentThreadComparing then
-      checkContentThreadStop
-    else if pnlProgress.Visible then
-      self.btnAbortClick(nil)
-    else
-      Close;
-  end;
+  if Key <> VK_ESCAPE then
+    Exit;
+
+  Key := 0;
+  noOperation:= NOT self.stopOperation;
+  if noOperation then
+    Close;
 end;
 
 procedure TfrmSyncDirsDlg.HeaderDGHeaderClick(Sender: TObject;
@@ -1170,14 +1418,39 @@ end;
 
 procedure TfrmSyncDirsDlg.HeaderDGHeaderSizing(sender: TObject;
   const IsColumn: boolean; const aIndex, aSize: Integer);
+var
+  column: TGridColumn;
 begin
+  column:= HeaderDG.Columns[aIndex];
+  if aSize < column.MinSize then
+    column.Width:= column.MinSize;
   RecalcHeaderCols;
   MainDrawGrid.Invalidate;
 end;
 
+procedure TfrmSyncDirsDlg.HeaderDGHeaderSized(Sender: TObject;
+  IsColumn: Boolean; Index: Integer);
+var
+  column: TGridColumn;
+begin
+  column:= HeaderDG.Columns[Index];
+  if column.Width < column.MinSize then
+    column.Width:= column.MinSize;
+  RecalcHeaderCols;
+  MainDrawGrid.Invalidate;
+end;
+
+procedure TfrmSyncDirsDlg.HeaderDGGetColumnPreferedWidth(
+  const Sender: TObject;
+  const aCol: Integer;
+  var preferedWidth: Integer);
+begin
+  preferedWidth:= MainDrawGrid.calcPreferedWidth(aCol);
+end;
+
 procedure TfrmSyncDirsDlg.FilterSpeedButtonClick(Sender: TObject);
 begin
-  FillFoundItemsDG
+  FillFoundItemsDG;
 end;
 
 procedure TfrmSyncDirsDlg.MenuItemViewClick(Sender: TObject);
@@ -1249,7 +1522,7 @@ procedure TfrmSyncDirsDlg.pmGridMenuPopup(Sender: TObject);
 
     miSelectCopyLeftToRight.Enabled:= hasLeft;
     miSelectCopyRightToLeft.Enabled:= hasRight;
-    miSelectKeepLink.Visible:= FFilteredCount.typeConflict > 0;
+    miSelectKeepLink.Visible:= FFilteredCountRec.typeConflict > 0;
     MenuItemViewLeft.Enabled:= hasLeft;
     MenuItemViewRight.Enabled:= hasRight;
     MenuItemCompare.Enabled:= hasBothWithinSameRec;
@@ -1272,36 +1545,23 @@ var
   CopyStatistics: TFileSourceCopyOperationStatistics;
   DeleteStatistics: TFileSourceDeleteOperationStatistics;
 begin
-  if Assigned(FOperation) then
-  begin
-    if (FOperation is TFileSourceCopyOperation) then
-    begin
+  if Assigned(FOperation) then begin
+    if (FOperation is TFileSourceCopyOperation) then begin
       CopyStatistics:= TFileSourceCopyOperation(FOperation).RetrieveStatistics;
-      SetProgressBytes(
-        pbFileSizeProgress,
-        FCopyStatistics.DoneBytes + CopyStatistics.DoneBytes,
-        FCopyStatistics.TotalBytes);
-    end
-    else if (FOperation is TFileSourceDeleteOperation) then
-    begin
+      FFileSizeProgressHelper.done:= FCopyStatistics.DoneBytes + CopyStatistics.DoneBytes;
+    end else if (FOperation is TFileSourceDeleteOperation) then begin
       DeleteStatistics:= TFileSourceDeleteOperation(FOperation).RetrieveStatistics;
-      SetProgressFiles(
-        pbFileCountProgress,
-        FDeleteStatistics.DoneFiles + DeleteStatistics.DoneFiles,
-        FDeleteStatistics.TotalFiles);
+      FFileCountProgressHelper.done:= FDeleteStatistics.DoneFiles + DeleteStatistics.DoneFiles;
     end;
-  end
-  else if FFileCountProgressName <> EmptyStr then
-  begin
-    updateFileCountProgress;
-  end
-  else if Assigned(FCheckContentThread) then
-  begin
-    Inc(FCheckContentThreadTimerCount);
-    CopyStatistics:= FCheckContentThread.RetrieveStatistics;
-    if (FCheckContentThreadTimerCount mod 5 = 0) then checkContentThreadUpdateGrid;
-    checkContentThreadSetProgressBytes(pbFileSizeProgress, CopyStatistics.DoneBytes, CopyStatistics.TotalBytes);
   end;
+
+  if FState.isRunningInState(sddsCheckingContent) then begin
+    CopyStatistics:= FCheckContentThread.RetrieveStatistics;
+    checkContentThreadUpdateStat(CopyStatistics.DoneBytes, CopyStatistics.TotalBytes);
+  end;
+
+  FFileSizeProgressHelper.updateBarControl;
+  FFileCountProgressHelper.updateBarControl;
 end;
 
 function TfrmSyncDirsDlg.createCompareOption: TSyncDirsCompareOption;
@@ -1527,7 +1787,7 @@ begin
     ScanDirs;
     MainDrawGrid.SetFocus;
   finally
-    TopPanel.Enabled := not FCheckContentThreadComparing;
+    TopPanel.Enabled := NOT FState.isRunningInState(sddsCheckingContent);
   end;
 end;
 
@@ -1538,7 +1798,7 @@ begin
   MainDrawGrid.ColCount := 1;
   MainDrawGrid.RowCount := FView.Count;
   MainDrawGrid.Invalidate;
-  FFilteredCount:= FFilteredList.flatCount;
+  FFilteredCountRec:= FFilteredList.getCountRec;
   UpdateStatusBar;
   if FFullTree.Count > 0 then
   begin
@@ -1605,71 +1865,79 @@ var
     basePaths[side]:= path;
   end;
 
-begin
-  FScanning := True;
-  try
-    FCancel := False;
-    if IsMaskSearchTemplate(cbExtFilter.Text) then
-    begin
-      FMaskList := nil;
-      FTemplate:= gSearchTemplateList.TemplateByName[cbExtFilter.Text];
-    end
-    else begin
-      ownTemplate := createExclusionTemplate;
-      FTemplate := ownTemplate;
-      if cbExtFilter.Text <> EmptyStr then
-        FMaskList := TMaskList.Create(cbExtFilter.Text)
-      else
-        FMaskList := TMaskList.Create( '*' );
-    end;
-    FCmpFileSources := FFileSources;
-    setBaseDir(edPath1.Text, dsLeft);
-    setBaseDir(edPath2.Text, dsRight);
-    FCmpFilePaths := basePaths;
-
-    FScanShownPercent := 0;
-    FLastMessagesTime := 0;
-    builder:= TSyncDirsTreeBuilder.Create( self, FSortService, FCompareOption, FFileSources, basePaths );
-    notifySyncSearch(FS_STATUS_START);
+  procedure doScan;
+  begin
     try
-      builder.build( FFullTree, FSelectedFiles );
-    finally
-      notifySyncSearch(FS_STATUS_END);
-    end;
+      if IsMaskSearchTemplate(cbExtFilter.Text) then
+      begin
+        FMaskList := nil;
+        FTemplate:= gSearchTemplateList.TemplateByName[cbExtFilter.Text];
+      end
+      else begin
+        ownTemplate := createExclusionTemplate;
+        FTemplate := ownTemplate;
+        if cbExtFilter.Text <> EmptyStr then
+          FMaskList := TMaskList.Create(cbExtFilter.Text)
+        else
+          FMaskList := TMaskList.Create( '*' );
+      end;
+      FCmpFileSources := FFileSources;
+      setBaseDir(edPath1.Text, dsLeft);
+      setBaseDir(edPath2.Text, dsRight);
+      FCmpFilePaths := basePaths;
 
-    if FCancel then
-      FCompareState := csCancelled
-    else
-      FCompareState := csCompared;
-    FillFoundItemsDG;
-    if FCancel then
-      Exit;
-    if (FFullTree.Count > 0) and (cfByContent in FCompareOption.flags) then
-      checkContentThreadStart;
-  finally
-    FreeAndNil(builder);
-    FreeAndNil(FMaskList);
-    FTemplate := nil;
-    ownTemplate.Free;
-    FScanning := False;
+      FScanShownPercent := 0;
+      FLastMessagesTime := 0;
+      builder:= TSyncDirsTreeBuilder.Create( self, FSortService, FCompareOption, FFileSources, basePaths );
+      notifySyncSearch(FS_STATUS_START);
+      try
+        builder.build( FFullTree, FSelectedFiles );
+      finally
+        notifySyncSearch(FS_STATUS_END);
+      end;
+
+      if FState.isRunning then
+        FCompareState := csCompared
+      else
+        FCompareState := csCancelled;
+      FillFoundItemsDG;
+    finally
+      FreeAndNil(builder);
+      FreeAndNil(FMaskList);
+      FTemplate := nil;
+      FreeAndNil(ownTemplate);
+    end;
   end;
+
+var
+  abort: Boolean;
+begin
+  FState.enter(sddsScanning);
+  doScan;
+  abort:= NOT FState.isRunning;
+  if FState.isInState(sddsScanning) then
+    FState.reset;
+  if abort then
+    Exit;
+  if (FFullTree.Count > 0) and (cfByContent in FCompareOption.flags) then
+    checkContentThreadStart
 end;
 
 procedure TfrmSyncDirsDlg.UpdateStatusBar;
-var s: string;
+var
+  s: string;
 begin
   if FCompareState = csNotCompared then
   begin
     StatusBar1.Panels[0].Text := rsSyncNotCompared;
     Exit;
   end;
-  s := Format(rsFilesFound, [FFilteredCount.total, FFilteredCount.equal, FFilteredCount.notEqual, FFilteredCount.leftUnique, FFilteredCount.rightUnique]);
-  if FFilteredCount.unreadable > 0 then
-    s := s + '  ' + Format(rsSyncFoldersUnreadable, [FFilteredCount.unreadable]);
-  if FFilteredCount.typeConflict > 0 then
-    s := s + '  ' + Format(rsSyncTypeConflicts, [FFilteredCount.typeConflict]);
-  if Assigned(FCheckContentThread)
-  and not FCheckContentThread.Done then
+  s := Format(rsFilesFound, [FFilteredCountRec.total, FFilteredCountRec.equal, FFilteredCountRec.notEqual, FFilteredCountRec.leftUnique, FFilteredCountRec.rightUnique]);
+  if FFilteredCountRec.unreadable > 0 then
+    s := s + '  ' + Format(rsSyncFoldersUnreadable, [FFilteredCountRec.unreadable]);
+  if FFilteredCountRec.typeConflict > 0 then
+    s := s + '  ' + Format(rsSyncTypeConflicts, [FFilteredCountRec.typeConflict]);
+  if FState.isRunningInState(sddsCheckingContent) then
     s := s + ' ...';
   if FCompareState = csCancelled then
     s := rsSyncCompareCancelled + '  ' + s;
@@ -1708,28 +1976,40 @@ begin
   refreshView;
 end;
 
+function TfrmSyncDirsDlg.stopOperation: Boolean;
+begin
+  Result:= FState.isRunning;
+  if NOT Result then
+    Exit;
+  FState.stop;
+  if Assigned(FOperation) then
+    FOperation.Stop;
+end;
+
 procedure TfrmSyncDirsDlg.doCopyProperties(const targetSide: TDoubleSide);
   function selectProperties: TCopyAttributesOptions;
   var
     dialog: TfrmSyncDirsSelectPropertiesDlg;
+    properties: TfrmSelectFileProperties;
   begin
     Result:= [];
     dialog:= TfrmSyncDirsSelectPropertiesDlg.Create(nil);
-    dialog.chkTime.Checked:= gOperationOptionCopyTime;
-    dialog.chkAttributes.Checked:= gOperationOptionCopyAttributes;
-    dialog.chkPermissions.Checked:= gOperationOptionCopyOwnership or gOperationOptionCopyPermissions;
-    dialog.chkXAttributes.Checked:= gOperationOptionCopyXattributes;
-    if dialog.ShowModal <> mrOK then
-      Exit;
-
-    if dialog.chkTime.Checked then
-      Include(Result, caoCopyTime);
-    if dialog.chkAttributes.Checked then
-      Include(Result, caoCopyAttributes);
-    if dialog.chkPermissions.Checked then
-      Result:= Result + [caoCopyPermissions, caoCopyOwnership];
-    if dialog.chkXAttributes.Checked then
-      Include(Result, caoCopyXattributes);
+    properties:= dialog.frmProperties;
+    properties.chkTime.Checked:= gOperationOptionCopyTime;
+    properties.chkAttributes.Checked:= gOperationOptionCopyAttributes;
+    properties.chkPermissions.Checked:= gOperationOptionCopyOwnership or gOperationOptionCopyPermissions;
+    properties.chkXAttributes.Checked:= gOperationOptionCopyXattributes;
+    if dialog.ShowModal = mrOK then begin
+      if properties.chkTime.Checked then
+        Include(Result, caoCopyTime);
+      if properties.chkAttributes.Checked then
+        Include(Result, caoCopyAttributes);
+      if properties.chkPermissions.Checked then
+        Result:= Result + [caoCopyPermissions, caoCopyOwnership];
+      if properties.chkXAttributes.Checked then
+        Include(Result, caoCopyXattributes);
+    end;
+    dialog.Free;
   end;
 
 var
@@ -1745,24 +2025,44 @@ begin
   try
     indexes:= self.createSelectionIndexes;
 
-    FFileCountProgressName:= rsOperSettingProperty;
-    FFileCountProgressTotal:= FFilteredList.countBothSides(indexes);
-    FFileCountProgressDone:= 0;
-
+    FState.enter(sddsCopyingProperties);
     EnableControls(False);
-    pnlFileSizeProgress.Visible:= False;
-    pnlFileCountProgress.Visible:= True;
-    lblFileCountProgress.Caption:= FFileCountProgressName;
-    pbFileCountProgress.Position:= 0;
+    FFileSizeProgressHelper.close;
+    FFileCountProgressHelper.open(rsOperSettingProperty, FFilteredList.countBothSides(indexes));
 
     commonService.copyProperties(indexes, targetSide, attrs);
 
     self.MainDrawGrid.Invalidate;
-    EnableControls(True);
   finally
-    FFileCountProgressName:= EmptyStr;
+    if FState.isInState(sddsCopyingProperties) then begin
+      FFileCountProgressHelper.close;
+      EnableControls(True);
+      FState.reset;
+    end;
     commonService.Free;
     indexes.Free;
+  end;
+end;
+
+function TfrmSyncDirsDlg.getDisplayText(const aCol: Integer; const aRow: Integer): String;
+var
+  rec: TSyncRec;
+begin
+  Result:= EmptyStr;
+  rec:= FFilteredList.getSyncRec(aRow);
+  case aCol of
+    0: if rec.hasLeftFile then
+         Result:= FFilteredList.path(aRow);
+    1: if rec.hasLeftFile then
+         Result:= IntToStrTS(rec.leftFile.Size);
+    2: if rec.hasLeftFile then
+         Result:= FormatDateTime(gDateTimeFormatSync, rec.leftFile.ModificationTime);
+    4: if rec.hasRightFile then
+         Result:= FormatDateTime(gDateTimeFormatSync, rec.rightFile.ModificationTime);
+    5: if rec.hasRightFile then
+         Result:= IntToStrTS(rec.rightFile.Size);
+    6: if rec.hasRightFile then
+         Result:= FFilteredList.path(aRow);
   end;
 end;
 
@@ -1771,100 +2071,79 @@ begin
   Timer.Enabled:= True;
   HeaderDG.Enabled:= False;
   GroupBox1.Enabled:= False;
-  MainDrawGrid.Enabled:= False;
-  pnlFileSizeProgress.Visible:= True;
-  pbFileSizeProgress.SetProgress(0, 100);
-  pnlFileCountProgress.Visible:= False;
-  lblFileSizeProgress.Caption:= rsDiffComparing;
+  MainDrawGrid.PopupMenu:= nil;
   pnlProgress.Visible:= True;
+  FFileSizeProgressHelper.open(rsDiffComparing, 100);
+  FFileCountProgressHelper.close;
 end;
 
 procedure TfrmSyncDirsDlg.onCheckContentThreadFinish;
 begin
-  FCheckContentThreadComparing:= False;
   Timer.Enabled:= False;
+  FState.reset;
+  if Assigned(FCheckContentThread) then begin
+    FCheckContentThread.FreeOnTerminate:= True;
+    FCheckContentThread:= nil;
+  end;
+  UpdateStatusBar;
   HeaderDG.Enabled:= True;
   TopPanel.Enabled:= True;
   GroupBox1.Enabled:= True;
-  MainDrawGrid.Enabled:= True;
   pnlProgress.Visible:= False;
+  MainDrawGrid.PopupMenu:= pmGridMenu;
   MainDrawGrid.SetFocus;
 end;
 
 procedure TfrmSyncDirsDlg.onCheckContentThreadReapplyFilter;
 begin
   FillFoundItemsDG;
-  UpdateStatusBar;
 end;
 
 procedure TfrmSyncDirsDlg.onCheckContentThreadCountUpdated(
+  const totalInc: Integer;
   const equalInc: Integer;
   const notEqInc: Integer);
 begin
-  Inc( FFilteredCount.equal, equalInc );
-  Inc( FFilteredCount.notEqual, notEqInc );
+  Inc( FFilteredCountRec.total, totalInc );
+  Inc( FFilteredCountRec.equal, equalInc );
+  Inc( FFilteredCountRec.notEqual, notEqInc );
 end;
 
 procedure TfrmSyncDirsDlg.checkContentThreadStart;
 begin
-  if Assigned(FCheckContentThread) then
+  if FState.isRunningInState(sddsCheckingContent) then
     Exit;
-  FCheckContentThread := TSyncDirsCheckContentThread.Create(FFullTree, Self);
+  FState.enter(sddsCheckingContent);
+  FCheckContentThread := TSyncDirsCheckContentThread.Create(FFullTree, self.createFilterFlags, Self);
   FCheckContentThreadTimerCount := 0;
-  FCheckContentThreadComparing := True;
 end;
 
 procedure TfrmSyncDirsDlg.checkContentThreadStop;
 begin
-  if Assigned(FCheckContentThread) then
-  begin
-    with FCheckContentThread do
-    begin
-      Terminate;
-      WaitFor;
-    end;
-    FreeAndNil(FCheckContentThread);
-  end;
+  if FCheckContentThread = nil then
+    Exit;
+  FCheckContentThread.Terminate;
+  FCheckContentThread.WaitFor;    // onCheckContentThreadFinish() will be called
 end;
 
-procedure TfrmSyncDirsDlg.checkContentThreadUpdateGrid;
+procedure TfrmSyncDirsDlg.checkContentThreadUpdateStat(
+  const doneBytes: Int64;
+  const totalBytes: Int64 );
 begin
-  refreshView;
-  UpdateStatusBar;
-end;
-
-procedure TfrmSyncDirsDlg.checkContentThreadSetProgressBytes(
-  const AProgressBar: TKASProgressBar;
-  const CurrentBytes: Int64;
-  const TotalBytes: Int64 );
-var
-  BarText : String;
-  CaptionText : String;
-begin
-  BarText := cnvFormatFileSize(CurrentBytes, uoscOperation) + '/' + cnvFormatFileSize(TotalBytes, uoscOperation);
-  AProgressBar.SetProgress(CurrentBytes, TotalBytes, BarText );
-
   {$IFDEF LCLCOCOA}
-  if TotalBytes > 0 then
-    CaptionText := Format(rsComparingPercent, [CurrentBytes*100 div TotalBytes])
+  if totalBytes > 0 then
+    FFileSizeProgressHelper.predefinedCaption := Format(rsComparingPercent, [doneBytes*100 div totalBytes])
   else
-    CaptionText := Format(rsComparingPercent, [0]);
-  lblFileSizeProgress.Caption := CaptionText;
+    FFileSizeProgressHelper.predefinedCaption := Format(rsComparingPercent, [0]);
   {$ENDIF}
-end;
+  FFileSizeProgressHelper.total := totalBytes;
+  FFileSizeProgressHelper.done := doneBytes;
 
-function TfrmSyncDirsDlg.treeBuilderCheckRunning(const processMessages: Boolean): Boolean;
-begin
-  // At most every 50 ms: each call may process queued file-watcher events
-  // and trigger panel reloads, which made a long compare O(n^2); and a status
-  // bar update per directory is measurably expensive
-  if processMessages and (GetTickCount64 - FLastMessagesTime >= 50) then
-  begin
-    FLastMessagesTime := GetTickCount64;
-    StatusBar1.Panels[0].Text := Format(rsComparingPercent, [FScanShownPercent]);
-    Application.ProcessMessages;
+  Inc(FCheckContentThreadTimerCount);
+  if (FCheckContentThreadTimerCount mod 5 = 0) then begin
+    refreshView;
+    UpdateStatusBar;
   end;
-  Result:= NOT FCancel;
 end;
 
 function TfrmSyncDirsDlg.treeBuilderMaskFilt(const f: TFile): Boolean;
@@ -1888,7 +2167,7 @@ begin
     mmrSkipAll: Result:= uaSkipAll;
     mmrAbort:
       begin
-        FCancel:= True;
+        stopOperation;
         Result:= uaAbort;
       end;
     else
@@ -1910,7 +2189,7 @@ function TfrmSyncDirsDlg.confirmSkippedItems(const syncCount: TSyncDirsSyncCount
 
 begin
   Result:= warn(rsSyncCompareCancelledWarning, Ord(FCompareState = csCancelled)) and
-           warn(rsSyncUnreadableWarning, FFilteredCount.unreadable) and
+           warn(rsSyncUnreadableWarning, FFilteredCountRec.unreadable) and
            warn(rsSyncTypeConflictWarning, syncCount.conflictKeepCount) and
            warn(rsSyncTypeConflictReplace, syncCount.conflictReplaceCount);
 end;
@@ -1920,19 +2199,18 @@ begin
   FScanShownPercent := Max(FScanShownPercent, Min(99, percent));
 end;
 
-procedure TfrmSyncDirsDlg.SetPanelWatchers(AEnabled: Boolean);
-var
-  side: TDoubleSide;
+function TfrmSyncDirsDlg.commonCheckRunning(const processMessages: Boolean): Boolean;
 begin
-  // Resuming does a single reconciling reload of each panel
-  for side := dsLeft to dsRight do
-    if Assigned(FFileViews[side]) then
-      FFileViews[side].SetWatcherEnabled(AEnabled);
-end;
-
-function TfrmSyncDirsDlg.commonCheckRunning: Boolean;
-begin
-  Result:= pnlProgress.Visible;
+  // At most every 50 ms: a status bar update per directory is measurably
+  // expensive on large trees, and so is pumping the message queue
+  if processMessages and (GetTickCount64 - FLastMessagesTime >= 50) then
+  begin
+    FLastMessagesTime := GetTickCount64;
+    if FState.isRunningInState(sddsScanning) then
+      StatusBar1.Panels[0].Text := Format(rsComparingPercent, [FScanShownPercent]);
+    Application.ProcessMessages;
+  end;
+  Result:= FState.isRunning;
 end;
 
 // Each run starts with fresh operation options, from the confirmation and
@@ -1972,6 +2250,7 @@ var
   indexes: TIntegerList = nil;
   leftCount: Integer;
   rightCount: Integer;
+  fullyDone: Boolean;
 
   // Trash or delete is asked along with the confirmation when the trash is
   // available, preset from the last choice made in this dialog, and the
@@ -2029,21 +2308,24 @@ begin
     end;
 
     if confirmed then begin
+      FState.enter(sddsDeletingFiles);
       EnableControls(False);
-      pnlFileSizeProgress.Visible:= False;
-      pnlFileCountProgress.Visible:= True;
+      FFileSizeProgressHelper.close;
+      FFileCountProgressHelper.open(rsOperDeleting, FDeleteStatistics.TotalFiles);
 
-      SetPanelWatchers(False);
-      try
-        commonService.delete(indexes, ALeft, ARight);
-      finally
-        SetPanelWatchers(True);
-      end;
-      self.FillFoundItemsDG;
+      fullyDone:= commonService.delete(indexes, ALeft, ARight);
+      if fullyDone then
+        self.FillFoundItemsDG;
 
-      EnableControls(True);
+      if NOT fullyDone then
+        btnCompare.Click;
     end;
   finally
+    if FState.isInState(sddsDeletingFiles) then begin
+      FFileCountProgressHelper.close;
+      EnableControls(True);
+      FState.reset;
+    end;
     commonService.Free;
     indexes.Free;
   end;
@@ -2070,7 +2352,7 @@ var
       fsosStopped: begin
         RememberCopyOptions(operation);
         FCopyStatistics.DoneBytes+= TFileSourceCopyOperation(operation).RetrieveStatistics.TotalBytes;
-        SetProgressBytes(pbFileSizeProgress, FCopyStatistics.DoneBytes, FCopyStatistics.TotalBytes);
+        FFileSizeProgressHelper.update(FCopyStatistics.DoneBytes);
         FOperation:= nil;
       end;
     end;
@@ -2106,7 +2388,7 @@ var
       fsosStopped: begin
         RememberDeleteOptions(operation);
         FDeleteStatistics.DoneFiles+= TFileSourceDeleteOperation(operation).RetrieveStatistics.TotalFiles;
-        SetProgressFiles(pbFileCountProgress, FDeleteStatistics.DoneFiles, FDeleteStatistics.TotalFiles);
+        FFileCountProgressHelper.update(FDeleteStatistics.DoneFiles);
         FOperation:= nil;
       end;
     end;
@@ -2129,26 +2411,12 @@ var
   askResult: TModalResult;
 begin
   Result:= TSyncDirsUtil.copyProperties(targetFS, sourceFile, targetFile, attrs);
-  Inc( FFileCountProgressDone );
-  Application.ProcessMessages;
+  Inc( FFileCountProgressHelper.done );
   if NOT Result then begin
     errMsg:= Format(rsMsgErrSetAttribute, [targetFile.FullPath]);
     askResult:= MessageDlg(errMsg, mtError, [mbIgnore, mbAbort], 0, mbAbort);
     Result:= (askResult = mrIgnore);
   end;
-end;
-
-function TfrmSyncDirsDlg.fileProcessorWithUIDeleteFile(
-  const FileSource: IFileSource;
-  const f: TFile ): Boolean;
-var
-  files: TFiles;
-begin
-  files := TFiles.Create(EmptyStr);
-  files.OwnsObjects:= False;
-  files.Add(f);
-  Result:= fileProcessorWithUIDeleteFiles(FileSource, files);
-  files.Free;
 end;
 
 { Copy and delete operations are created anew for every directory batch, so
@@ -2223,79 +2491,6 @@ begin
     FDeleteDirectlyOption := TFileSystemDeleteOperation(operation).DeleteDirectly;
 end;
 
-procedure TfrmSyncDirsDlg.SetProgressBytes(AProgressBar: TKASProgressBar;
-  CurrentBytes: Int64; TotalBytes: Int64);
-var
-  BarText : String;
-  CaptionText : String;
-begin
-  {
-    not all FileSources can provide precise statistical information,
-    nor can they accurately calculate the generated size, for example, MultiArchive/7z.
-    so this check has been added to prevent reporting an erroneous progress exceeding 100%
-  }
-  if CurrentBytes > TotalBytes then
-    TotalBytes:= CurrentBytes + 1;
-
-  BarText := cnvFormatFileSize(CurrentBytes, uoscOperation) + '/' + cnvFormatFileSize(TotalBytes, uoscOperation);
-  AProgressBar.SetProgress(CurrentBytes, TotalBytes, BarText );
-
-  {$IFDEF LCLCOCOA}
-  if TotalBytes > 0 then
-    CaptionText := rsOperCopying + ': ' + BarText + ' (' + FloatToStrF((CurrentBytes / TotalBytes) * 100, ffFixed, 0, 0) + '%)'
-  else
-    CaptionText := rsOperCopying;
-  lblFileSizeProgress.Caption := CaptionText;
-  {$ENDIF}
-end;
-
-procedure TfrmSyncDirsDlg.SetProgressFiles(AProgressBar: TKASProgressBar;
-  CurrentFiles: Int64; TotalFiles: Int64);
-var
-  BarText : String;
-  CaptionText : String;
-begin
-  {
-    1. defensively prevent exceeding 100%
-    2. for "Delete all empty directories"
-  }
-  if CurrentFiles > TotalFiles then
-    TotalFiles:= CurrentFiles;
-
-  BarText := IntToStrTS(CurrentFiles) + '/' + IntToStrTS(TotalFiles);
-  AProgressBar.SetProgress(CurrentFiles, TotalFiles, BarText );
-
-  {$IFDEF LCLCOCOA}
-  if TotalFiles > 0 then
-    CaptionText := rsOperDeleting + ': ' + BarText + ' (' + FloatToStrF((CurrentFiles / TotalFiles) * 100, ffFixed, 0, 0) + '%)'
-  else
-    CaptionText := rsOperDeleting;
-  lblFileCountProgress.Caption := CaptionText;
-  {$ENDIF}
-end;
-
-procedure TfrmSyncDirsDlg.updateFileCountProgress;
-var
-  progressBarText : String;
-begin
-  {
-    1. defensively prevent exceeding 100%
-    2. for "Delete all empty directories"
-  }
-  if FFileCountProgressDone > FFileCountProgressTotal then
-    FFileCountProgressTotal:= FFileCountProgressDone;
-
-  progressBarText := IntToStrTS(FFileCountProgressDone) + '/' + IntToStrTS(FFileCountProgressTotal);
-  pbFileCountProgress.SetProgress(FFileCountProgressDone, FFileCountProgressTotal, progressBarText );
-
-  {$IFDEF LCLCOCOA}
-  if FFileCountProgressTotal > 0 then
-    lblFileCountProgress.Caption := FFileCountProgressName + ': ' + progressBarText + ' (' + FloatToStrF((FFileCountProgressDone / FFileCountProgressTotal) * 100, ffFixed, 0, 0) + '%)'
-  else
-    lblFileCountProgress.Caption := FFileCountProgressName;
-  {$ENDIF}
-end;
-
 procedure TfrmSyncDirsDlg.DoAutoAdjustLayout(const AMode: TLayoutAdjustmentPolicy;
                                              const AXProportion, AYProportion: Double);
 begin
@@ -2307,12 +2502,11 @@ constructor TfrmSyncDirsDlg.Create(AOwner: TComponent; FileView1,
   FileView2: TFileView);
 begin
   inherited Create(AOwner);
+  FState := TSyncDirsDlgStateHelper.Create;
   FSortService := TSyncDirsSortService.Create;
   FFullTree := TTwoLevelTree.Create;
   FFilteredList := TFlatDirFileList.Create(FFullTree);
   FView := TSyncDirsView.Create(FFullTree, FFilteredList);
-  FFileViews[dsLeft] := FileView1;
-  FFileViews[dsRight] := FileView2;
   self.leftFS := FileView1.FileSource;
   self.rightFS := FileView2.FileSource;
   self.leftAddress := FileView1.CurrentAddress;
@@ -2334,7 +2528,6 @@ begin
   MainDrawGrid.Font.Bold := True;
   FSortIndex := -1;
   SortIndex := 0;
-  FScanning := False;
   MainDrawGrid.RowCount := 0;
   FSelectedFiles[dsLeft]:= FileView1.CloneSelectedFiles;
   FSelectedFiles[dsRight]:= FileView2.CloneSelectedFiles;
@@ -2364,6 +2557,9 @@ begin
   FFullTree.Free;
   FSortService.Free;
   FCompareOption.Free;
+  FFileSizeProgressHelper.Free;
+  FFileCountProgressHelper.Free;
+  FState.Free;
   inherited Destroy;
 end;
 

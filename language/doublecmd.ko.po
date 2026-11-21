@@ -3,7 +3,7 @@ msgstr ""
 "Project-Id-Version: Double Commander 1.1.0 alpha\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2022-11-15 11:15+0300\n"
-"PO-Revision-Date: 2026-09-16 05:10+0900\n"
+"PO-Revision-Date: 2026-11-03 06:08+0900\n"
 "Last-Translator: VenusGirl <venusgirl@outlook.com>\n"
 "Language-Team: 비너스걸: https://venusgirls.tistory.com/\n"
 "Language: ko\n"
@@ -11,7 +11,21 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "X-Native-Language: 한국어\n"
-"X-Generator: Poedit 3.9\n"
+"X-Generator: Poedit 3.10\n"
+
+#: fsetfileproperties.rssetfilepropertiesloadfromactivepanel
+msgctxt "fsetfileproperties.rssetfilepropertiesloadfromactivepanel"
+msgid "Active panel (source)"
+msgstr "활성 패널 (원본)"
+
+#: fsetfileproperties.rssetfilepropertiesloadfromclipboard
+msgid "Clipboard"
+msgstr "클립보드"
+
+#: fsetfileproperties.rssetfilepropertiesloadfrominactivepanel
+msgctxt "fsetfileproperties.rssetfilepropertiesloadfrominactivepanel"
+msgid "Inactive panel (target)"
+msgstr "비활성 패널 (대상)"
 
 #: fsyncdirsdlg.rscomparingpercent
 #, object-pascal-format
@@ -99,7 +113,7 @@ msgstr "검증(&V)"
 
 #: tfilesystemcopymoveoperationoptionsui.cmbsetpropertyerror.hint
 msgid "What to do when cannot set file time, attributes, etc."
-msgstr "파일 시간, 속성 등을 설정할 수 없는 경우 수행할 작업"
+msgstr "파일 시간이나 속성 등을 설정할 수 없는 경우에 대한 처리 방법입니다."
 
 #: tfilesystemcopymoveoperationoptionsui.gbfiletemplate.caption
 msgid "Use file template"
@@ -6096,6 +6110,14 @@ msgstr "복사 작업(&Y)"
 msgid "&Delete operation"
 msgstr "삭제 작업(&D)"
 
+#: tfrmoptionsfileoperations.cbdeletehiddensystemconfirmation.caption
+msgid "Delete hidden/system files"
+msgstr ""
+
+#: tfrmoptionsfileoperations.cbdeletereadonlyconfirmation.caption
+msgid "Delete read-only files"
+msgstr ""
+
 #: tfrmoptionsfileoperations.cbdeletetotrash.caption
 msgid "Dele&te to recycle bin (Shift key reverses this setting)"
 msgstr "휴지통으로 삭제 (Shift 키는 이 설정이 반전됨)(&T)"
@@ -8582,6 +8604,26 @@ msgstr "이름/확장자로로 선택(&N):"
 msgid "&2."
 msgstr "&2."
 
+#: tfrmselectfileproperties.chkattributes.caption
+msgctxt "tfrmselectfileproperties.chkattributes.caption"
+msgid "File &attributes"
+msgstr "파일 속성(&A)"
+
+#: tfrmselectfileproperties.chkpermissions.caption
+msgctxt "tfrmselectfileproperties.chkpermissions.caption"
+msgid "&Permissions /  Ownership"
+msgstr "권한 /  소유권(&P)"
+
+#: tfrmselectfileproperties.chktime.caption
+msgctxt "tfrmselectfileproperties.chktime.caption"
+msgid "&Timestamp (date+time)"
+msgstr "타임스탬프 (날짜+시간)(&T)"
+
+#: tfrmselectfileproperties.chkxattributes.caption
+msgctxt "tfrmselectfileproperties.chkxattributes.caption"
+msgid "&Extended attributes"
+msgstr "확장 속성(&E)"
+
 #: tfrmselectpathrange.buttonpanel.cancelbutton.caption
 msgctxt "tfrmselectpathrange.buttonpanel.cancelbutton.caption"
 msgid "&Cancel"
@@ -8681,6 +8723,26 @@ msgctxt "TFRMSETFILEPROPERTIES.BTNCANCEL.CAPTION"
 msgid "&Cancel"
 msgstr "취소(&C)"
 
+#: tfrmsetfileproperties.btnloadadv.caption
+msgctxt "tfrmsetfileproperties.btnloadadv.caption"
+msgid "Advanced(&0)..."
+msgstr ""
+
+#: tfrmsetfileproperties.btnloadfromclipboard.caption
+msgctxt "tfrmsetfileproperties.btnloadfromclipboard.caption"
+msgid "First file in clipboard(&3)"
+msgstr ""
+
+#: tfrmsetfileproperties.btnloadfromsource.caption
+msgctxt "tfrmsetfileproperties.btnloadfromsource.caption"
+msgid "File under cursor in active panel (source)(&1)"
+msgstr ""
+
+#: tfrmsetfileproperties.btnloadfromtarget.caption
+msgctxt "tfrmsetfileproperties.btnloadfromtarget.caption"
+msgid "File in target(&2)"
+msgstr ""
+
 #: tfrmsetfileproperties.btnok.caption
 msgctxt "TFRMSETFILEPROPERTIES.BTNOK.CAPTION"
 msgid "&OK"
@@ -8740,6 +8802,11 @@ msgstr "하위 폴더 포함"
 msgctxt "tfrmsetfileproperties.chksystem.caption"
 msgid "System"
 msgstr "시스템"
+
+#: tfrmsetfileproperties.gbloadattributes.caption
+msgctxt "tfrmsetfileproperties.gbloadattributes.caption"
+msgid "Load attributes from"
+msgstr ""
 
 #: tfrmsetfileproperties.gbtimesamp.caption
 msgid "Timestamp properties"
@@ -8828,6 +8895,15 @@ msgstr ""
 #: tfrmsetfileproperties.zvlastwritedatetime.textfornulldate
 msgctxt "tfrmsetfileproperties.zvlastwritedatetime.textfornulldate"
 msgid " "
+msgstr ""
+
+#: tfrmsetfilepropertiesadvload.gbloadattributes.caption
+msgid "Load these attributes"
+msgstr ""
+
+#: tfrmsetfilepropertiesadvload.rgloadfrom.caption
+msgctxt "tfrmsetfilepropertiesadvload.rgloadfrom.caption"
+msgid "Load attributes from"
 msgstr ""
 
 #: tfrmsortanything.btnsort.caption
@@ -8979,11 +9055,11 @@ msgstr "링크 이름(&L)"
 
 #: tfrmsyncdirsdlg.actcopypropertieslefttoright.caption
 msgid "Copy file properties -> (left to right)..."
-msgstr ""
+msgstr "파일 속성 복사 -> (왼쪽에서 오른쪽으로)..."
 
 #: tfrmsyncdirsdlg.actcopypropertiesrighttoleft.caption
 msgid "Copy file properties <- (right to left)..."
-msgstr ""
+msgstr "파일 속성 복사 <- (오른쪽에서 왼쪽으로)..."
 
 #: tfrmsyncdirsdlg.actdeleteboth.caption
 msgid "Delete on both sides"
@@ -9079,7 +9155,7 @@ msgid "only selected"
 msgstr "선택된 것만"
 
 #: tfrmsyncdirsdlg.chksubdirs.caption
-msgid "Subdirs"
+msgid "subdirs"
 msgstr "하위 디렉터리"
 
 #: tfrmsyncdirsdlg.groupbox1.caption
@@ -9184,36 +9260,20 @@ msgstr "덮어쓰기 확인"
 
 #: tfrmsyncdirsperformdlg.chkdeleteleftallemptydirs.caption
 msgid "Left: Delete all empty directories"
-msgstr ""
+msgstr "왼쪽: 빈 디렉터리 모두 삭제"
 
 #: tfrmsyncdirsperformdlg.chkdeleterightallemptydirs.caption
 msgctxt "tfrmsyncdirsperformdlg.chkdeleterightallemptydirs.caption"
 msgid "Right: Delete all empty directories"
-msgstr ""
+msgstr "오른쪽: 빈 디렉터리 모두 삭제"
 
 #: tfrmsyncdirsperformdlg.chkverify.caption
 msgid "Verify"
-msgstr ""
-
-#: tfrmsyncdirsselectpropertiesdlg.chkattributes.caption
-msgid "File &attributes"
-msgstr ""
-
-#: tfrmsyncdirsselectpropertiesdlg.chkpermissions.caption
-msgid "&Permissions /  Ownership"
-msgstr ""
-
-#: tfrmsyncdirsselectpropertiesdlg.chktime.caption
-msgid "&Timestamp (date+time)"
-msgstr ""
-
-#: tfrmsyncdirsselectpropertiesdlg.chkxattributes.caption
-msgid "&Extended attributes"
-msgstr ""
+msgstr "검증"
 
 #: tfrmsyncdirsselectpropertiesdlg.lbllabel.caption
 msgid "Copy these file properties:"
-msgstr ""
+msgstr "다음 파일 속성 복사:"
 
 #: tfrmtreeviewmenu.caption
 msgctxt "tfrmtreeviewmenu.caption"
@@ -10661,6 +10721,11 @@ msgstr "DC 도구 모음 파일"
 msgid ".xml Config files"
 msgstr ".xml 구성 파일"
 
+#: ulng.rsfindconfirmafteraddtostash
+#, object-pascal-format
+msgid "%d files/directories have been added. Close the search window and open %s now?"
+msgstr ""
+
 #: ulng.rsfinddefinetemplate
 msgid "Define template"
 msgstr "템플릿 정의"
@@ -12052,7 +12117,7 @@ msgstr "디렉터리 변경 후 활성화되지 않은 프레임을 지정된 �
 
 #: ulng.rsmsghotdirtipspecialdirbut
 msgid "Some functions to select appropriate path relative, absolute, windows special folders, etc."
-msgstr "상대 경로, 절대 경로, Windows 특수 폴더 등 적절한 경로를 선택하는 몇 가지 기능"
+msgstr "상대 경로, 절대 경로, Windows 특수 폴더 등 적절한 경로를 선택하기 위한 기능들입니다."
 
 #: ulng.rsmsghotdirtotalbackuped
 #, object-pascal-format
@@ -13390,7 +13455,7 @@ msgstr "부동"
 #: ulng.rsopthotkeysadddeleteshortcutlong
 #, object-pascal-format
 msgid "Shortcut %s for cm_Delete will be registered, so it can be used to reverse this setting."
-msgstr "cm_Delete의 단축키 %s이(가) 등록되므로 이 설정을 되돌리는 데 사용할 수 있습니다."
+msgstr "cm_Delete에 대한 단축키 %s가 등록될 예정이므로, 이 설정을 반전하는 데 사용할 수 있습니다."
 
 #: ulng.rsopthotkeysaddhotkey
 #, object-pascal-format
@@ -13417,12 +13482,12 @@ msgstr "명령"
 #: ulng.rsopthotkeysdeletetrashcanoverrides
 #, object-pascal-format
 msgid "Shortcut %s for cm_Delete has a parameter that overrides this setting. Do you want to change this parameter to use the global setting?"
-msgstr "cm_Delete 단축키 %s에는 이 설정을 재정의하는 매개변수가 있습니다. 이 매개변수를 전역 설정으로 변경하시겠습니까?"
+msgstr "cm_Delete에 대한 단축키 %s에는 이 설정을 무시하는 매개변수가 있습니다. 전역 설정을 사용하도록 이 매개변수를 변경하시겠습니까?"
 
 #: ulng.rsopthotkeysdeletetrashcanparameterexists
 #, object-pascal-format
 msgid "Shortcut %s for cm_Delete needs to have a parameter changed to match shortcut %s. Do you want to change it?"
-msgstr "cm_Delete 단축키 %s의 매개변수를 단축키 %s와 일치하도록 변경해야 합니다. 변경하시겠습니까?"
+msgstr "cm_Delete에 대한 단축키 %s는 단축키 %s와 일치하도록 매개변수를 변경해야 합니다. 변경하시겠습니까?"
 
 #: ulng.rsopthotkeysdescription
 msgctxt "ulng.rsopthotkeysdescription"
@@ -13469,7 +13534,7 @@ msgstr "이 설정이 %s 단축키로 작동하려면 단축키 %s을(를) cm_De
 #: ulng.rsopthotkeysshortcutfordeleteissequence
 #, object-pascal-format
 msgid "Shortcut %s for cm_Delete is a sequence shortcut for which a hotkey with reversed Shift cannot be assigned. This setting might not work."
-msgstr "cm_Delete 단축키 %s는 Shift 키를 반전시킨 단축키를 할당할 수 없는 시퀀스 단축키입니다. 이 설정이 작동하지 않을 수 있습니다."
+msgstr "cm_Delete에 대한 단축키 %s는 Shift 키가 반전된 단축키를 할당할 수 없는 시퀀스 단축키입니다. 이 설정은 작동하지 않을 수 있습니다."
 
 #: ulng.rsopthotkeysshortcutused
 msgid "Shortcut in use"
@@ -14489,10 +14554,12 @@ msgid "Will show a simple message"
 msgstr "간단한 메시지를 표시합니다"
 
 #: ulng.rsvarsourcepanel
+msgctxt "ulng.rsvarsourcepanel"
 msgid "Active panel (source)"
 msgstr "활성 패널 (원본)"
 
 #: ulng.rsvartargetpanel
+msgctxt "ulng.rsvartargetpanel"
 msgid "Inactive panel (target)"
 msgstr "비활성 패널 (대상)"
 

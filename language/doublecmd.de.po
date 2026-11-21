@@ -14,6 +14,20 @@ msgstr ""
 "X-Generator: Poedit 3.0.1\n"
 "X-Poedit-Bookmarks: -1,3123,-1,-1,-1,-1,-1,-1,-1,-1\n"
 
+#: fsetfileproperties.rssetfilepropertiesloadfromactivepanel
+msgctxt "fsetfileproperties.rssetfilepropertiesloadfromactivepanel"
+msgid "Active panel (source)"
+msgstr "Aktives Dateifenster (Quelle)"
+
+#: fsetfileproperties.rssetfilepropertiesloadfromclipboard
+msgid "Clipboard"
+msgstr "Zwischenablage"
+
+#: fsetfileproperties.rssetfilepropertiesloadfrominactivepanel
+msgctxt "fsetfileproperties.rssetfilepropertiesloadfrominactivepanel"
+msgid "Inactive panel (target)"
+msgstr "Inaktives Dateifenster (Ziel)"
+
 #: fsyncdirsdlg.rscomparingpercent
 #, object-pascal-format
 msgid "Comparing... %d%% (ESC to cancel)"
@@ -6107,6 +6121,14 @@ msgstr "Kop&ieren"
 msgid "&Delete operation"
 msgstr "&Löschen"
 
+#: tfrmoptionsfileoperations.cbdeletehiddensystemconfirmation.caption
+msgid "Delete hidden/system files"
+msgstr ""
+
+#: tfrmoptionsfileoperations.cbdeletereadonlyconfirmation.caption
+msgid "Delete read-only files"
+msgstr ""
+
 #: tfrmoptionsfileoperations.cbdeletetotrash.caption
 msgid "Dele&te to recycle bin (Shift key reverses this setting)"
 msgstr "Löschen in den Papierkorb (endgültig löschen bei gedrückter [Umschalt]-Taste)"
@@ -8584,6 +8606,26 @@ msgstr "Nach Name/Erweiterung wählen:"
 msgid "&2."
 msgstr "&2."
 
+#: tfrmselectfileproperties.chkattributes.caption
+msgctxt "tfrmselectfileproperties.chkattributes.caption"
+msgid "File &attributes"
+msgstr ""
+
+#: tfrmselectfileproperties.chkpermissions.caption
+msgctxt "tfrmselectfileproperties.chkpermissions.caption"
+msgid "&Permissions /  Ownership"
+msgstr ""
+
+#: tfrmselectfileproperties.chktime.caption
+msgctxt "tfrmselectfileproperties.chktime.caption"
+msgid "&Timestamp (date+time)"
+msgstr ""
+
+#: tfrmselectfileproperties.chkxattributes.caption
+msgctxt "tfrmselectfileproperties.chkxattributes.caption"
+msgid "&Extended attributes"
+msgstr ""
+
 #: tfrmselectpathrange.buttonpanel.cancelbutton.caption
 msgctxt "tfrmselectpathrange.buttonpanel.cancelbutton.caption"
 msgid "&Cancel"
@@ -8683,6 +8725,26 @@ msgctxt "TFRMSETFILEPROPERTIES.BTNCANCEL.CAPTION"
 msgid "&Cancel"
 msgstr "&Abbrechen"
 
+#: tfrmsetfileproperties.btnloadadv.caption
+msgctxt "tfrmsetfileproperties.btnloadadv.caption"
+msgid "Advanced(&0)..."
+msgstr ""
+
+#: tfrmsetfileproperties.btnloadfromclipboard.caption
+msgctxt "tfrmsetfileproperties.btnloadfromclipboard.caption"
+msgid "First file in clipboard(&3)"
+msgstr ""
+
+#: tfrmsetfileproperties.btnloadfromsource.caption
+msgctxt "tfrmsetfileproperties.btnloadfromsource.caption"
+msgid "File under cursor in active panel (source)(&1)"
+msgstr ""
+
+#: tfrmsetfileproperties.btnloadfromtarget.caption
+msgctxt "tfrmsetfileproperties.btnloadfromtarget.caption"
+msgid "File in target(&2)"
+msgstr ""
+
 #: tfrmsetfileproperties.btnok.caption
 msgctxt "TFRMSETFILEPROPERTIES.BTNOK.CAPTION"
 msgid "&OK"
@@ -8742,6 +8804,11 @@ msgstr "Einschließlich Unterverzeichnisse"
 msgctxt "tfrmsetfileproperties.chksystem.caption"
 msgid "System"
 msgstr "System"
+
+#: tfrmsetfileproperties.gbloadattributes.caption
+msgctxt "tfrmsetfileproperties.gbloadattributes.caption"
+msgid "Load attributes from"
+msgstr ""
 
 #: tfrmsetfileproperties.gbtimesamp.caption
 msgid "Timestamp properties"
@@ -8831,6 +8898,15 @@ msgstr " "
 msgctxt "tfrmsetfileproperties.zvlastwritedatetime.textfornulldate"
 msgid " "
 msgstr " "
+
+#: tfrmsetfilepropertiesadvload.gbloadattributes.caption
+msgid "Load these attributes"
+msgstr ""
+
+#: tfrmsetfilepropertiesadvload.rgloadfrom.caption
+msgctxt "tfrmsetfilepropertiesadvload.rgloadfrom.caption"
+msgid "Load attributes from"
+msgstr ""
 
 #: tfrmsortanything.btnsort.caption
 msgid "&Sort"
@@ -9081,8 +9157,8 @@ msgid "only selected"
 msgstr "nur Markierte"
 
 #: tfrmsyncdirsdlg.chksubdirs.caption
-msgid "Subdirs"
-msgstr "Unterverzeichnisse"
+msgid "subdirs"
+msgstr "unterverzeichnisse"
 
 #: tfrmsyncdirsdlg.groupbox1.caption
 msgid "Show:"
@@ -9195,22 +9271,6 @@ msgstr ""
 
 #: tfrmsyncdirsperformdlg.chkverify.caption
 msgid "Verify"
-msgstr ""
-
-#: tfrmsyncdirsselectpropertiesdlg.chkattributes.caption
-msgid "File &attributes"
-msgstr ""
-
-#: tfrmsyncdirsselectpropertiesdlg.chkpermissions.caption
-msgid "&Permissions /  Ownership"
-msgstr ""
-
-#: tfrmsyncdirsselectpropertiesdlg.chktime.caption
-msgid "&Timestamp (date+time)"
-msgstr ""
-
-#: tfrmsyncdirsselectpropertiesdlg.chkxattributes.caption
-msgid "&Extended attributes"
 msgstr ""
 
 #: tfrmsyncdirsselectpropertiesdlg.lbllabel.caption
@@ -10662,6 +10722,11 @@ msgstr "DC Symbolleisten-Dateien"
 #: ulng.rsfilterxmlconfigfiles
 msgid ".xml Config files"
 msgstr ".xml Konfigurationsdateien"
+
+#: ulng.rsfindconfirmafteraddtostash
+#, object-pascal-format
+msgid "%d files/directories have been added. Close the search window and open %s now?"
+msgstr ""
 
 #: ulng.rsfinddefinetemplate
 msgid "Define template"
@@ -14492,10 +14557,12 @@ msgid "Will show a simple message"
 msgstr "Zeigt eine einfache Nachricht"
 
 #: ulng.rsvarsourcepanel
+msgctxt "ulng.rsvarsourcepanel"
 msgid "Active panel (source)"
 msgstr "Aktives Dateifenster (Quelle)"
 
 #: ulng.rsvartargetpanel
+msgctxt "ulng.rsvartargetpanel"
 msgid "Inactive panel (target)"
 msgstr "Inaktives Dateifenster (Ziel)"
 

@@ -226,7 +226,7 @@ var
 begin
   clearDirInfo;
   for i:= 0 to _rows.Count - 1 do begin
-    rec:= _rows.fileSyncRec( i );
+    rec:= _rows.getSyncRec( i );
     d:= folderOfRow( rec );
     if d < 0 then continue;
     if rec.isDir then
@@ -337,7 +337,7 @@ begin
   for i:= _dirs[dirIndex].fileFirst to _dirs[dirIndex].fileLast do begin
     fileRow:= Default( TSyncViewRow );
     fileRow.kind:= vrFile;
-    fileRow.rec:= _rows.fileSyncRec( i );
+    fileRow.rec:= _rows.getSyncRec( i );
     fileRow.dirIndex:= dirIndex;
     fileRow.depth:= depth + 1;
     fileRow.rowIndex:= i;

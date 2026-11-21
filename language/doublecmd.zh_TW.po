@@ -12,6 +12,20 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "X-Native-Language: 繁體中文\n"
 
+#: fsetfileproperties.rssetfilepropertiesloadfromactivepanel
+msgctxt "fsetfileproperties.rssetfilepropertiesloadfromactivepanel"
+msgid "Active panel (source)"
+msgstr "現用面板（來源）"
+
+#: fsetfileproperties.rssetfilepropertiesloadfromclipboard
+msgid "Clipboard"
+msgstr "剪貼簿"
+
+#: fsetfileproperties.rssetfilepropertiesloadfrominactivepanel
+msgctxt "fsetfileproperties.rssetfilepropertiesloadfrominactivepanel"
+msgid "Inactive panel (target)"
+msgstr "非現用面板（目標）"
+
 #: fsyncdirsdlg.rscomparingpercent
 #, object-pascal-format
 msgid "Comparing... %d%% (ESC to cancel)"
@@ -337,11 +351,11 @@ msgstr "任務完成後打開校驗碼檔案"
 
 #: tfrmchecksumcalc.cbseparatefile.caption
 msgid "C&reate separate checksum file for each file"
-msgstr "為每個檔案建立單獨的驗證碼檔案 (&R)"
+msgstr "為每個檔案建立單獨的校驗碼檔案 (&R)"
 
 #: tfrmchecksumcalc.cbseparatefolder.caption
 msgid "Create separate checksum file for each &directory"
-msgstr "為每個資料夾建立單獨的驗證碼檔案 (&D)"
+msgstr "為每個資料夾建立單獨的校驗碼檔案 (&D)"
 
 #: tfrmchecksumcalc.lblfileformat.caption
 msgid "File &format"
@@ -349,7 +363,7 @@ msgstr "檔案格式 (&F)"
 
 #: tfrmchecksumcalc.lblsaveto.caption
 msgid "&Save checksum file(s) to:"
-msgstr "儲存驗證碼檔案到 (&S):"
+msgstr "儲存校驗碼檔案到 (&S):"
 
 #: tfrmchecksumcalc.rbunix.caption
 msgid "Unix"
@@ -371,7 +385,7 @@ msgstr "關閉 (&C)"
 #: tfrmchecksumverify.caption
 msgctxt "TFRMCHECKSUMVERIFY.CAPTION"
 msgid "Verify checksum..."
-msgstr "校驗驗證碼..."
+msgstr "核實校驗碼..."
 
 #: tfrmchooseencoding.caption
 msgctxt "tfrmchooseencoding.caption"
@@ -2136,12 +2150,12 @@ msgstr "變更到根資料夾"
 #: tfrmmain.actchecksumcalc.caption
 msgctxt "TFRMMAIN.ACTCHECKSUMCALC.CAPTION"
 msgid "Calculate Check&sum..."
-msgstr "計算驗證碼... (&S)"
+msgstr "計算校驗碼... (&S)"
 
 #: tfrmmain.actchecksumverify.caption
 msgctxt "TFRMMAIN.ACTCHECKSUMVERIFY.CAPTION"
 msgid "&Verify Checksum..."
-msgstr "校驗驗證碼... (&V)"
+msgstr "核實校驗碼... (&V)"
 
 #: tfrmmain.actclearlogfile.caption
 msgid "Clear log file"
@@ -6197,6 +6211,14 @@ msgstr "複製操作 (&Y)"
 msgid "&Delete operation"
 msgstr "刪除操作 (&D)"
 
+#: tfrmoptionsfileoperations.cbdeletehiddensystemconfirmation.caption
+msgid "Delete hidden/system files"
+msgstr "刪除隱藏/系統檔案"
+
+#: tfrmoptionsfileoperations.cbdeletereadonlyconfirmation.caption
+msgid "Delete read-only files"
+msgstr "刪除唯讀檔案"
+
 #: tfrmoptionsfileoperations.cbdeletetotrash.caption
 msgctxt "TFRMOPTIONSFILEOPERATIONS.CBDELETETOTRASH.CAPTION"
 msgid "Dele&te to recycle bin (Shift key reverses this setting)"
@@ -6237,11 +6259,11 @@ msgstr "略過操作有錯誤的檔案並將錯誤寫到記錄視窗 (&K)"
 
 #: tfrmoptionsfileoperations.cbtestarchiveconfirmation.caption
 msgid "Test archive operation"
-msgstr ""
+msgstr "測試壓縮檔案操作"
 
 #: tfrmoptionsfileoperations.cbverifychecksumconfirmation.caption
 msgid "Verify checksum operation"
-msgstr ""
+msgstr "核實校驗碼操作"
 
 #: tfrmoptionsfileoperations.gbexecutingoperations.caption
 msgid "Executing operations"
@@ -6257,7 +6279,7 @@ msgstr "檔案操作的緩衝區大小 (單位: KB) (&B):"
 
 #: tfrmoptionsfileoperations.lblhashbuffersize.caption
 msgid "Buffer size for &hash calculation (in KB):"
-msgstr ""
+msgstr "杂凑計算的緩衝區大小 (單位: KB) (&H):"
 
 #: tfrmoptionsfileoperations.lblprogresskind.caption
 msgid "Show operations progress &initially in"
@@ -6266,7 +6288,7 @@ msgstr "顯示操作處理進度在 (&I):"
 #: tfrmoptionsfileoperations.lbltypeofduplicatedrename.caption
 msgctxt "tfrmoptionsfileoperations.lbltypeofduplicatedrename.caption"
 msgid "Duplicated name auto-rename style:"
-msgstr ""
+msgstr "重名自動重命名方式:"
 
 #: tfrmoptionsfileoperations.lblwipepassnumber.caption
 msgctxt "TFRMOPTIONSFILEOPERATIONS.LBLWIPEPASSNUMBER.CAPTION"
@@ -6275,7 +6297,7 @@ msgstr "檔案抹除次數: (&N)"
 
 #: tfrmoptionsfilepanelscolors.btnresettodcdefault.caption
 msgid "Reset to DC default"
-msgstr ""
+msgstr "重設為 DC 預設值"
 
 #: tfrmoptionsfilepanelscolors.cballowovercolor.caption
 msgctxt "tfrmoptionsfilepanelscolors.cballowovercolor.caption"
@@ -6303,7 +6325,7 @@ msgstr "指標外框"
 
 #: tfrmoptionsfilepanelscolors.dbcurrentpath.caption
 msgid "Current Path"
-msgstr ""
+msgstr "當前路徑"
 
 #: tfrmoptionsfilepanelscolors.lblbackgroundcolor.caption
 msgid "Bac&kground:"
@@ -8807,6 +8829,26 @@ msgstr ""
 msgid "&2."
 msgstr ""
 
+#: tfrmselectfileproperties.chkattributes.caption
+msgctxt "tfrmselectfileproperties.chkattributes.caption"
+msgid "File &attributes"
+msgstr "檔案屬性 (&A)"
+
+#: tfrmselectfileproperties.chkpermissions.caption
+msgctxt "tfrmselectfileproperties.chkpermissions.caption"
+msgid "&Permissions /  Ownership"
+msgstr "權限/擁有者 (&P)"
+
+#: tfrmselectfileproperties.chktime.caption
+msgctxt "tfrmselectfileproperties.chktime.caption"
+msgid "&Timestamp (date+time)"
+msgstr "日期時間 (&T)"
+
+#: tfrmselectfileproperties.chkxattributes.caption
+msgctxt "tfrmselectfileproperties.chkxattributes.caption"
+msgid "&Extended attributes"
+msgstr "擴展屬性 (&E)"
+
 #: tfrmselectpathrange.buttonpanel.cancelbutton.caption
 msgctxt "tfrmselectpathrange.buttonpanel.cancelbutton.caption"
 msgid "&Cancel"
@@ -8906,6 +8948,26 @@ msgctxt "TFRMSETFILEPROPERTIES.BTNCANCEL.CAPTION"
 msgid "&Cancel"
 msgstr "取消 (&C)"
 
+#: tfrmsetfileproperties.btnloadadv.caption
+msgctxt "tfrmsetfileproperties.btnloadadv.caption"
+msgid "Advanced(&0)..."
+msgstr "高級(&0)..."
+
+#: tfrmsetfileproperties.btnloadfromclipboard.caption
+msgctxt "tfrmsetfileproperties.btnloadfromclipboard.caption"
+msgid "First file in clipboard(&3)"
+msgstr "剪貼簿中的首個檔案(&3)"
+
+#: tfrmsetfileproperties.btnloadfromsource.caption
+msgctxt "tfrmsetfileproperties.btnloadfromsource.caption"
+msgid "File under cursor in active panel (source)(&1)"
+msgstr "現用面板（來源）中遊標下的檔案(&1)"
+
+#: tfrmsetfileproperties.btnloadfromtarget.caption
+msgctxt "tfrmsetfileproperties.btnloadfromtarget.caption"
+msgid "File in target(&2)"
+msgstr "目標面板中的檔案(&2)"
+
 #: tfrmsetfileproperties.btnok.caption
 msgctxt "TFRMSETFILEPROPERTIES.BTNOK.CAPTION"
 msgid "&OK"
@@ -8969,6 +9031,11 @@ msgstr "包含子資料夾"
 msgctxt "TFRMSETFILEPROPERTIES.CHKSYSTEM.CAPTION"
 msgid "System"
 msgstr "系統"
+
+#: tfrmsetfileproperties.gbloadattributes.caption
+msgctxt "tfrmsetfileproperties.gbloadattributes.caption"
+msgid "Load attributes from"
+msgstr "從中載入屬性"
 
 #: tfrmsetfileproperties.gbtimesamp.caption
 msgid "Timestamp properties"
@@ -9058,6 +9125,15 @@ msgstr ""
 msgctxt "tfrmsetfileproperties.zvlastwritedatetime.textfornulldate"
 msgid " "
 msgstr ""
+
+#: tfrmsetfilepropertiesadvload.gbloadattributes.caption
+msgid "Load these attributes"
+msgstr "載入以下屬性"
+
+#: tfrmsetfilepropertiesadvload.rgloadfrom.caption
+msgctxt "tfrmsetfilepropertiesadvload.rgloadfrom.caption"
+msgid "Load attributes from"
+msgstr "從下列檔案中載入屬性"
 
 #: tfrmsortanything.btnsort.caption
 msgid "&Sort"
@@ -9312,7 +9388,7 @@ msgid "only selected"
 msgstr "僅選中的檔案"
 
 #: tfrmsyncdirsdlg.chksubdirs.caption
-msgid "Subdirs"
+msgid "subdirs"
 msgstr "子資料夾"
 
 #: tfrmsyncdirsdlg.groupbox1.caption
@@ -9427,22 +9503,6 @@ msgstr "右邊: 刪除所有空白資料夾"
 #: tfrmsyncdirsperformdlg.chkverify.caption
 msgid "Verify"
 msgstr "校驗"
-
-#: tfrmsyncdirsselectpropertiesdlg.chkattributes.caption
-msgid "File &attributes"
-msgstr "檔案屬性 (&A)"
-
-#: tfrmsyncdirsselectpropertiesdlg.chkpermissions.caption
-msgid "&Permissions /  Ownership"
-msgstr "權限/擁有者 (&P)"
-
-#: tfrmsyncdirsselectpropertiesdlg.chktime.caption
-msgid "&Timestamp (date+time)"
-msgstr "日期時間 (&T)"
-
-#: tfrmsyncdirsselectpropertiesdlg.chkxattributes.caption
-msgid "&Extended attributes"
-msgstr "擴展屬性 (&E)"
 
 #: tfrmsyncdirsselectpropertiesdlg.lbllabel.caption
 msgid "Copy these file properties:"
@@ -10910,6 +10970,11 @@ msgstr ""
 #: ulng.rsfilterxmlconfigfiles
 msgid ".xml Config files"
 msgstr ""
+
+#: ulng.rsfindconfirmafteraddtostash
+#, object-pascal-format
+msgid "%d files/directories have been added. Close the search window and open %s now?"
+msgstr "已經新增%d個檔案/資料夾，是否關閉搜尋並開啟%s？"
 
 #: ulng.rsfinddefinetemplate
 msgid "Define template"
@@ -12638,7 +12703,7 @@ msgstr "選擇可執行檔案"
 
 #: ulng.rsmsgselectonlychecksumfiles
 msgid "Please select only checksum files!"
-msgstr "請僅選擇驗證碼檔案!"
+msgstr "請僅選擇校驗碼檔案!"
 
 #: ulng.rsmsgsellocnextvol
 msgid "Please select location of next volume"
@@ -13190,17 +13255,17 @@ msgstr "已放棄"
 
 #: ulng.rsopercalculatingchecksum
 msgid "Calculating checksum"
-msgstr "正在計算驗證碼"
+msgstr "正在計算校驗碼"
 
 #: ulng.rsopercalculatingchecksumin
 #, object-pascal-format
 msgid "Calculating checksum in \"%s\""
-msgstr "正在「%s」計算驗證碼"
+msgstr "正在「%s」計算校驗碼"
 
 #: ulng.rsopercalculatingchecksumof
 #, object-pascal-format
 msgid "Calculating checksum of \"%s\""
-msgstr "正在計算「%s」的驗證碼"
+msgstr "正在計算「%s」的校驗碼"
 
 #: ulng.rsopercalculatingstatictics
 msgctxt "ulng.rsopercalculatingstatictics"
@@ -13385,17 +13450,17 @@ msgstr "正在測試「%s」"
 
 #: ulng.rsoperverifyingchecksum
 msgid "Verifying checksum"
-msgstr "正在校驗驗證碼"
+msgstr "正在核實校驗碼"
 
 #: ulng.rsoperverifyingchecksumin
 #, object-pascal-format
 msgid "Verifying checksum in \"%s\""
-msgstr "正在「%s」校驗驗證碼"
+msgstr "正在「%s」核實校驗碼"
 
 #: ulng.rsoperverifyingchecksumof
 #, object-pascal-format
 msgid "Verifying checksum of \"%s\""
-msgstr "正在校驗「%s」的驗證碼"
+msgstr "正在核實「%s」的校驗碼"
 
 #: ulng.rsoperwaitingforconnection
 msgid "Waiting for access to file source"
@@ -14124,7 +14189,7 @@ msgstr ""
 
 #: ulng.rsopttypeofduplicatedrename
 msgid "DC legacy - Copy (x) filename.ext;Windows - filename (x).ext;Other - filename(x).ext"
-msgstr ""
+msgstr "DC 傳統格式 - 複製 (x) 檔案名稱.副檔名;Windows - 檔案名稱 (x).副檔名;其他 - 檔案名稱(x).副檔名"
 
 #: ulng.rsoptupdatedfilesposition
 msgid "don't change position;use the same setting as for new files;to sorted position"
@@ -14719,12 +14784,14 @@ msgid "Will show a simple message"
 msgstr ""
 
 #: ulng.rsvarsourcepanel
+msgctxt "ulng.rsvarsourcepanel"
 msgid "Active panel (source)"
-msgstr ""
+msgstr "現用面板（來源）"
 
 #: ulng.rsvartargetpanel
+msgctxt "ulng.rsvartargetpanel"
 msgid "Inactive panel (target)"
-msgstr ""
+msgstr "非現用面板（目標）"
 
 #: ulng.rsvarwillbequoted
 msgid "Filenames will be quoted from here (default)"
