@@ -67,6 +67,9 @@ const
   LIBSSH2_ERROR_CHANNEL_PACKET_EXCEEDED = -(25);
   LIBSSH2_ERROR_CHANNEL_CLOSED = -(26);
   LIBSSH2_ERROR_CHANNEL_EOF_SENT = -(27);
+
+  // libssh2_channel_handle_extended_data2: drop stderr as it arrives
+  LIBSSH2_CHANNEL_EXTENDED_DATA_IGNORE = 1;
   LIBSSH2_ERROR_SCP_PROTOCOL = -(28);
   LIBSSH2_ERROR_ZLIB = -(29);
   LIBSSH2_ERROR_SOCKET_TIMEOUT = -(30);
@@ -272,6 +275,8 @@ var
                           channel_type_len, window_size, packet_size: cuint;
                           const message: PAnsiChar; message_len: cuint): PLIBSSH2_CHANNEL; cdecl;
   libssh2_channel_free: function(channel: PLIBSSH2_CHANNEL): cint; cdecl;
+  libssh2_channel_close: function(channel: PLIBSSH2_CHANNEL): cint; cdecl;
+  libssh2_channel_wait_closed: function(channel: PLIBSSH2_CHANNEL): cint; cdecl;
   libssh2_channel_set_blocking: procedure (channel: PLIBSSH2_CHANNEL; blocking: cint); cdecl;
   libssh2_channel_process_startup: function(channel: PLIBSSH2_CHANNEL;
                                             const request: PAnsiChar; request_len: cuint;
@@ -284,6 +289,7 @@ var
   libssh2_channel_write_ex: function(channel: PLIBSSH2_CHANNEL; stream_id: cint;
                                      const buf: PAnsiChar; buflen: csize_t): ptrint; cdecl;
   libssh2_channel_get_exit_status: function(channel: PLIBSSH2_CHANNEL): cint; cdecl;
+  libssh2_channel_handle_extended_data2: function(channel: PLIBSSH2_CHANNEL; ignore_mode: cint): cint; cdecl;
   libssh2_scp_send64: function(session: PLIBSSH2_SESSION; const path: PAnsiChar; mode: cint;
                                 size: cuint64; mtime, atime: ptrint): PLIBSSH2_CHANNEL; cdecl;
   libssh2_scp_recv2: function(session: PLIBSSH2_SESSION; const path: PAnsiChar;
@@ -595,6 +601,8 @@ begin
     //* Channel API */
     libssh2_channel_open_ex:= SafeGetProcAddress(libssh2, 'libssh2_channel_open_ex');
     libssh2_channel_free:= SafeGetProcAddress(libssh2, 'libssh2_channel_free');
+    libssh2_channel_close:= SafeGetProcAddress(libssh2, 'libssh2_channel_close');
+    libssh2_channel_wait_closed:= SafeGetProcAddress(libssh2, 'libssh2_channel_wait_closed');
     libssh2_channel_set_blocking:= SafeGetProcAddress(libssh2, 'libssh2_channel_set_blocking');
     libssh2_channel_process_startup:= SafeGetProcAddress(libssh2, 'libssh2_channel_process_startup');
     libssh2_channel_flush_ex:= SafeGetProcAddress(libssh2, 'libssh2_channel_flush_ex');
@@ -603,6 +611,7 @@ begin
     libssh2_channel_read_ex:= SafeGetProcAddress(libssh2, 'libssh2_channel_read_ex');
     libssh2_channel_write_ex:= SafeGetProcAddress(libssh2, 'libssh2_channel_write_ex');
     libssh2_channel_get_exit_status:= SafeGetProcAddress(libssh2, 'libssh2_channel_get_exit_status');
+    libssh2_channel_handle_extended_data2:= SafeGetProcAddress(libssh2, 'libssh2_channel_handle_extended_data2');
     libssh2_scp_send64:= SafeGetProcAddress(libssh2, 'libssh2_scp_send64');
     libssh2_scp_recv2:= SafeGetProcAddress(libssh2, 'libssh2_scp_recv2');
 

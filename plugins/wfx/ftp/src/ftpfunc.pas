@@ -128,6 +128,7 @@ uses
 var
   DefaultIniName: String;
   TcpKeepAlive: Boolean = True;
+  SyncListWithFind: Boolean = True;
   ActiveConnectionList, ConnectionList: TStringList;
   IniFile: TIniFile;
   ListLock: TCriticalSection;
@@ -381,6 +382,7 @@ begin
           FtpSend.KeepAliveTransfer := Connection.KeepAliveTransfer;
         end;
         FtpSend.TcpKeepAlive := TcpKeepAlive;
+        FtpSend.SyncListWithFind := SyncListWithFind;
         FtpSend.TargetHost := Connection.Host;
         FtpSend.PassiveMode:= Connection.PassiveMode;
         FtpSend.AutoTLS:= Connection.AutoTLS;
@@ -1165,7 +1167,7 @@ begin
      GetConnectionByPath(RemoteDir, FtpSend, RemotePath) then
   begin
     if InfoStartEnd = FS_STATUS_START then
-      FtpSend.BeginSyncSearch
+      FtpSend.BeginSyncSearch(RemotePath)
     else
       FtpSend.EndSyncSearch;
   end;
@@ -1322,6 +1324,9 @@ begin
     // Use TCP keep alive for all connections: Useful for certain
     // firewalls/router if the connection breaks very often.
     TcpKeepAlive := IniFile.ReadBool('General', 'TcpKeepAlive', TcpKeepAlive);
+    // Sync compare over SFTP: list the remote tree with one find command
+    // when the server allows shell commands (falls back by itself)
+    SyncListWithFind := IniFile.ReadBool('General', 'SyncListWithFind', SyncListWithFind);
 
     ReadConnectionList;
   except
