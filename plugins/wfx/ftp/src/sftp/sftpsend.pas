@@ -291,16 +291,20 @@ end;
 
 function TSftpSend.ListTreeWithFind(const Base: String): Boolean;
 const
-  // Beyond this the listing is not worth its memory; fall back
-  MAX_ENTRIES = 5000000;
+  // Beyond this many entries the listing costs too much memory
+  MAX_ENTRIES = 1000000;
+  // DC waits while find runs and cannot cancel it: give up, and list
+  // directory by directory instead, after this long without data or in all
+  IDLE_LIMIT = 20000;
+  TOTAL_LIMIT = 90000;
 var
   Channel: PLIBSSH2_CHANNEL;
-  Root, Command, Pending, Rec: String;
+  Root, Command, Pending, Rec, Reason: String;
   Buffer: array[0..65535] of AnsiChar;
   Dirs, Unreadable: TStringList;
-  Rc, Start, Stop, I, Entries: Integer;
-  StartTime: QWord;
-  SeenRoot, Ok: Boolean;
+  Rc, Start, Stop, I, Entries, ExitStatus: Integer;
+  StartTime, LastData: QWord;
+  SeenRoot, Ok, Aborted: Boolean;
   RootParent: LIBSSH2_SFTP_ATTRIBUTES;
   HaveRootParent: Boolean;
 
@@ -449,25 +453,91 @@ var
         end;
     end;
     Inc(Entries);
-    Result:= Entries <= MAX_ENTRIES;
+    if Entries > MAX_ENTRIES then
+    begin
+      Reason:= Format('more than %d entries', [MAX_ENTRIES]);
+      Exit(False);
+    end;
+    Result:= True;
+  end;
+
+  // True while there is time left; else gives up with that as the reason
+  function InTime: Boolean;
+  begin
+    Result:= (GetTickCount64 - LastData <= IDLE_LIMIT) and
+             (GetTickCount64 - StartTime <= TOTAL_LIMIT);
+    if not Result then
+    begin
+      Reason:= 'it took too long';
+      Aborted:= True;
+    end;
+  end;
+
+  // The shell and the SFTP server must see the same tree under Base: a
+  // server can map SFTP paths elsewhere (a chroot, a NAS's shares). The root
+  // directory as SFTP lists it has to match what find said, entry by entry.
+  function SameAsSftp(Listing: TDirListing): Boolean;
+  var
+    Handle: PLIBSSH2_SFTP_HANDLE;
+    Names: TStringList;
+    Attrs: LIBSSH2_SFTP_ATTRIBUTES;
+    AName: array[0..1023] of AnsiChar;
+    AFullData: array[0..2047] of AnsiChar;
+    EntryName: String;
+    J, K, Seen: Integer;
+  begin
+    Result:= False;
+    Handle:= libssh2_sftp_opendir(FSFTPSession, PAnsiChar(Base));
+    if Handle = nil then Exit;
+    Names:= TStringList.Create;
+    try
+      Names.Sorted:= True;
+      Names.CaseSensitive:= True;
+      for J:= 0 to Listing.Count - 1 do
+        Names.AddObject(Listing.Entries[J].Name, TObject(PtrInt(J)));
+      Seen:= 0;
+      repeat
+        K:= libssh2_sftp_readdir_ex(Handle, AName, SizeOf(AName),
+                                    AFullData, SizeOf(AFullData), @Attrs);
+        if K < 0 then Exit;
+        if K = 0 then Break;
+        SetString(EntryName, PAnsiChar(@AName[0]), K);
+        J:= Names.IndexOf(EntryName);
+        if J < 0 then Exit;
+        with Listing.Entries[PtrInt(Names.Objects[J])].Attributes do
+          if (permissions <> Attrs.permissions) or (filesize <> Attrs.filesize) or
+             (mtime <> Attrs.mtime) then Exit;
+        Inc(Seen);
+      until False;
+      // Servers that leave out '.' and '..' are fine too
+      Result:= (Seen = Listing.Count) or
+               ((Seen = Listing.Count - 2) and (Names.IndexOf('.') >= 0));
+    finally
+      Names.Free;
+      libssh2_sftp_closedir(Handle);
+    end;
   end;
 
 begin
   Result:= False;
   if Base[Length(Base)] <> '/' then Exit;
   if Base = '/' then Root:= Base else Root:= Copy(Base, 1, Length(Base) - 1);
-  // Unreadable directories are reported and not entered, so find has nothing
-  // to complain about and its exit status tells whether the listing is whole
-  Command:= 'env LC_ALL=C find ' + Quote(Root) +
-            ' \( -type d ! \( -readable -executable \) -printf ''U %P\0'' -prune \)' +
+  // -H: a root that is a symlink is followed, as SFTP does. Unreadable
+  // directories are reported and not entered, so find has nothing to
+  // complain about and its exit status tells whether the listing is whole.
+  // GNU find only (-printf, -readable): any other fails here and the
+  // per-directory listing takes over.
+  Command:= 'env LC_ALL=C find -H ' + Quote(Root) +
+            ' \( -type d -not \( -readable -executable \) -printf ''U %P\0'' -prune \)' +
             ' , -printf ''%y %Y %m %s %T@ %A@ %P\0''';
   StartTime:= GetTickCount64;
+  Reason:= '';
   // What the root's '..' entry shows
   HaveRootParent:= libssh2_sftp_lstat(FSFTPSession, PAnsiChar(Base + '..'), @RootParent) = 0;
   Channel:= libssh2_channel_open_session(FSession);
   if Channel = nil then
   begin
-    DoStatus(False, 'Listing with find: no command channel, listing directory by directory');
+    DoStatus(False, 'Listing with find: the server allows no command, listing directory by directory');
     Exit;
   end;
   Dirs:= TStringList.Create;
@@ -476,42 +546,95 @@ begin
   Unreadable:= TStringList.Create;
   Unreadable.Sorted:= True;
   Unreadable.CaseSensitive:= True;
+  Aborted:= False;
   try
     libssh2_channel_handle_extended_data2(Channel, LIBSSH2_CHANNEL_EXTENDED_DATA_IGNORE);
     Ok:= libssh2_channel_exec(Channel, PAnsiChar(Command)) = 0;
+    if not Ok then Reason:= 'the server allows no command';
     // Nothing to send. Without this an account limited to SFTP, where any
     // command starts the SFTP server instead, would wait for input forever.
     if Ok then libssh2_channel_send_eof(Channel);
     SeenRoot:= False;
     Entries:= 0;
     Pending:= '';
-    while Ok do
-    begin
-      Rc:= libssh2_channel_read(Channel, @Buffer[0], SizeOf(Buffer));
-      if Rc = LIBSSH2_ERROR_EAGAIN then Continue;
-      if Rc < 0 then Ok:= False;
-      if Rc <= 0 then Break;
-      I:= Length(Pending);
-      SetLength(Pending, I + Rc);
-      Move(Buffer[0], Pending[I + 1], Rc);
-      Start:= 1;
-      Stop:= IndexByte(Pending[1], Length(Pending), 0);
-      while Ok and (Stop >= 0) do
+    LastData:= GetTickCount64;
+    // Non-blocking, so a command that hangs or runs for ever can be left
+    libssh2_session_set_blocking(FSession, 0);
+    try
+      while Ok do
       begin
-        Rec:= Copy(Pending, Start, Stop);
-        Ok:= Parse;
-        Start:= Start + Stop + 1;
-        if Start > Length(Pending) then Break;
-        Stop:= IndexByte(Pending[Start], Length(Pending) - Start + 1, 0);
+        Rc:= libssh2_channel_read(Channel, @Buffer[0], SizeOf(Buffer));
+        // Nothing yet. Non-blocking, a read can also return 0 before the
+        // end: only the channel's end-of-file is the end.
+        if (Rc = LIBSSH2_ERROR_EAGAIN) or
+           ((Rc = 0) and (libssh2_channel_eof(Channel) = 0)) then
+        begin
+          if InTime then WaitSocket else Ok:= False;
+          Continue;
+        end;
+        if Rc < 0 then
+        begin
+          Reason:= 'reading its output failed';
+          Ok:= False;
+        end;
+        if Rc <= 0 then Break;
+        LastData:= GetTickCount64;
+        I:= Length(Pending);
+        SetLength(Pending, I + Rc);
+        Move(Buffer[0], Pending[I + 1], Rc);
+        Start:= 1;
+        Stop:= IndexByte(Pending[1], Length(Pending), 0);
+        while Ok and (Stop >= 0) do
+        begin
+          Rec:= Copy(Pending, Start, Stop);
+          Ok:= Parse;
+          Start:= Start + Stop + 1;
+          if Start > Length(Pending) then Break;
+          Stop:= IndexByte(Pending[Start], Length(Pending) - Start + 1, 0);
+        end;
+        Delete(Pending, 1, Start - 1);
+        if not Ok then
+        begin
+          if Reason = '' then Reason:= 'unexpected output (no GNU find?)';
+          // Stop it; waiting for the end of an unwanted listing helps no one
+          Aborted:= True;
+        end;
       end;
-      Delete(Pending, 1, Start - 1);
+      // The exit status arrives with the end of the channel. Still
+      // non-blocking: a server that never closes it is given up on too.
+      if not Aborted then
+      begin
+        while (libssh2_channel_close(Channel) = LIBSSH2_ERROR_EAGAIN) and InTime do
+          WaitSocket;
+        while not Aborted and InTime and
+              (libssh2_channel_wait_closed(Channel) = LIBSSH2_ERROR_EAGAIN) do
+          WaitSocket;
+        if Aborted then Ok:= False;
+      end;
+    finally
+      // A command that was given up on is not waited for: freeing the channel
+      // runs non-blocking, the server ends the command when the channel goes
+      if not Aborted then libssh2_session_set_blocking(FSession, 1);
     end;
-    // The exit status arrives with the end of the channel
-    libssh2_channel_close(Channel);
-    libssh2_channel_wait_closed(Channel);
-    Ok:= Ok and SeenRoot and (Pending = '') and
-         (libssh2_channel_get_exit_status(Channel) = 0) and
-         (Dirs.IndexOf(Base) >= 0);
+    if not Aborted then
+    begin
+      ExitStatus:= libssh2_channel_get_exit_status(Channel);
+      if Ok and (ExitStatus <> 0) then
+      begin
+        Reason:= Format('find ended with status %d', [ExitStatus]);
+        Ok:= False;
+      end;
+      if Ok and not (SeenRoot and (Pending = '') and (Dirs.IndexOf(Base) >= 0)) then
+      begin
+        Reason:= 'unexpected output (no GNU find?)';
+        Ok:= False;
+      end;
+      if Ok and not SameAsSftp(TDirListing(Dirs.Objects[Dirs.IndexOf(Base)])) then
+      begin
+        Reason:= 'the shell does not see the same files as SFTP';
+        Ok:= False;
+      end;
+    end;
     if Ok then
     begin
       for I:= 0 to Dirs.Count - 1 do
@@ -524,10 +647,11 @@ begin
                              [Entries, FPrefetchCache.Count, GetTickCount64 - StartTime]));
     end
     else
-      DoStatus(False, 'Listing with find not possible here, listing directory by directory');
+      DoStatus(False, 'Listing with find not used (' + Reason + '), listing directory by directory');
     Result:= Ok;
   finally
     libssh2_channel_free(Channel);
+    if Aborted then libssh2_session_set_blocking(FSession, 1);
     for I:= 0 to Dirs.Count - 1 do
       Dirs.Objects[I].Free;
     Dirs.Free;
