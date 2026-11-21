@@ -92,6 +92,7 @@ type
     FShowHiddenText: String;
     FUseAllocate: Boolean;
     FTcpKeepAlive: Boolean;
+    FSyncListWithFind: Boolean;
     FKeepAliveTransfer: Boolean;
     FFreshDirs: TStringList;
     procedure SetEncoding(AValue: String);
@@ -147,12 +148,16 @@ type
     function NetworkError(): Boolean; virtual;
     // A sync compare is about to list a whole tree (FS_STATUS_OP_SYNC_SEARCH).
     // A protocol that can fetch directories ahead may do so until the end call.
-    procedure BeginSyncSearch; virtual;
+    // Path: the tree's root, in server encoding, with a trailing '/'.
+    procedure BeginSyncSearch(const Path: String); virtual;
     procedure EndSyncSearch; virtual;
   public
     property Encoding: String write SetEncoding;
     property UseAllocate: Boolean write FUseAllocate;
     property TcpKeepAlive: Boolean read FTcpKeepAlive write FTcpKeepAlive;
+    // A sync compare may list the remote tree with one shell command (find)
+    // where the server allows it, instead of one request per directory
+    property SyncListWithFind: Boolean read FSyncListWithFind write FSyncListWithFind;
     property PublicKey: String read FPublicKey write FPublicKey;
     property PrivateKey: String read FPrivateKey write FPrivateKey;
     property ShowHidden: Boolean read FShowHidden write FShowHidden;
@@ -904,6 +909,7 @@ begin
   AValue.PrivateKey:= FPrivateKey;
   AValue.ShowHidden:= FShowHidden;
   AValue.TcpKeepAlive:= FTcpKeepAlive;
+  AValue.SyncListWithFind:= FSyncListWithFind;
 
   AValue.Sock.HTTPTunnelIP:= Sock.HTTPTunnelIP;
   AValue.Sock.HTTPTunnelPort:= Sock.HTTPTunnelPort;
@@ -1147,7 +1153,7 @@ begin
   Result := FSock.CanRead(0);
 end;
 
-procedure TFTPSendEx.BeginSyncSearch;
+procedure TFTPSendEx.BeginSyncSearch(const Path: String);
 begin
 end;
 
