@@ -1207,17 +1207,20 @@ begin
   if (ExtractFileDir(RemoteName) = PathDelim) then
   begin
     asRemoteName:= CeUtf16ToUtf8(RemoteName + 1);
-    if (asRemoteName='') or (RemoteName[1]='<') then
-    begin
-      Result:= FS_ICON_EXTRACTED;
-      TheIcon^.Format:= FS_ICON_FORMAT_FILE;
-      if asRemoteName = '' then
-        StrPCopy(RemoteName, gStartupInfo.PluginDir+'ftp.ico')
-      else if asRemoteName = cAddConnection then
-        StrPCopy(RemoteName, 'list-add')
-      else if asRemoteName = cQuickConnection then
-        StrPCopy(RemoteName, 'view-file');
-    end;
+    Result:= FS_ICON_EXTRACTED;
+    TheIcon^.Format:= FS_ICON_FORMAT_FILE;
+    if asRemoteName = '' then
+      StrPCopy(RemoteName, gStartupInfo.PluginDir+'ftp.ico')
+    else if asRemoteName = cAddConnection then
+      StrPCopy(RemoteName, 'list-add')
+    else if asRemoteName = cQuickConnection then
+      StrPCopy(RemoteName, 'view-file')
+    else if RemoteName[1] = '<' then
+      Result:= FS_ICON_USEDEFAULT
+    else
+      // A saved connection: without this it got the icon for an unknown
+      // file type. A theme without this icon falls back to that again.
+      StrPCopy(RemoteName, 'computer');
   end;
 end;
 
