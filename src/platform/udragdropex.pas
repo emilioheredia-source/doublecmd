@@ -152,6 +152,19 @@ type
     function GetControl: TWinControl;
   end;
 
+  { TDragDropTargetHelper }
+
+  TDragDropTargetHelper = class
+  private
+    FDragDropTarget: TDragDropTarget;
+  private
+    function OnExDragOver(var DropEffect: TDropEffect; ScreenPoint: TPoint): Boolean;
+    function OnExDrop(const FileNamesList: TStringList; DropEffect: TDropEffect; ScreenPoint: TPoint): Boolean;
+  public
+    constructor Create(TargetControl: TWinControl);
+    destructor  Destroy; override;
+  end;
+
   { These functions return system-appropriate DragDrop... object. }
   function CreateDragDropSource(Control: TWinControl): TDragDropSource;
   function CreateDragDropTarget(Control: TWinControl): TDragDropTarget;
@@ -159,6 +172,20 @@ type
   { Returns True if external dragging is supported based
     on operating system and LCLWidgetType (compile-time) }
   function IsExternalDraggingSupported: Boolean;
+
+  {en
+     Returns True if an internal (intra-application) dragging operation that is
+     already running can be transformed into an external (system) one while the
+     mouse is being moved.
+
+     That requires a screen wide pointer grab and a working WindowFromPoint(),
+     so that the application can notice that the cursor has left its own window.
+     A native Wayland client has neither: it stops receiving pointer events as
+     soon as the cursor leaves its surface, and it is not allowed to ask what
+     lies under a global screen coordinate. There the choice between internal
+     and external dragging has to be made when the drag starts.
+  }
+  function IsDragTransformSupported: Boolean;
 
   { Analyzes keyboard modifier keys (Shift, Ctrl, etc.) and mouse button nr
     and returns the appropriate drop effect. }
@@ -175,6 +202,12 @@ var
   { If set to True, then transforming from external back to internal dragging is enabled. }
   AllowTransformToInternal : Boolean = True;
 
+  { The control that started the external drag currently in progress, when that
+    drag originates from this application, nil otherwise. A widgetset whose
+    drag session serves both intra- and inter-application drops needs this to
+    tell the two apart; the others leave it nil. }
+  ExternalDragSourceControl : TWinControl = nil;
+
 implementation
 
 {$IF DEFINED(MSWINDOWS)}
@@ -185,14 +218,17 @@ uses
   uDragDropCocoa;
 {$ELSEIF DEFINED(LCLGTK) or DEFINED(LCLGTK2) or DEFINED(LCLGTK3)}
 uses
-  uDragDropGtk;
+  uDragDropGtk, uOSForms;
 {$ELSEIF DEFINED(LCLQT) and DEFINED(DARWIN)}
 uses
   uDragDropQt, uDragDropCocoa;
 {$ELSEIF DEFINED(LCLQT) or DEFINED(LCLQT5) OR DEFINED(LCLQT6)}
 uses
-  uDragDropQt;
+  uDragDropQt, uOSForms;
 {$ENDIF}
+
+type
+  TWinControlHack = class(TWinControl);
 
 const
   DropDefaultEffect: array[Boolean] of TDropEffect = (DropMoveEffect, DropCopyEffect);
@@ -343,7 +379,75 @@ begin
   FDragLeaveEvent := nil;
 end;
 
+{ TDragDropTargetHelper }
+
+function TDragDropTargetHelper.OnExDragOver(var DropEffect: TDropEffect;
+  ScreenPoint: TPoint): Boolean;
+var
+  ClientPoint: TPoint;
+  Sender: TWinControlHack;
+begin
+  if Assigned(ExternalDragSourceControl) then
+  begin
+    Result := False;
+    Sender := TWinControlHack(FDragDropTarget.FDragDropControl);
+    if Assigned(Sender.OnDragOver) then
+    begin
+      ClientPoint := Sender.ScreenToClient(ScreenPoint);
+      Sender.OnDragOver(Sender, ExternalDragSourceControl,
+                        ClientPoint.X, ClientPoint.Y, dsDragMove, Result);
+      Exit;
+    end;
+  end;
+  Result:= False;
+end;
+
+function TDragDropTargetHelper.OnExDrop(const FileNamesList: TStringList;
+  DropEffect: TDropEffect; ScreenPoint: TPoint): Boolean;
+var
+  ClientPoint: TPoint;
+  Sender: TWinControlHack;
+begin
+  if Assigned(ExternalDragSourceControl) then
+  begin
+    Sender := TWinControlHack(FDragDropTarget.FDragDropControl);
+    if Assigned(Sender.OnDragDrop) then
+    begin
+      ClientPoint := Sender.ScreenToClient(ScreenPoint);
+      Sender.OnDragDrop(Sender, ExternalDragSourceControl,
+                                    ClientPoint.X, ClientPoint.Y);
+      Exit(True);
+    end;
+  end;
+  Result:= False;
+end;
+
+constructor TDragDropTargetHelper.Create(TargetControl: TWinControl);
+begin
+  FDragDropTarget:= CreateDragDropTarget(TargetControl);
+  if Assigned(FDragDropTarget) then
+  begin
+    FDragDropTarget.RegisterEvents(nil, @OnExDragOver, @OnExDrop, nil);
+  end;
+end;
+
+destructor TDragDropTargetHelper.Destroy;
+begin
+  FDragDropTarget.Free;
+end;
+
 { --------------------------------------------------------------------------- }
+
+function IsDragTransformSupported: Boolean;
+begin
+{$IF DEFINED(XDG)}
+  Result := not IsWaylandSession;
+{$ELSEIF DEFINED(LCLCOCOA)}
+  Result := False;
+{$ELSE}
+  Result := True;
+{$ENDIF}
+end;
 
 function IsExternalDraggingSupported: Boolean;
 begin
@@ -381,6 +485,8 @@ function CreateDragDropTarget(Control: TWinControl): TDragDropTarget;
 begin
 {$IF DEFINED(MSWINDOWS)}
   Result := TDragDropTargetWindows.Create(Control);
+{$ELSEIF DEFINED(LCLCOCOA)}
+  Result := TDragDropTargetCocoa.Create(Control);
 {$ELSEIF DEFINED(LCLGTK) or DEFINED(LCLGTK2) or DEFINED(LCLGTK3)}
   Result := TDragDropTargetGTK.Create(Control);
 {$ELSEIF DEFINED(LCLQT) or DEFINED(LCLQT5) OR DEFINED(LCLQT6)}

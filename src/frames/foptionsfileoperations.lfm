@@ -170,6 +170,28 @@ inherited frmOptionsFileOperations: TfrmOptionsFileOperations
       Caption = 'D&elete to trash operation'
       TabOrder = 9
     end
+    object cbDeleteReadOnlyConfirmation: TCheckBox
+      AnchorSideLeft.Control = lblProgressKind
+      AnchorSideTop.Control = cbDeleteToTrashConfirmation
+      AnchorSideTop.Side = asrBottom
+      Left = 10
+      Height = 18
+      Top = 236
+      Width = 156
+      Caption = 'Delete read-only files'
+      TabOrder = 10
+    end
+    object cbDeleteHiddenSystemConfirmation: TCheckBox
+      AnchorSideLeft.Control = lblProgressKind
+      AnchorSideTop.Control = cbDeleteReadOnlyConfirmation
+      AnchorSideTop.Side = asrBottom
+      Left = 10
+      Height = 18
+      Top = 258
+      Width = 186
+      Caption = 'Delete hidden/system files'
+      TabOrder = 11
+    end
     object bvlConfirmations: TDividerBevel
       AnchorSideLeft.Control = lblProgressKind
       AnchorSideTop.Control = cmbDeleteDialogStart
@@ -187,14 +209,14 @@ inherited frmOptionsFileOperations: TfrmOptionsFileOperations
     end
     object cbVerifyChecksumConfirmation: TCheckBox
       AnchorSideLeft.Control = cbDeleteToTrashConfirmation
-      AnchorSideTop.Control = cbDeleteToTrashConfirmation
+      AnchorSideTop.Control = cbDeleteHiddenSystemConfirmation
       AnchorSideTop.Side = asrBottom
       Left = 10
       Height = 24
       Top = 298
       Width = 199
       Caption = 'Verify checksum operation'
-      TabOrder = 10
+      TabOrder = 12
     end
     object cbTestArchiveConfirmation: TCheckBox
       AnchorSideLeft.Control = cbVerifyChecksumConfirmation
@@ -205,7 +227,7 @@ inherited frmOptionsFileOperations: TfrmOptionsFileOperations
       Top = 323
       Width = 161
       Caption = 'Test archive operation'
-      TabOrder = 11
+      TabOrder = 13
     end
   end
   object gbExecutingOperations: TGroupBox[1]
@@ -278,6 +300,8 @@ inherited frmOptionsFileOperations: TfrmOptionsFileOperations
       Height = 28
       Top = 74
       Width = 50
+      MaxValue = 64
+      MinValue = 1
       TabOrder = 2
     end
     object cbProcessComments: TCheckBox

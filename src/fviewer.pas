@@ -112,6 +112,20 @@ type
     function getDeltaRect( const delta: Integer ): TRect; inline;
   end;
 
+  { TImage }
+
+  TImage = class(ExtCtrls.TImage)
+  private
+    FEdit: Boolean;
+    FBitmap: TBitmap;
+  protected
+    procedure Paint; override;
+    procedure PictureChange(Sender: TObject);
+  public
+    constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
+  end;
+
   { TfrmViewer }
 
   TfrmViewer = class(TAloneForm, IFormCommands)
@@ -382,8 +396,7 @@ type
     bImage,
     bPlugin,
     bQuickView,
-    MDFlag,
-    ImgEdit: Boolean;
+    MouseDownFlag: Boolean;
     FThumbSize: TSize;
     FFindDialog:TfrmFindView;
     FWaitData: TWaitData;
@@ -583,7 +596,7 @@ uses
   uConvEncoding, DCBasicTypes, DCOSUtils, uOSUtils, uFindByrMr, uFileViewWithGrid,
   fPrintSetup, uFindFiles, uAdministrator, uOfficeXML, uHighlighterProcs, dmHigh,
   SynEditTypes, uFile, uFileSystemFileSource, uFileProcs, uOperationsManager,
-  LazLogger, uFileSourceOperationOptions, uGraphics
+  LazLogger, uFileSourceOperationOptions, uGraphics, uScaleBitmap
 {$if lcl_fullversion >= 4990000}
   , SynEditWrappedView
 {$endif}
@@ -906,6 +919,63 @@ begin
   InflateRect( Result, delta, delta );
 end;
 
+{ TImage }
+
+procedure TImage.Paint;
+var
+  F: Double;
+  C: TCanvas;
+  ARect: TRect;
+  ASize: TSize;
+  Graphic: TRasterImage;
+begin
+  if (not FEdit) and ScaleFastAvailable(TRasterImage(Picture.Graphic)) then
+  begin
+    ARect:= ClientRect;
+    F:= GetCanvasScaleFactor;
+    ASize.cx:= Round(ARect.Right * F);
+    ASize.cy:= Round(ARect.Bottom * F);
+    Graphic:= TRasterImage(Picture.Graphic);
+
+    if (Graphic.Width > ASize.cx) or (Graphic.Height > ASize.cy) then
+    begin
+      if (ASize.cx <> FBitmap.Width) or (ASize.cy <> FBitmap.Height) then
+      begin
+        ScaleBitmapFast(Graphic, FBitmap, ASize.cx, ASize.cy);
+        FBitmap.Handle;
+      end;
+      C:= TGraphicControl(Self).Canvas;
+      C.AntialiasingMode:= AntialiasingMode;
+      if Assigned(OnPaintBackground) then
+      begin
+        OnPaintBackground(Self, C, ARect);
+      end;
+      C.StretchDraw(ARect, FBitmap);
+      Exit;
+    end;
+  end;
+
+  inherited Paint;
+end;
+
+procedure TImage.PictureChange(Sender: TObject);
+begin
+  FBitmap.Clear;
+end;
+
+constructor TImage.Create(AOwner: TComponent);
+begin
+  FBitmap:= TBitmap.Create;
+  inherited Create(AOwner);
+  Picture.OnChange:= @PictureChange;
+end;
+
+destructor TImage.Destroy;
+begin
+  inherited Destroy;
+  FBitmap.Free;
+end;
+
 { TThumbThread }
 
 procedure TThumbThread.ClearList;
@@ -1217,89 +1287,99 @@ end;
 procedure TfrmViewer.ImageMouseDown(Sender: TObject; Button: TMouseButton;
   Shift: TShiftState; X, Y: Integer);
 begin
-  MDFlag := true;
-  X:=round(X*Image.Picture.Width/Image.Width);                  // for correct paint after zoom
-  Y:=round(Y*Image.Picture.Height/Image.Height);
-  cas:=0;
-    if (button = mbLeft) and btnHightlight.Down then
-       begin
-         if (X>StartX) and (X<=StartX+10) then
-            begin
-              if (Y>StartY) and (Y<=StartY+10) then begin
-                                                 cas:=1;
-                                                 tmpX:=X-StartX;
-                                                 tmpY:=Y-StartY;
-                                                 end;
-              if (Y>StartY+10) and (Y<=EndY-10) then begin
-                                                  cas:=2;
-                                                  tmpX:=X-StartX;
-                                                  end;
-              if (Y>EndY-9) and (Y<=EndY) then begin
-                                            cas:=3;
-                                            tmpX:=X-StartX;
-                                            tmpY:=EndY-Y;
-                                            end;
-              if (Y<StartY) or (Y>EndY) then cas:=0;
-            end;
-         if (X>StartX+10) and (X<=EndX-10) then
-            begin
-              if (Y>StartY) and (Y<=StartY+10) then begin
-                                                    cas:=4;
-                                                    tmpY:=Y-StartY;
-                                                    end;
-              if (Y>StartY+10) and (Y<=EndY-10)then begin
-                                                    cas:=5;
-                                                    tmpX:=X-StartX;
-                                                    tmpY:=Y-StartY;
-                                                    end;
-              if (Y>EndY-9) and (Y<=EndY) then begin
-                                               cas:=6;
-                                               tmpY:=EndY-Y;
-                                               end;
-              If (Y<StartY) or (Y>EndY) then cas:=0;
-            end;
-         if (X>EndX-10) and (X<=EndX) then
-            begin
-              if (Y>StartY) and (Y<=StartY+10) then begin
-                                                    cas:=7;
-                                                    tmpX := EndX-X;
-                                                    tmpY:=StartY-Y;
-                                                    end;
-              if (Y>StartY+10) and (Y<=EndY-10) then begin
-                                                     cas:=8;
-                                                     tmpX := EndX-X;
-                                                     end;
-              if (Y>EndY-9) and (Y<=EndY) then begin
-                                               cas:=9;
-                                               tmpX := EndX-X;
-                                               tmpY:=EndY-Y;
-                                               end;
-              If (Y<StartY) or (Y>EndY) then cas:=0;
-            end;
-         if (X<StartX) or (X>EndX) then cas:=0;
-        end;
-    if Button=mbRight then
-      begin
-        pmEditMenu.PopUp;
-      end;
-
-    if cas=0 then
-         begin
-           StartX := X;
-           StartY := Y;
-         end;
-
-    if btnPaint.Down then
-      begin
-        CreateTmp;
-        Image.Picture.Bitmap.Canvas.MoveTo (x,y);
-    end;
-  if not (btnHightlight.Down) and not (btnPaint.Down) then
+  MouseDownFlag := True;
+  // for correct paint after zoom
+  X := Round(X * Image.Picture.Width / Image.Width);
+  Y := Round(Y * Image.Picture.Height / Image.Height);
+  cas := 0;
+  if (button = mbLeft) and btnHightlight.Down then
+  begin
+    if (X > StartX) and (X <= StartX + 10) then
     begin
-    tmpX:=x;
-    tmpY:=y;
-    Image.Cursor:=crHandPoint;
+      if (Y > StartY) and (Y <= StartY + 10) then
+      begin
+        cas := 1;
+        tmpX := X - StartX;
+        tmpY := Y - StartY;
+      end;
+      if (Y > StartY + 10) and (Y <= EndY - 10) then
+      begin
+        cas := 2;
+        tmpX := X - StartX;
+      end;
+      if (Y > EndY - 9) and (Y <= EndY) then
+      begin
+        cas := 3;
+        tmpX := X - StartX;
+        tmpY := EndY - Y;
+      end;
+      if (Y < StartY) or (Y > EndY) then cas := 0;
     end;
+    if (X > StartX + 10) and (X <= EndX - 10) then
+    begin
+      if (Y > StartY) and (Y <= StartY + 10) then
+      begin
+        cas := 4;
+        tmpY := Y - StartY;
+      end;
+      if (Y > StartY + 10) and (Y <= EndY - 10) then
+      begin
+        cas := 5;
+        tmpX := X - StartX;
+        tmpY := Y - StartY;
+      end;
+      if (Y > EndY - 9) and (Y <= EndY) then
+      begin
+        cas := 6;
+        tmpY := EndY - Y;
+      end;
+      if (Y < StartY) or (Y > EndY) then cas := 0;
+    end;
+    if (X > EndX - 10) and (X <= EndX) then
+    begin
+      if (Y > StartY) and (Y <= StartY + 10) then
+      begin
+        cas := 7;
+        tmpX := EndX - X;
+        tmpY := StartY - Y;
+      end;
+      if (Y > StartY + 10) and (Y <= EndY - 10) then
+      begin
+        cas := 8;
+        tmpX := EndX - X;
+      end;
+      if (Y > EndY - 9) and (Y <= EndY) then
+      begin
+        cas := 9;
+        tmpX := EndX - X;
+        tmpY := EndY - Y;
+      end;
+      if (Y < StartY) or (Y > EndY) then cas := 0;
+    end;
+    if (X < StartX) or (X > EndX) then cas := 0;
+  end
+  else if Button = mbRight then
+  begin
+    pmEditMenu.PopUp;
+  end;
+
+  if cas = 0 then
+  begin
+    StartX := X;
+    StartY := Y;
+  end;
+
+  if btnPaint.Down then
+  begin
+    CreateTmp;
+    Image.Picture.Bitmap.Canvas.MoveTo(x, y);
+  end
+  else if not (btnHightlight.Down) then
+  begin
+    tmpX := x;
+    tmpY := y;
+    Image.Cursor := crHandPoint;
+  end;
 end;
 
 procedure TfrmViewer.ImageMouseEnter(Sender: TObject);
@@ -1321,111 +1401,118 @@ end;
 procedure TfrmViewer.ImageMouseMove(Sender: TObject; Shift: TShiftState; X,
   Y: Integer);
 var
-  tmp: integer;
+  tmp: Integer;
 begin
   if miFullScreen.Checked then
+  begin
+    sboxImage.Cursor := crDefault;
+    Image.Cursor := crDefault;
+    i_timer := 0;
+  end;
+  if MouseDownFlag then
+  begin
+    // for correct paint after zoom
+    X := Round(X * Image.Picture.Width / Image.Width);
+    Y := Round(Y * Image.Picture.Height / Image.Height);
+
+    if btnHightlight.Down then
     begin
-      sboxImage.Cursor:=crDefault;
-      Image.Cursor:=crDefault;
-      i_timer:=0;
-    end;
-  X:=round(X*Image.Picture.Width/Image.Width);                      // for correct paint after zoom
-  Y:=round(Y*Image.Picture.Height/Image.Height);
-  if MDFlag then
+      if cas = 0 then
+      begin
+        EndX := X;
+        EndY := Y;
+      end;
+      if cas = 1 then
+      begin
+        StartX := X - tmpX;
+        StartY := Y - tmpY;
+      end;
+      if cas = 2 then StartX := X - tmpX;
+      if cas = 3 then
+      begin
+        StartX := X - tmpX;
+        EndY := Y + tmpY;
+      end;
+      if cas = 4 then StartY := Y - tmpY;
+      if cas = 5 then
+      begin
+        tmp := EndX - StartX;
+        StartX := X - tmpX;
+        EndX := StartX + tmp;
+        tmp := EndY - StartY;
+        StartY := Y - tmpY;
+        EndY := StartY + tmp;
+      end;
+      if cas = 6 then EndY := Y + tmpY;
+      if cas = 7 then
+      begin
+        EndX := X + tmpX;
+        StartY := Y - tmpY;
+      end;
+      if cas = 8 then endX := X + tmpX;
+      if cas = 9 then
+      begin
+        EndX := X + tmpX;
+        EndY := Y + tmpY;
+      end;
+      if StartX < 0 then StartX := 0;
+      if StartY < 0 then StartY := 0;
+      if endX < 0 then endX := 0;
+      if endY < 0 then endY := 0;
+      if endX > Image.Picture.Width then endX := Image.Picture.Width;
+      if endY > Image.Picture.Height then endY := Image.Picture.Height;
+      with Image.Picture.Bitmap.Canvas do
+      begin
+        if not undoRect.getRect.IsEmpty then
         begin
-      if btnHightlight.Down then
-        begin
-            if cas=0 then
-            begin
-              EndX:=X;
-              EndY:=Y;
-            end;
-            if cas=1 then
-            begin
-              StartX:= X-tmpX;
-              StartY:=Y-tmpY;
-            end;
-            if cas=2 then StartX:= X-tmpX;
-            if cas=3then
-            begin
-              StartX:= X-tmpX;
-              EndY:=Y+tmpY;
-            end;
-            if cas=4 then StartY:=Y-tmpY;
-            if cas=5 then
-            begin
-              tmp:=EndX-StartX;
-              StartX:= X-tmpX;
-              EndX:=StartX+tmp;
-              tmp:=EndY-StartY;
-              StartY:= Y-tmpY;
-              EndY:=StartY+tmp;
-            end;
-            if cas=6 then EndY:=Y+tmpY;
-            if cas=7 then
-            begin
-              EndX:=X+tmpX;
-              StartY:=Y-tmpY;
-            end;
-            if cas=8 then endX:=X+tmpX;
-            if cas=9 then
-            begin
-              EndX:=X+tmpX;
-              EndY:=Y+tmpY;
-            end;
-            if StartX < 0 then StartX:= 0;
-            if StartY < 0 then StartY:= 0;
-            if endX < 0 then endX:= 0;
-            if endY < 0 then endY:= 0;
-            if endX > Image.Picture.Width then endX:=Image.Picture.Width;
-            if endY > Image.Picture.Height then endY:=Image.Picture.Height;
-            with Image.Picture.Bitmap.Canvas do
-              begin
-                if NOT undoRect.getRect.IsEmpty then begin
-                  {$IFnDEF DARWIN}
-                  DrawFocusRect( undoRect.getRect );
-                  DrawFocusRect( undoRect.getDeltaRect(-10) );
-                  {$ELSE}
-                  // XOR not supported on macOS, redraw instead
-                  CopyRect( undoRect.getRect, tmp_all.canvas, undoRect.getRect );
-                  {$ENDIF}
-                end;
-                undoRect.setRect( StartX, StartY, EndX, EndY );
-                DrawFocusRect( undoRect.getRect );
-                DrawFocusRect( undoRect.getDeltaRect(-10) );//Pen.Mode := pmNotXor;
-                Status.Panels[sbpImageSelection].Text := IntToStr(EndX-StartX)+'x'+IntToStr(EndY-StartY);
-              end;
-          end;
-        if btnPaint.Down then
-        begin
-          with Image.Picture.Bitmap.Canvas do
+          {$IFnDEF DARWIN}
+          DrawFocusRect(undoRect.getRect);
+          DrawFocusRect(undoRect.getDeltaRect(-10));
+          {$ELSE}
+          // XOR not supported on macOS, redraw instead
+          CopyRect( undoRect.getRect, tmp_all.canvas, undoRect.getRect );
+          {$ENDIF}
+        end;
+        undoRect.setRect(StartX, StartY, EndX, EndY);
+        DrawFocusRect(undoRect.getRect);
+        DrawFocusRect(undoRect.getDeltaRect(-10));//Pen.Mode := pmNotXor;
+        Status.Panels[sbpImageSelection].Text := IntToStr(EndX - StartX) + 'x' + IntToStr(EndY - StartY);
+      end;
+    end
+    else if btnPaint.Down then
+    begin
+      with Image.Picture.Bitmap.Canvas do
+      begin
+        Brush.Style := bsClear;
+        Pen.Width := btnPenWidth.Tag;
+        Pen.Color := btnPenColor.ButtonColor;
+        Pen.Style := psSolid;
+        tmp := Pen.Width + 10;
+
+        case TViewerPaintTool(btnPenMode.Tag) of
+          vptPen: LineTo(x, y);
+          vptRectangle, vptEllipse:
           begin
-            Brush.Style:= bsClear;
-            Pen.Width := btnPenWidth.Tag;
-            Pen.Color := btnPenColor.ButtonColor;
-            Pen.Style := psSolid;
-            tmp:= Pen.Width+10;
+            if not undoRect.getRect.IsEmpty then
+            begin
+              CopyRect(undoRect.getDeltaRect(tmp), tmp_all.Canvas, undoRect.getDeltaRect(tmp));
+            end;
+
+            undoRect.setRect(StartX, StartY, X, Y);
 
             case TViewerPaintTool(btnPenMode.Tag) of
-              vptPen: LineTo (x,y);
-              vptRectangle, vptEllipse:
-              begin
-                if NOT undoRect.getRect.IsEmpty then
-                  CopyRect( undoRect.getDeltaRect(tmp), tmp_all.canvas, undoRect.getDeltaRect(tmp) );
-                undoRect.setRect( StartX, StartY, X, Y );
-                case TViewerPaintTool(btnPenMode.Tag) of
-                  vptRectangle: Rectangle( undoRect.getRect );
-                  vptEllipse:Ellipse( undoRect.getRect );
-                end;
-              end;
+              vptRectangle: Rectangle(undoRect.getRect);
+              vptEllipse: Ellipse(undoRect.getRect);
             end;
-
           end;
         end;
-      if not (btnHightlight.Down) and not (btnPaint.Down) then
+        Image.Invalidate;
+      end;
+    end;
+    if not (btnHightlight.Down) and not (btnPaint.Down) then
     begin
-      sboxImage.VertScrollBar.Position:=sboxImage.VertScrollBar.Position+tmpY-y;
-      sboxImage.HorzScrollBar.Position:=sboxImage.HorzScrollBar.Position+tmpX-x;
+      sboxImage.VertScrollBar.Position := sboxImage.VertScrollBar.Position + tmpY - y;
+      sboxImage.HorzScrollBar.Position := sboxImage.HorzScrollBar.Position + tmpX - x;
     end;
   end;
 end;
@@ -1433,25 +1520,23 @@ end;
 procedure TfrmViewer.ImageMouseUp(Sender: TObject; Button: TMouseButton;
   Shift: TShiftState; X, Y: Integer);
 begin
-  X:=round(X*Image.Picture.Width/Image.Width);             // for correct paint after zoom
-  Y:=round(Y*Image.Picture.Height/Image.Height);
-  MDFlag:=false;
-  if (button = mbLeft) and btnHightlight.Down then
+  MouseDownFlag := False;
+  if (Button = mbLeft) and btnHightlight.Down then
+  begin
+    UndoTmp;
+    CheckXY;
+    with Image.Picture.Bitmap.Canvas do
     begin
-      UndoTmp;
-      CheckXY;
-      with Image.Picture.Bitmap.Canvas do
-      begin
-        Brush.Style := bsClear;
-        Pen.Style := psDot;
-        Pen.Color := clHighlight;
-        DrawFocusRect(Rect(StartX,StartY,EndX,EndY));
-        DrawFocusRect(Rect(StartX+10,StartY+10,EndX-10,EndY-10));
-        Status.Panels[sbpImageSelection].Text := IntToStr(EndX-StartX)+'x'+IntToStr(EndY-StartY);
-      end;
+      Brush.Style := bsClear;
+      Pen.Style := psDot;
+      Pen.Color := clHighlight;
+      DrawFocusRect(Rect(StartX, StartY, EndX, EndY));
+      DrawFocusRect(Rect(StartX + 10, StartY + 10, EndX - 10, EndY - 10));
+      Status.Panels[sbpImageSelection].Text := IntToStr(EndX - StartX) + 'x' + IntToStr(EndY - StartY);
     end;
-  if NOT btnHightlight.Down then
-    Image.Cursor:=crDefault;
+  end;
+  if not btnHightlight.Down then
+    Image.Cursor := crDefault;
 end;
 
 procedure TfrmViewer.ImageMouseWheelDown(Sender: TObject; Shift: TShiftState;
@@ -2059,6 +2144,11 @@ begin
   BitmapRotate(TRasterImage(Image.Picture.Graphic), ADegree);
   DebugLn('Rotate: ', IntToStr(SysUtils.GetTickCount64 - Q));
   AdjustImageSize;
+  // Force a redraw for the square image
+  if (Image.Picture.Graphic.Width = Image.Picture.Graphic.Height) then
+  begin
+    Image.Invalidate;
+  end;
   CreateTmp;
 end;
 
@@ -2069,7 +2159,7 @@ begin
   Q:= SysUtils.GetTickCount64;
   BitmapMirror(TRasterImage(Image.Picture.Graphic), AVertically);
   DebugLn('Mirror: ', IntToStr(SysUtils.GetTickCount64 - Q));
-  AdjustImageSize;
+  Image.Invalidate;
   CreateTmp;
 end;
 
@@ -2566,6 +2656,11 @@ begin
   miCenter.Checked := gImageCenter;
   miPreview.Checked := gPreviewVisible;
   btnPenMode.Tag := Integer(gImagePaintMode);
+  case gImagePaintMode of
+    vptPen: btnPenMode.ImageIndex:= miPen.ImageIndex;
+    vptRectangle: btnPenMode.ImageIndex:= miRect.ImageIndex;
+    vptEllipse: btnPenMode.ImageIndex:= miEllipse.ImageIndex;
+  end;
   btnPenWidth.Tag := gImagePaintWidth;
   btnPenColor.ButtonColor := gImagePaintColor;
 
@@ -2726,38 +2821,14 @@ begin
 end;
 
 procedure TfrmViewer.btnPaintHightlight(Sender: TObject);
-var
-  bmp: TCustomBitmap = nil;
-  GraphicClass: TGraphicClass;
-  sExt: String;
-  fsFileStream: TFileStreamEx = nil;
 begin
-  if not ImgEdit then
+  if not Image.FEdit then
   begin
-    try
-      sExt:= ExtractFileExt(FileList.Strings[iActiveFile]);
-      fsFileStream:= TFileStreamEx.Create(FileList.Strings[iActiveFile], fmOpenRead or fmShareDenyNone);
-      GraphicClass := GetGraphicClassForFileExtension(sExt);
-      if (GraphicClass <> nil) and (GraphicClass.InheritsFrom(TCustomBitmap)) then
-        begin
-          Image.DisableAutoSizing;
-          bmp := TCustomBitmap(GraphicClass.Create);
-          bmp.LoadFromStream(fsFileStream);
-          Image.Picture.Bitmap := TBitmap.Create;
-          Image.Picture.Bitmap.Height:= bmp.Height;
-          Image.Picture.Bitmap.Width:= bmp.Width;
-          Image.Picture.Bitmap.Canvas.Draw(0, 0, bmp);
-          Image.EnableAutoSizing;
-        end;
-    finally
-      FreeAndNil(bmp);
-      FreeAndNil(fsFileStream);
+    if not (Image.Picture.Graphic is TBitmap) then
+    begin
+      // Force graphic type to TBitmap
+      Image.Picture.Bitmap;
     end;
-    {miStretch.Checked:= False;
-    Image.Stretch:= miStretch.Checked;
-    Image.Proportional:= Image.Stretch;
-    Image.Autosize:= not(miStretch.Checked);
-    AdjustImageSize; }
   end;
   if Sender = btnHightlight then
     begin
@@ -2777,7 +2848,7 @@ begin
   btnPenMode.Enabled:= btnPaint.Down;
   btnPenWidth.Enabled:= btnPaint.Down;
   btnPenColor.Enabled:= btnPaint.Down;
-  ImgEdit:= True;
+  Image.FEdit:= True;
   CreateTmp;
 
   if btnHightlight.Down then
@@ -3292,7 +3363,7 @@ begin
         end;
       end;
     end;
-  ImgEdit:= False;
+  Image.FEdit:= False;
 end;
 
 function TfrmViewer.LoadSynEdit(const sFileName: String): Boolean;
@@ -4111,7 +4182,7 @@ begin
   CreateTmp;
   bmp.Free;
   Visible:= True;
-  ImgEdit:= True;
+  Image.FEdit:= True;
 end;
 
 procedure TfrmViewer.cm_ScreenshotWithDelay(const Params: array of string);

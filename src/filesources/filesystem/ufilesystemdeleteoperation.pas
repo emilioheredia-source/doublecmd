@@ -33,6 +33,8 @@ type
     procedure DeleteSubDirectory(const aFile: TFile);
 
   protected
+    function isFileDirReadOnly(const f: TFile): Boolean;
+    function isFileDirHiddenOrSystem(const f: TFile): Boolean;
     procedure ProcessFile(aFile: TFile);
     procedure ProcessList(aFiles: TFiles);
     function ShowError(sMessage: String): TFileSourceOperationUIResponse;
@@ -57,11 +59,31 @@ type
 implementation
 
 uses
-  DCOSUtils, DCStrUtils, uLng, uFileSystemUtil, uTrash, uAdministrator
+  DCBasicTypes, DCOSUtils, DCStrUtils,
+  uLng, uFileSystemUtil, uTrash, uAdministrator
 {$IF DEFINED(MSWINDOWS)}
   , Windows,  uFileUnlock, fFileUnlock, uSuperUser
+{$ELSEIF DEFINED(UNIX)}
+  , BaseUnix
 {$ENDIF}
   ;
+
+function TFileSystemDeleteOperation.isFileDirReadOnly(const f: TFile): Boolean;
+var
+  iAttr: TFileAttrs;
+begin
+  iAttr:= f.Attributes;
+{$IFDEF MSWINDOWS}
+  Result:= (iAttr and faReadOnly) <> 0;
+{$ELSE}
+  Result:= (((iAttr AND S_IRUSR) = S_IRUSR) and ((iAttr AND S_IWUSR) <> S_IWUSR));
+{$ENDIF}
+end;
+
+function TFileSystemDeleteOperation.isFileDirHiddenOrSystem(const f: TFile): Boolean;
+begin
+  Result:= FileSource.IsSystemFile(f) or FileSource.IsHiddenFile(f);
+end;
 
 constructor TFileSystemDeleteOperation.Create(aTargetFileSource: IFileSource;
                                               var theFilesToDelete: TFiles);
@@ -172,6 +194,15 @@ procedure TFileSystemDeleteOperation.ProcessFile(aFile: TFile);
 const
   ResponsesError: array[0..3] of TFileSourceOperationUIResponse
     = (fsourRetry, fsourSkip, fsourSkipAll, fsourAbort);
+
+  function needSecondConfirm: Boolean;
+  begin
+    Result:= (focDeleteReadOnly in gFileOperationsConfirmations) and isFileDirReadOnly(aFile);
+    if Result then
+      Exit;
+    Result:= (focDeleteHiddenSystem in gFileOperationsConfirmations) and isFileDirHiddenOrSystem(aFile);
+  end;
+
 var
   FileName: String;
   bRetry: Boolean;
@@ -187,7 +218,7 @@ var
 begin
   FileName := aFile.FullPath;
 
-  if FileIsReadOnly(aFile.Attributes) then
+  if needSecondConfirm then
   begin
     case FDeleteReadOnly of
       fsoogNone:

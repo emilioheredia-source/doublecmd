@@ -44,12 +44,14 @@ type
     FSize: TCoord;
     FLength: Integer;
     FThread: TThread;
+    FProcess: HANDLE;
     FPipeIn, FPipeOut: THandle;
     FBuffer: array[0..8191] of AnsiChar;
   protected
     procedure ReadySync;
     procedure ReadThread;
     procedure DestroyPseudoConsole;
+    function GetChildHandle: THandle; override;
     procedure SetConnected(AValue: Boolean); override;
     function CreatePseudoConsole(const ACommand: String): Boolean;
   public
@@ -116,7 +118,8 @@ var
                                       lpPreviousValue: PVOID; lpReturnSize: PSIZE_T): BOOL; stdcall;
   DeleteProcThreadAttributeList: procedure(lpAttributeList: LPPROC_THREAD_ATTRIBUTE_LIST); stdcall;
 
-function CreatePseudoConsoleNew(const ACommand: String; phPC: PPointer; phPipeIn, phPipeOut: PHandle; ASize: COORD): Boolean;
+function CreatePseudoConsoleNew(const ACommand: String; ADirectory: PWideChar;
+                                phPC: PPointer; phProcess, phPipeIn, phPipeOut: PHandle; ASize: COORD): Boolean;
 var
   attrListSize: SIZE_T = 0;
   startupInfo: STARTUPINFOEXW;
@@ -158,7 +161,10 @@ begin
   begin
     Result:= CreateProcessW(nil, PWideChar(CeUtf8ToUtf16(ACommand)),
                             nil, nil, False, EXTENDED_STARTUPINFO_PRESENT,
-                            nil, nil, @startupInfo.StartupInfo, @piClient);
+                            nil, ADirectory, @startupInfo.StartupInfo, @piClient);
+    if Result then begin
+      phProcess^:= piClient.hProcess;
+    end;
   end;
   if not Result then
   begin
@@ -268,9 +274,9 @@ var
   winpty_conout_name: function(wp: Pwinpty_t): LPCWSTR; cdecl;
   winpty_conerr_name: function(wp: Pwinpty_t): LPCWSTR; cdecl;
 
-function CreatePseudoConsoleOld(const ACommand: String; phPC: PPointer; phPipeIn, phPipeOut: PHandle; ASize: COORD): Boolean;
+function CreatePseudoConsoleOld(const ACommand: String; ADirectory: PWideChar;
+                                phPC: PPointer; phProcess, phPipeIn, phPipeOut: PHandle; ASize: COORD): Boolean;
 var
-  childHandle: HANDLE;
   lastError: DWORD = 0;
   agentCfg: Pwinpty_config_t;
   spawnCfg: Pwinpty_spawn_config_t;
@@ -294,12 +300,12 @@ begin
       phPipeIn^:= CreateFileW(winpty_conout_name(phPC^), GENERIC_READ, 0, nil, OPEN_EXISTING, 0, 0);
       phPipeOut^:= CreateFileW(winpty_conin_name(phPC^), GENERIC_WRITE, 0, nil, OPEN_EXISTING, 0, 0);
 
-      spawnCfg:= winpty_spawn_config_new(WINPTY_SPAWN_FLAG_AUTO_SHUTDOWN,
-                                         nil, PWideChar(CeUtf8ToUtf16(ACommand)), nil, nil, nil);
+      spawnCfg:= winpty_spawn_config_new(WINPTY_SPAWN_FLAG_AUTO_SHUTDOWN, nil,
+                                         PWideChar(CeUtf8ToUtf16(ACommand)), ADirectory, nil, nil);
       Result:= Assigned(spawnCfg);
       if Result then
       begin
-        Result:= winpty_spawn(phPC^, spawnCfg, @childHandle, nil, @lastError, nil);
+        Result:= winpty_spawn(phPC^, spawnCfg, phProcess, nil, @lastError, nil);
         winpty_spawn_config_free(spawnCfg);
       end;
 
@@ -402,10 +408,19 @@ begin
 end;
 
 function TPtyDevice.CreatePseudoConsole(const ACommand: String): Boolean;
+var
+  pwcDirectory: PWideChar;
+  usDirectory: UnicodeString;
 begin
+  if (Length(FInitialDir) = 0) then
+    pwcDirectory:= nil
+  else begin
+    usDirectory:= CeUtf8ToUtf16(FInitialDir);
+    pwcDirectory:= PWideChar(usDirectory);
+  end;
   case ConsoleType of
-    ctNative:  Result:= CreatePseudoConsoleNew(ACommand, @FPty, @FPipeIn, @FPipeOut, FSize);
-    ctEmulate: Result:= CreatePseudoConsoleOld(ACommand, @FPty, @FPipeIn, @FPipeOut, FSize);
+    ctNative:  Result:= CreatePseudoConsoleNew(ACommand, pwcDirectory, @FPty, @FProcess, @FPipeIn, @FPipeOut, FSize);
+    ctEmulate: Result:= CreatePseudoConsoleOld(ACommand, pwcDirectory, @FPty, @FProcess, @FPipeIn, @FPipeOut, FSize);
     ctNone:    Result:= False;
   end;
 end;
@@ -457,6 +472,11 @@ begin
     FSize.Y:= aRows;
     FSize.X:= aCols;
   end;
+end;
+
+function TPtyDevice.GetChildHandle: THandle;
+begin
+  Result := FProcess;
 end;
 
 procedure Initialize;

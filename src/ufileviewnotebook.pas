@@ -36,7 +36,7 @@ interface
 uses
   Classes, SysUtils, Controls, ComCtrls, LMessages,
   LCLType, Forms,
-  uFileView, uFilePanelSelect, DCXmlConfig;
+  uFileView, uFilePanelSelect, DCXmlConfig, VTEmuCtl, VTEmuPty;
 
 type
 
@@ -61,6 +61,12 @@ type
     FBackupColumnSet: String;
     FOnChangeFileView: TNotifyEvent;
     FBackupViewClass: TFileViewClass;
+    FTerminal: TVirtualTerminal;
+    FPtyDevice: TCustomPtyDevice;
+    FTermInitialized: Boolean;
+    FTermNeedInit: Boolean;
+    FTermSyncMode: Integer;
+    FTermSyncDir: Integer;
 
     procedure AssignPage(OtherPage: TFileViewPage);
     procedure AssignProperties(OtherPage: TFileViewPage);
@@ -82,6 +88,7 @@ type
     procedure DoActivate;
 
   protected
+    procedure Notification(AComponent: TComponent; Operation: TOperation); override;
     procedure PaintWindow(DC: HDC); override;
 {$IF DEFINED(LCLWIN32)}
     procedure RealSetText(const AValue: TCaption); override;
@@ -90,6 +97,7 @@ type
 
   public
     constructor Create(TheOwner: TComponent); override;
+    destructor Destroy; override;
 
     function IsActive: Boolean;
     procedure MakeActive;
@@ -109,6 +117,12 @@ type
     property BackupColumnSet: String read FBackupColumnSet write FBackupColumnSet;
     property BackupViewClass: TFileViewClass read FBackupViewClass write FBackupViewClass;
     property OnChangeFileView: TNotifyEvent read FOnChangeFileView write FOnChangeFileView;
+    property Terminal: TVirtualTerminal read FTerminal write FTerminal;
+    property PtyDevice: TCustomPtyDevice read FPtyDevice write FPtyDevice;
+    property TermInitialized: Boolean read FTermInitialized write FTermInitialized;
+    property TermNeedInit: Boolean read FTermNeedInit write FTermNeedInit;
+    property TermSyncMode: Integer read FTermSyncMode write FTermSyncMode;
+    property TermSyncDir: Integer read FTermSyncDir write FTermSyncDir;
   end;
 
   { TFileViewNotebook }
@@ -194,10 +208,9 @@ implementation
 uses
   LCLIntf,
   LazUTF8,
-  DCStrUtils,
   uGlobs,
   uColumnsFileView,
-  uArchiveFileSource
+  uFileSource
   {$IF DEFINED(LCLGTK2)}
   , Glib2, Gtk2
   {$ELSEIF DEFINED(LCLWIN32)}
@@ -206,6 +219,7 @@ uses
   {$ENDIF}
   {$IF DEFINED(MSWINDOWS)}
   , Windows, Messages
+  , uArchiveFileSource
   {$ENDIF}
   ;
 
@@ -230,7 +244,38 @@ constructor TFileViewPage.Create(TheOwner: TComponent);
 begin
   FLockState := tlsNormal;
   FBackupViewClass := TColumnsFileView;
+  FTermSyncMode := 0;
+  FTermSyncDir := 1;
   inherited Create(TheOwner);
+end;
+
+destructor TFileViewPage.Destroy;
+begin
+  // Terminal and PtyDevice may already be freed if their parent panel was
+  // destroyed before us (the Notification override nils the references).
+  if Assigned(FPtyDevice) then
+  begin
+    FPtyDevice.RemoveFreeNotification(Self);
+    FreeAndNil(FPtyDevice);
+  end;
+  if Assigned(FTerminal) then
+  begin
+    FTerminal.RemoveFreeNotification(Self);
+    FreeAndNil(FTerminal);
+  end;
+  inherited Destroy;
+end;
+
+procedure TFileViewPage.Notification(AComponent: TComponent; Operation: TOperation);
+begin
+  inherited Notification(AComponent, Operation);
+  if Operation = opRemove then
+  begin
+    if AComponent = FTerminal then
+      FTerminal := nil
+    else if AComponent = FPtyDevice then
+      FPtyDevice := nil;
+  end;
 end;
 
 {$IF DEFINED(LCLWIN32)}
@@ -305,18 +350,7 @@ begin
     end
     else
     begin
-      if (FileView.FileSource is TArchiveFileSource) and
-         (FileView.FileSource.IsPathAtRoot(FileView.CurrentPath)) then
-        begin
-          with (FileView.FileSource as TArchiveFileSource) do
-            NewCaption := ExtractFileName(ArchiveFileName);
-        end
-      else
-        begin
-          NewCaption := FileView.CurrentPath;
-          if NewCaption <> '' then
-            NewCaption := GetLastDir(NewCaption);
-        end;
+      NewCaption := FileView.FileSource.GetDescriber.tabCaption(FileView.FileSource, FileView.CurrentPath);
       FCurrentTitle := NewCaption;
     end;
 
@@ -394,7 +428,7 @@ begin
     begin
       LockPath := FileView.CurrentPath;
       if (FLockState <> tlsNormal) or (Length(FPermanentTitle) = 0) then
-        FPermanentTitle := GetLastDir(LockPath);
+        FPermanentTitle := FileView.FileSource.GetDescriber.tabCaption(FileView.FileSource, LockPath);
     end
   else
     begin
@@ -642,14 +676,16 @@ end;
 procedure TFileViewNotebook.TabShowHint(Sender: TObject; HintInfo: PHintInfo);
 var
   ATabIndex: Integer;
+  fs: IFileSource;
 begin
   ATabIndex := IndexOfPageAt( ScreenToClient(Mouse.CursorPos) );
 
   if ATabIndex >= 0 then begin
+    fs:= View[ATabIndex].FileSource;
     if (ATabIndex <> PageIndex) and (Length(Page[ATabIndex].LockPath) <> 0) then
-      HintInfo^.HintStr := '* ' + Page[ATabIndex].LockPath
+      HintInfo^.HintStr := '* ' + fs.GetDescriber.tabHint(fs, Page[ATabIndex].LockPath)
     else
-      HintInfo^.HintStr := View[ATabIndex].CurrentPath;
+      HintInfo^.HintStr := fs.GetDescriber.tabHint(fs, View[ATabIndex].CurrentPath);
   end else begin
     HintInfo^.HintStr := '';
     FHintPos := TPoint.Zero;

@@ -1,4 +1,4 @@
-unit uSearchResultListOperation;
+unit uFlatViewListOperation;
 
 {$mode objfpc}{$H+}
 
@@ -8,13 +8,13 @@ uses
   Classes, SysUtils,
   uFileSourceListOperation,
   uFileSource,
-  uSearchResultFileSource;
+  uMultiListFileSource;
 
 type
 
-  TSearchResultListOperation = class(TFileSourceListOperation)
+  TFlatViewListOperation = class(TFileSourceListOperation)
   private
-    FFileSource: ISearchResultFileSource;
+    FFileSource: IMultiListFileSource;
   public
     constructor Create(aFileSource: IFileSource; aPath: String); override;
     procedure MainExecute; override;
@@ -25,15 +25,15 @@ implementation
 uses
   uFile;
 
-constructor TSearchResultListOperation.Create(aFileSource: IFileSource; aPath: String);
+constructor TFlatViewListOperation.Create(aFileSource: IFileSource; aPath: String);
 begin
   FFiles := TFiles.Create(aPath);
-  FFileSource := aFileSource as ISearchResultFileSource;
+  FFileSource := aFileSource as IMultiListFileSource;
   inherited Create(aFileSource, aPath);
   FNeedsConnection := False;
 end;
 
-procedure TSearchResultListOperation.MainExecute;
+procedure TFlatViewListOperation.MainExecute;
   procedure AddNode(aNode: TFileTreeNode);
   var
     i: Integer;

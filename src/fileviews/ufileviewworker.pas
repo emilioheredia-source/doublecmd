@@ -108,12 +108,12 @@ type
     }
     procedure DoSetFileList;
 
-    class function InternalMatchesFilter(const fs: IFileSource; aFile: TFile;
+    class function InternalMatchesFilter(const fs: IFileSource; aDisplayFile: TDisplayFile;
                                          const aFileFilter: String;
                                          const aFilterOptions: TQuickSearchOptions): Boolean;overload;
 
 
-    class function InternalMatchesFilter(const fs: IFileSource; aFile: TFile;
+    class function InternalMatchesFilter(const fs: IFileSource; aDisplayFile: TDisplayFile;
       const aMasks: TMaskList; const aFilterOptions: TQuickSearchOptions): Boolean;overload;
 
 
@@ -170,7 +170,7 @@ type
                                            aExistingDisplayFilesHashed: TStringHashListUtf8);
 
     class function MatchesFilter(const fs: IFileSource;
-                                 aFile: TFile;
+                                 aDisplayFile: TDisplayFile;
                                  aFileFilter: String;
                                  const aFilterOptions: TQuickSearchOptions): Boolean;
   end;
@@ -590,12 +590,14 @@ end;
 
 class function TFileListBuilder.InternalMatchesFilter(
   const fs: IFileSource;
-  aFile: TFile;
+  aDisplayFile: TDisplayFile;
   const aFileFilter: String;
   const aFilterOptions: TQuickSearchOptions): Boolean;
 var
+  AFile: TFile;
   AOptions: TMaskOptions = [];
 begin
+  AFile:= aDisplayFile.FSFile;
   if (gShowSystemFiles = False) and fs.IsSystemFile(AFile) and (AFile.Name <> '..') then
     Result := True
 
@@ -626,7 +628,7 @@ begin
       if (aFilterOptions.SearchCase = qscSensitive) then
         AOptions += [moCaseSensitive];
 
-      if MatchesMask(AFile.Name,
+      if MatchesMask(aDisplayFile.DisplayName,
                      aFileFilter,
                      AOptions)
       then
@@ -639,10 +641,13 @@ end;
 
 class function TFileListBuilder.InternalMatchesFilter(
   const fs: IFileSource;
-  aFile: TFile;
+  aDisplayFile: TDisplayFile;
   const aMasks: TMaskList;
   const aFilterOptions: TQuickSearchOptions): Boolean;
+var
+  AFile: TFile;
 begin
+  AFile:= aDisplayFile.FSFile;
   if (gShowSystemFiles = False) and fs.IsSystemFile(AFile) and (AFile.Name <> '..') then
     Result := True
 
@@ -668,7 +673,7 @@ begin
     else
     begin
       // Match the file name and Pinyin letter
-      if aMasks.Matches(AFile.Name) then
+      if aMasks.Matches(ADisplayFile.DisplayName) then
          Result := False;
     end;
   end
@@ -716,7 +721,6 @@ class procedure TFileListBuilder.MakeDisplayFileList(
 var
   S: String;
   I: Integer;
-  AFile: TFile;
   AFilter: Boolean;
   Masks: TMaskList;
   AOptions: TMaskOptions = [moPinyin];
@@ -740,10 +744,8 @@ begin
 
     for I := 0 to allDisplayFiles.Count - 1 do
     begin
-      AFile := allDisplayFiles[I].FSFile;
-
       try
-        AFilter := InternalMatchesFilter(fs, AFile, Masks, aFilterOptions);
+        AFilter := InternalMatchesFilter(fs, allDisplayFiles[I], Masks, aFilterOptions);
       except
         on EConvertError do
           aFileFilter := EmptyStr;
@@ -872,13 +874,13 @@ end;
 
 class function TFileListBuilder.MatchesFilter(
   const fs: IFileSource;
-  aFile: TFile;
+  aDisplayFile: TDisplayFile;
   aFileFilter: String;
   const aFilterOptions: TQuickSearchOptions): Boolean;
 begin
   aFileFilter := PrepareFilter(aFileFilter, aFilterOptions);
   try
-    Result := InternalMatchesFilter(fs, AFile, aFileFilter, aFilterOptions);
+    Result := InternalMatchesFilter(fs, aDisplayFile, aFileFilter, aFilterOptions);
   except
     on EConvertError do
       Result := False;

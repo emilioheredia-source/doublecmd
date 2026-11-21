@@ -1,8 +1,8 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Double Commander 1.3.0 alpha\n"
-"POT-Creation-Date: 2026-08-21 04:30+0300\n"
-"PO-Revision-Date: 2026-08-21 12:30+0300\n"
+"POT-Creation-Date: 2026-11-13 16:12+0300\n"
+"PO-Revision-Date: 2026-11-13 19:25+0300\n"
 "Last-Translator: Alexander Koblov <alexx2000@mail.ru>\n"
 "Language-Team: \n"
 "Language: ru\n"
@@ -10,6 +10,20 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "X-Native-Language: Русский\n"
+
+#: fsetfileproperties.rssetfilepropertiesloadfromactivepanel
+msgctxt "fsetfileproperties.rssetfilepropertiesloadfromactivepanel"
+msgid "Active panel (source)"
+msgstr "Активная панель (исходная)"
+
+#: fsetfileproperties.rssetfilepropertiesloadfromclipboard
+msgid "Clipboard"
+msgstr "Буфер обмена"
+
+#: fsetfileproperties.rssetfilepropertiesloadfrominactivepanel
+msgctxt "fsetfileproperties.rssetfilepropertiesloadfrominactivepanel"
+msgid "Inactive panel (target)"
+msgstr "Неактивная панель (целевая)"
 
 #: fsyncdirsdlg.rscomparingpercent
 #, object-pascal-format
@@ -6205,6 +6219,14 @@ msgstr "&Копирование"
 msgid "&Delete operation"
 msgstr "&Удаление"
 
+#: tfrmoptionsfileoperations.cbdeletehiddensystemconfirmation.caption
+msgid "Delete hidden/system files"
+msgstr "Удаление скрытых/системных файлов"
+
+#: tfrmoptionsfileoperations.cbdeletereadonlyconfirmation.caption
+msgid "Delete read-only files"
+msgstr "Удаление файлов, доступных только для чтения"
+
 #: tfrmoptionsfileoperations.cbdeletetotrash.caption
 msgctxt "TFRMOPTIONSFILEOPERATIONS.CBDELETETOTRASH.CAPTION"
 msgid "Dele&te to recycle bin (Shift key reverses this setting)"
@@ -8809,6 +8831,26 @@ msgstr "Выделить по &имени/расширению:"
 msgid "&2."
 msgstr "&2."
 
+#: tfrmselectfileproperties.chkattributes.caption
+msgctxt "tfrmselectfileproperties.chkattributes.caption"
+msgid "File &attributes"
+msgstr "&Атрибуты файла"
+
+#: tfrmselectfileproperties.chkpermissions.caption
+msgctxt "tfrmselectfileproperties.chkpermissions.caption"
+msgid "&Permissions /  Ownership"
+msgstr "&Права / владелец"
+
+#: tfrmselectfileproperties.chktime.caption
+msgctxt "tfrmselectfileproperties.chktime.caption"
+msgid "&Timestamp (date+time)"
+msgstr "Отметка &времени (дата+время)"
+
+#: tfrmselectfileproperties.chkxattributes.caption
+msgctxt "tfrmselectfileproperties.chkxattributes.caption"
+msgid "&Extended attributes"
+msgstr "&Расширенные атрибуты"
+
 #: tfrmselectpathrange.buttonpanel.cancelbutton.caption
 msgctxt "tfrmselectpathrange.buttonpanel.cancelbutton.caption"
 msgid "&Cancel"
@@ -8908,6 +8950,26 @@ msgctxt "TFRMSETFILEPROPERTIES.BTNCANCEL.CAPTION"
 msgid "&Cancel"
 msgstr "О&тмена"
 
+#: tfrmsetfileproperties.btnloadadv.caption
+msgctxt "tfrmsetfileproperties.btnloadadv.caption"
+msgid "Advanced(&0)..."
+msgstr "Расширенная (&0)..."
+
+#: tfrmsetfileproperties.btnloadfromclipboard.caption
+msgctxt "tfrmsetfileproperties.btnloadfromclipboard.caption"
+msgid "First file in clipboard(&3)"
+msgstr "первый в буфере обмена (&3)"
+
+#: tfrmsetfileproperties.btnloadfromsource.caption
+msgctxt "tfrmsetfileproperties.btnloadfromsource.caption"
+msgid "File under cursor in active panel (source)(&1)"
+msgstr "под курсором в активной панели (&1)"
+
+#: tfrmsetfileproperties.btnloadfromtarget.caption
+msgctxt "tfrmsetfileproperties.btnloadfromtarget.caption"
+msgid "File in target(&2)"
+msgstr "под курсором в неактивной панели (&2)"
+
 #: tfrmsetfileproperties.btnok.caption
 msgctxt "TFRMSETFILEPROPERTIES.BTNOK.CAPTION"
 msgid "&OK"
@@ -8971,6 +9033,11 @@ msgstr "Рекурсивно"
 msgctxt "TFRMSETFILEPROPERTIES.CHKSYSTEM.CAPTION"
 msgid "System"
 msgstr "Системный"
+
+#: tfrmsetfileproperties.gbloadattributes.caption
+msgctxt "tfrmsetfileproperties.gbloadattributes.caption"
+msgid "Load attributes from"
+msgstr "Загрузить атрибуты из файла"
 
 #: tfrmsetfileproperties.gbtimesamp.caption
 msgid "Timestamp properties"
@@ -9060,6 +9127,15 @@ msgstr " "
 msgctxt "tfrmsetfileproperties.zvlastwritedatetime.textfornulldate"
 msgid " "
 msgstr " "
+
+#: tfrmsetfilepropertiesadvload.gbloadattributes.caption
+msgid "Load these attributes"
+msgstr "Загрузить следующие атрибуты"
+
+#: tfrmsetfilepropertiesadvload.rgloadfrom.caption
+msgctxt "tfrmsetfilepropertiesadvload.rgloadfrom.caption"
+msgid "Load attributes from"
+msgstr "Загрузить атрибуты из"
 
 #: tfrmsortanything.btnsort.caption
 msgid "&Sort"
@@ -9214,11 +9290,11 @@ msgstr "&Имя ссылки"
 
 #: tfrmsyncdirsdlg.actcopypropertieslefttoright.caption
 msgid "Copy file properties -> (left to right)..."
-msgstr ""
+msgstr "Копировать свойства файлов -> (слева направо)..."
 
 #: tfrmsyncdirsdlg.actcopypropertiesrighttoleft.caption
 msgid "Copy file properties <- (right to left)..."
-msgstr ""
+msgstr "Копировать свойства файлов <- (справа налево)..."
 
 #: tfrmsyncdirsdlg.actdeleteboth.caption
 msgid "Delete on both sides"
@@ -9315,7 +9391,7 @@ msgid "only selected"
 msgstr "&Выделенные"
 
 #: tfrmsyncdirsdlg.chksubdirs.caption
-msgid "Subdirs"
+msgid "subdirs"
 msgstr "с &подкаталогами"
 
 #: tfrmsyncdirsdlg.groupbox1.caption
@@ -9420,36 +9496,20 @@ msgstr "Подтвердить замену"
 
 #: tfrmsyncdirsperformdlg.chkdeleteleftallemptydirs.caption
 msgid "Left: Delete all empty directories"
-msgstr ""
+msgstr "Слева: Удалить все пустые каталоги"
 
 #: tfrmsyncdirsperformdlg.chkdeleterightallemptydirs.caption
 msgctxt "tfrmsyncdirsperformdlg.chkdeleterightallemptydirs.caption"
 msgid "Right: Delete all empty directories"
-msgstr ""
+msgstr "Справа: Удалить все пустые каталоги"
 
 #: tfrmsyncdirsperformdlg.chkverify.caption
 msgid "Verify"
 msgstr "Проверить после завершения"
 
-#: tfrmsyncdirsselectpropertiesdlg.chkattributes.caption
-msgid "File &attributes"
-msgstr ""
-
-#: tfrmsyncdirsselectpropertiesdlg.chkpermissions.caption
-msgid "&Permissions /  Ownership"
-msgstr ""
-
-#: tfrmsyncdirsselectpropertiesdlg.chktime.caption
-msgid "&Timestamp (date+time)"
-msgstr ""
-
-#: tfrmsyncdirsselectpropertiesdlg.chkxattributes.caption
-msgid "&Extended attributes"
-msgstr ""
-
 #: tfrmsyncdirsselectpropertiesdlg.lbllabel.caption
 msgid "Copy these file properties:"
-msgstr ""
+msgstr "Копировать следующие свойства файлов:"
 
 #: tfrmtreeviewmenu.caption
 msgctxt "tfrmtreeviewmenu.caption"
@@ -10917,6 +10977,11 @@ msgstr "Панели инструментов DC"
 #: ulng.rsfilterxmlconfigfiles
 msgid ".xml Config files"
 msgstr "XML-Файлы"
+
+#: ulng.rsfindconfirmafteraddtostash
+#, object-pascal-format
+msgid "%d files/directories have been added. Close the search window and open %s now?"
+msgstr "Добавлено файлов/каталогов: %d. Закрыть окно поиска и открыть %s?"
 
 #: ulng.rsfinddefinetemplate
 msgid "Define template"
@@ -14778,12 +14843,14 @@ msgid "Will show a simple message"
 msgstr "Будет показано простое сообщение"
 
 #: ulng.rsvarsourcepanel
+msgctxt "ulng.rsvarsourcepanel"
 msgid "Active panel (source)"
-msgstr "Активная панель (источник)"
+msgstr "Активная панель (исходная)"
 
 #: ulng.rsvartargetpanel
+msgctxt "ulng.rsvartargetpanel"
 msgid "Inactive panel (target)"
-msgstr "Неактивная панель (назначение)"
+msgstr "Неактивная панель (целевая)"
 
 #: ulng.rsvarwillbequoted
 msgid "Filenames will be quoted from here (default)"
