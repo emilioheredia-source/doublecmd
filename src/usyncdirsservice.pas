@@ -1171,8 +1171,13 @@ procedure TSyncDirsTreeBuilder.build( const FFullTree: TTwoLevelTree; const sele
       if not (cfSubdirs in _compareOption.flags) then
         Exit;
       children:= childCount;
-      if children = 0 then
+      if children = 0 then begin
+        // Nothing to walk into, but in mirror mode the right side may still
+        // have folders the left lacks: they are recorded whole, which takes
+        // no share of the progress
+        addFiles( 0 );
         Exit;
+      end;
       shareDelegated:= True;
       addFiles( share / children );
     finally
