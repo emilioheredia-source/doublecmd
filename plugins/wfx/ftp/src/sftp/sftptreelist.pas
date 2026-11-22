@@ -18,7 +18,7 @@ unit SftpTreeList;
 interface
 
 uses
-  Classes, SysUtils, CTypes, libssh, SftpGunzip;
+  Classes, SysUtils, CTypes, contnrs, libssh, SftpGunzip;
 
 type
   TDirEntry = record
@@ -55,7 +55,10 @@ type
     FWait: TWaitProc;
     FAskContinue: TAskContinueFunc;
     FBase: String;               // the tree's root, with a trailing '/'
-    FDirs: TStringList;          // listing key (path + '/') -> TDirListing
+    // Listings in find's order (keyed by path + '/'), and by key; sorted
+    // once at the end
+    FDirs: TStringList;
+    FDirByKey: TFPObjectHashTable;
     FUnreadable: TStringList;    // paths, relative to the root, find did not enter
     FRootParent: LIBSSH2_SFTP_ATTRIBUTES;
     FHaveRootParent: Boolean;
@@ -83,6 +86,7 @@ type
       const Attrs: LIBSSH2_SFTP_ATTRIBUTES);
     procedure NewListing(const Key: String; const Own, Parent: LIBSSH2_SFTP_ATTRIBUTES);
     function DirKey(const RelPath: String): String;
+    function FindListing(const Key: String): TDirListing;
     function WaitForExit(Channel: PLIBSSH2_CHANNEL): Boolean;
     function OutputIsComplete: Boolean;
     function RootIsComplete: Boolean;
@@ -251,11 +255,14 @@ begin
   Result:= (Name = '.') or (Name = '..');
 end;
 
-function CreatePathList: TStringList;
+// Paths compared byte by byte: the locale's collation is not needed for
+// exact lookups and is many times slower
+function CreatePathList(Sorted: Boolean = True): TStringList;
 begin
   Result:= TStringList.Create;
-  Result.Sorted:= True;
+  Result.UseLocale:= False;
   Result.CaseSensitive:= True;
+  Result.Sorted:= Sorted;
 end;
 
 { TDirListing }
@@ -279,7 +286,8 @@ begin
   FSftp:= Sftp;
   FWait:= Wait;
   FBase:= Base;
-  FDirs:= CreatePathList;
+  FDirs:= CreatePathList(False);
+  FDirByKey:= TFPObjectHashTable.Create(False);
   FUnreadable:= CreatePathList;
 end;
 
@@ -290,6 +298,7 @@ begin
   for I:= 0 to FDirs.Count - 1 do
     FDirs.Objects[I].Free;
   FDirs.Free;
+  FDirByKey.Free;
   FUnreadable.Free;
   FGunzip.Free;
   inherited Destroy;
@@ -321,6 +330,8 @@ procedure TFindTreeLister.MoveListingsTo(Cache, Seen: TStringList);
 var
   I: Integer;
 begin
+  // In order, each lands at the end of the sorted lists
+  FDirs.Sort;
   for I:= 0 to FDirs.Count - 1 do
   begin
     Cache.AddObject(FDirs[I], FDirs.Objects[I]);
@@ -508,14 +519,13 @@ procedure TFindTreeLister.AddEntry(const RelPath: String; Kind: Char;
   LinkTarget: culong; const Attrs: LIBSSH2_SFTP_ATTRIBUTES);
 var
   Parent: TDirListing;
-  Slash, I: Integer;
+  Slash: Integer;
 begin
   Slash:= RPos('/', RelPath);
-  I:= FDirs.IndexOf(DirKey(Copy(RelPath, 1, Slash - 1)));
+  Parent:= FindListing(DirKey(Copy(RelPath, 1, Slash - 1)));
   // find lists a directory before its contents: a parent without a listing
   // could not be read, and its entries are not needed
-  if I < 0 then Exit;
-  Parent:= TDirListing(FDirs.Objects[I]);
+  if Parent = nil then Exit;
   if (Kind = 'd') and (FUnreadable.IndexOf(RelPath) < 0) then
     // Entries[0] is the parent's own '.'
     NewListing(DirKey(RelPath), Attrs, Parent.Entries[0].Attributes);
@@ -540,6 +550,12 @@ begin
   Listing.Add('.', Own);
   Listing.Add('..', Parent);
   FDirs.AddObject(Key, Listing);
+  FDirByKey.Items[Key]:= Listing;
+end;
+
+function TFindTreeLister.FindListing(const Key: String): TDirListing;
+begin
+  Result:= TDirListing(FDirByKey.Items[Key]);
 end;
 
 function TFindTreeLister.DirKey(const RelPath: String): String;
@@ -573,7 +589,7 @@ end;
 function TFindTreeLister.RootIsComplete: Boolean;
 begin
   if not FSeenRoot then Exit(Fail(UNEXPECTED_OUTPUT));
-  Result:= (FDirs.IndexOf(FBase) >= 0) or Fail('its root cannot be listed');
+  Result:= Assigned(FindListing(FBase)) or Fail('its root cannot be listed');
 end;
 
 // The shell and the SFTP server must see the same tree: a server can map
@@ -585,7 +601,7 @@ var
   Handle: PLIBSSH2_SFTP_HANDLE;
   Matched: Integer = -1;
 begin
-  Root:= TDirListing(FDirs.Objects[FDirs.IndexOf(FBase)]);
+  Root:= FindListing(FBase);
   Handle:= libssh2_sftp_opendir(FSftp, PAnsiChar(FBase));
   if Assigned(Handle) then
   try
