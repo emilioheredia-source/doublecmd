@@ -217,11 +217,14 @@ begin
   if FCopySCP then Exit;
   if FPrefetchCache = nil then
   begin
+    // Paths compared byte by byte, not by the locale's (slow) collation
     FPrefetchCache:= TStringList.Create;
+    FPrefetchCache.UseLocale:= False;
     FPrefetchCache.Sorted:= True;
     FPrefetchCache.CaseSensitive:= True;
     FPrefetchPending:= TStringList.Create;
     FPrefetchSeen:= TStringList.Create;
+    FPrefetchSeen.UseLocale:= False;
     FPrefetchSeen.Sorted:= True;
     FPrefetchSeen.CaseSensitive:= True;
   end;
