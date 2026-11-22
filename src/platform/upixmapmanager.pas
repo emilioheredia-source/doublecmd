@@ -209,13 +209,6 @@ type
     function GetSystemArchiveIcon: PtrInt;
     function GetSystemShortcutIcon: PtrInt; inline;
     function GetSystemExecutableIcon: PtrInt; inline;
-    {en
-       Loads the Windows icon for a standard (freedesktop) icon name, taken
-       from the file source that shows that place (see SystemIconSources).
-       Returns @nil when the name has no Windows counterpart.
-       This function should only be called under FPixmapLock.
-    }
-    function LoadSystemIconLocked(const AIconName: String; AIconSize: Integer): TBitmap;
   {$ENDIF}
   {$IF DEFINED(UNIX) AND NOT (DEFINED(DARWIN) OR DEFINED(HAIKU))}
     function GetSystemFolderIcon: PtrInt;
@@ -394,8 +387,7 @@ uses
   {$IFDEF MSWINDOWS}
     , ActiveX, CommCtrl, ShellAPI, Windows, DCFileAttributes, uBitmap, uGdiPlus,
       DCConvertEncoding, uShlObjAdditional, uShellFolder, uMyWindows,
-      uShellFileSourceUtil, uVfsModule, uShellFileSource, uWinNetFileSource,
-      uRecycleBinFileSource
+      uShellFileSourceUtil
   {$ELSE}
     , StrUtils, Types, DCBasicTypes
   {$ENDIF}
@@ -412,24 +404,6 @@ type
 {$IF DEFINED(MSWINDOWS)}
 const
   SystemIconIndexStart: PtrInt = High(PtrInt) div 2;
-
-type
-  TSystemIconSource = record
-    IconName: String;                // standard (freedesktop) icon name
-    FileSource: TFileSourceClass;    // its GetMainIcon gives the Windows icon
-  end;
-
-const
-  { On Linux these names come from the system icon theme, and the GIO file
-    sources use them as their main icons (network-workgroup, user-trash).
-    On Windows the same places are shown by these file sources, so a name
-    asked for here (for example by a plugin) gets the very icon that the
-    place has in the virtual file system list. }
-  SystemIconSources: array[0..2] of TSystemIconSource = (
-    (IconName: 'computer';          FileSource: TShellFileSource),
-    (IconName: 'network-workgroup'; FileSource: TWinNetFileSource),
-    (IconName: 'user-trash';        FileSource: TRecycleBinFileSource)
-  );
 {$ENDIF}
 
 function AdjustIconSize(ASize: Integer; APixelsPerInch: Integer): Integer;
@@ -1313,40 +1287,9 @@ begin
   if (Result = nil) then Result:= LoadLegacyIcon(AIconName, AIconSize);
   end;
   if not Assigned(Result) then
-{$ELSEIF DEFINED(MSWINDOWS)}
-  Result := nil;
-  // Try to load the icon Windows itself uses for this place
-  if gShowIcons > sim_standart then
-    Result:= LoadSystemIconLocked(AIconName, AIconSize);
-  if not Assigned(Result) then
 {$ENDIF}
     Result:= FDCIconTheme.LoadThemeIcon(AIconName, AIconSize);
 end;
-
-{$IF DEFINED(MSWINDOWS)}
-function TPixMapManager.LoadSystemIconLocked(const AIconName: String; AIconSize: Integer): TBitmap;
-var
-  I: Integer;
-  IconPath: String;
-  LoadedFrom: TfromWhatBitmapWasLoaded;
-begin
-  // This function must be called under FPixmapsLock.
-
-  for I:= Low(SystemIconSources) to High(SystemIconSources) do
-  begin
-    if SystemIconSources[I].IconName <> AIconName then Continue;
-    if not SystemIconSources[I].FileSource.GetMainIcon(IconPath) then Break;
-    // Same loading as for the place's entry in the virtual file system list
-    Result:= LoadBitmapEnhanced(mbExpandFileName(IconPath), AIconSize, True, clNone, @LoadedFrom);
-    // When the resource can't be extracted, LoadBitmapEnhanced falls back to
-    // the icon of the library file itself: let the DC theme answer instead.
-    if Assigned(Result) and (LoadedFrom <> fwbwlResourceFileExtracted) then
-      FreeAndNil(Result);
-    Exit;
-  end;
-  Result:= nil;
-end;
-{$ENDIF}
 
 function TPixMapManager.GetPluginIcon(const AIconName: String; ADefaultIcon: PtrInt): PtrInt;
 {$IF DEFINED(MSWINDOWS)}
