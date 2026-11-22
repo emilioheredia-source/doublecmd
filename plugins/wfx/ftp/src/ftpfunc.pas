@@ -147,6 +147,15 @@ const
 const
   FS_COPYFLAGS_FORCE = FS_COPYFLAGS_OVERWRITE or FS_COPYFLAGS_RESUME;
 
+const
+  // Icon of a saved connection. Windows: the This PC icon, as DC uses it
+  // (TShellFileSource.GetMainIcon); the DC theme has no "computer" icon.
+{$IF DEFINED(MSWINDOWS)}
+  cConnectionIcon = '%SystemRoot%\System32\shell32.dll,15';
+{$ELSE}
+  cConnectionIcon = 'computer';
+{$ENDIF}
+
 type
   TListRec = record
     Path: AnsiString;
@@ -1236,7 +1245,7 @@ begin
       // A saved connection; the default would be the unknown file type icon
       Result:= FS_ICON_EXTRACTED;
       TheIcon^.Format:= FS_ICON_FORMAT_FILE;
-      StrPCopy(RemoteName, 'computer');
+      StrPCopy(RemoteName, cConnectionIcon);
     end;
   end;
 end;
