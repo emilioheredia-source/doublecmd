@@ -412,6 +412,7 @@ type
 
   private
     function commonCheckRunning(const processMessages: Boolean): Boolean;
+    function SyncSearchProgress(SourceName, TargetName: PAnsiChar; PercentDone: Integer): Integer;
 
   private
     property leftFS: IFileSource read FFileSources[dsLeft] write FFileSources[dsLeft];
@@ -1847,10 +1848,27 @@ var
   var
     side: TDoubleSide;
     wfx: IWfxPluginFileSource;
+    callbackData: TCallbackDataClass;
+    oldProgress: TUpdateProgress = nil;
   begin
     for side := dsLeft to dsRight do
-      if Supports(FFileSources[side], IWfxPluginFileSource, wfx) then
+    begin
+      if not Supports(FFileSources[side], IWfxPluginFileSource, wfx) then Continue;
+      // Listing ahead can take seconds: the plugin then calls its progress
+      // callback, which keeps the dialog responsive and lets Esc stop it
+      callbackData:= TCallbackDataClass(WfxOperationList.Objects[wfx.PluginNumber]);
+      if Assigned(callbackData) then
+      begin
+        oldProgress:= callbackData.UpdateProgressFunction;
+        callbackData.UpdateProgressFunction:= @SyncSearchProgress;
+      end;
+      try
         wfx.WfxModule.WfxStatusInfo(basePaths[side], startEnd, FS_STATUS_OP_SYNC_SEARCH);
+      finally
+        if Assigned(callbackData) then
+          callbackData.UpdateProgressFunction:= oldProgress;
+      end;
+    end;
   end;
 
   procedure setBaseDir(const text: String; const side: TDoubleSide);
@@ -1889,6 +1907,8 @@ var
       FScanShownPercent := 0;
       FLastMessagesTime := 0;
       builder:= TSyncDirsTreeBuilder.Create( self, FSortService, FCompareOption, FFileSources, basePaths );
+      // Show "Comparing" before plugins start listing ahead
+      commonCheckRunning( True );
       notifySyncSearch(FS_STATUS_START);
       try
         builder.build( FFullTree, FSelectedFiles );
@@ -2211,6 +2231,15 @@ begin
     Application.ProcessMessages;
   end;
   Result:= FState.isRunning;
+end;
+
+function TfrmSyncDirsDlg.SyncSearchProgress(SourceName, TargetName: PAnsiChar;
+  PercentDone: Integer): Integer;
+begin
+  if commonCheckRunning( True ) then
+    Result:= 0
+  else
+    Result:= 1;
 end;
 
 // Each run starts with fresh operation options, from the confirmation and

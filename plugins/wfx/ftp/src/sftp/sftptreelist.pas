@@ -43,6 +43,8 @@ type
 
   // Waits until the session's socket is ready in the direction libssh2 needs
   TWaitProc = procedure of object;
+  // False when the caller wants the listing stopped
+  TAskContinueFunc = function: Boolean of object;
 
   { TFindTreeLister }
 
@@ -51,6 +53,7 @@ type
     FSession: PLIBSSH2_SESSION;
     FSftp: PLIBSSH2_SFTP;
     FWait: TWaitProc;
+    FAskContinue: TAskContinueFunc;
     FBase: String;               // the tree's root, with a trailing '/'
     FDirs: TStringList;          // listing key (path + '/') -> TDirListing
     FUnreadable: TStringList;    // paths, relative to the root, find did not enter
@@ -60,8 +63,9 @@ type
     FGivenUp: Boolean;           // the command is not waited for any more
     FEntries: Integer;
     FReason: String;
-    FStartTime, FLastData: QWord;
+    FStartTime, FLastData, FLastAsked: QWord;
     function Fail(const Why: String): Boolean;
+    function KeepGoing: Boolean;
     function WaitMore: Boolean;
     function Command: String;
     function StartCommand: PLIBSSH2_CHANNEL;
@@ -88,6 +92,8 @@ type
     function Run: Boolean;
     // Hands the listings over, keyed by path with a trailing '/'
     procedure MoveListingsTo(Cache, Seen: TStringList);
+    // Asked about ten times a second while find runs
+    property OnAskContinue: TAskContinueFunc read FAskContinue write FAskContinue;
     property Reason: String read FReason;
     property EntryCount: Integer read FEntries;
     property Milliseconds: QWord read GetMilliseconds;
@@ -105,6 +111,8 @@ const
   // without data (ms), or in all
   IDLE_LIMIT = 20000;
   TOTAL_LIMIT = 90000;
+  // How often (ms) the caller is asked whether to go on
+  ASK_INTERVAL = 100;
 
   UNEXPECTED_OUTPUT = 'unexpected output (no GNU find?)';
   NO_COMMAND = 'the server allows no command';
@@ -316,9 +324,23 @@ begin
   Result:= False;
 end;
 
+function TFindTreeLister.KeepGoing: Boolean;
+begin
+  Result:= True;
+  if not Assigned(FAskContinue) or (GetTickCount64 - FLastAsked < ASK_INTERVAL) then Exit;
+  FLastAsked:= GetTickCount64;
+  Result:= FAskContinue();
+  if not Result then
+  begin
+    FGivenUp:= True;
+    Fail('cancelled');
+  end;
+end;
+
 // Waits for the socket if there is time left; else gives up
 function TFindTreeLister.WaitMore: Boolean;
 begin
+  if not KeepGoing then Exit(False);
   Result:= (GetTickCount64 - FLastData <= IDLE_LIMIT) and
            (GetTickCount64 - FStartTime <= TOTAL_LIMIT);
   if Result then
@@ -389,6 +411,7 @@ begin
       FGivenUp:= True;
       Exit(False);
     end;
+    if not KeepGoing then Exit(False);
   until False;
   if Rc < 0 then Exit(Fail('reading its output failed'));
   Result:= (Pending = '') or Fail(UNEXPECTED_OUTPUT);

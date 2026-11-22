@@ -1163,13 +1163,21 @@ begin
   end;
 
   // A sync compare walks the whole tree: let the connection list ahead.
-  if (InfoOperation = FS_STATUS_OP_SYNC_SEARCH) and
-     GetConnectionByPath(RemoteDir, FtpSend, RemotePath) then
+  // Under the listing lock: listing ahead uses the connection like FsFindFirst.
+  if (InfoOperation = FS_STATUS_OP_SYNC_SEARCH) then
   begin
-    if InfoStartEnd = FS_STATUS_START then
-      FtpSend.BeginSyncSearch(RemotePath)
-    else
-      FtpSend.EndSyncSearch;
+    ListLock.Acquire;
+    try
+      if GetConnectionByPath(RemoteDir, FtpSend, RemotePath) then
+      begin
+        if InfoStartEnd = FS_STATUS_START then
+          FtpSend.BeginSyncSearch(RemotePath)
+        else
+          FtpSend.EndSyncSearch;
+      end;
+    finally
+      ListLock.Release;
+    end;
   end;
 
   if (InfoOperation in [FS_STATUS_OP_GET_MULTI_THREAD, FS_STATUS_OP_PUT_MULTI_THREAD]) then

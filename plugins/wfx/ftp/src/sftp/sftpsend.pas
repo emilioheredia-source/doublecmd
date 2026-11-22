@@ -59,6 +59,7 @@ type
     // Fills the cache with the whole tree below Base from one find command,
     // see BeginSyncSearch. False, with nothing cached, when that is not possible.
     function ListTreeWithFind(const Base: String): Boolean;
+    function SyncSearchGoesOn: Boolean;
     procedure FillFindData(const AName: String; const Attributes: LIBSSH2_SFTP_ATTRIBUTES;
       LinkTarget: PLIBSSH2_SFTP_ATTRIBUTES; var FindData: TWin32FindDataW);
     // Remote path inspection and changes that never follow a symlink. They
@@ -104,7 +105,7 @@ implementation
 
 uses
   LazUTF8, DCBasicTypes, DCDateTimeUtils, DCStrUtils, DCOSUtils, CTypes,
-  DCClassesUtf8, DCFileAttributes, DCConvertEncoding, SftpTreeList{$IFDEF UNIX}, BaseUnix{$ENDIF};
+  DCClassesUtf8, DCFileAttributes, DCConvertEncoding, SftpTreeList, FtpFunc{$IFDEF UNIX}, BaseUnix{$ENDIF};
 
 const
   READ_BUFFER_SIZE  = 131072;
@@ -231,6 +232,13 @@ begin
   if SyncListWithFind and (Path <> '') then ListTreeWithFind(Path);
 end;
 
+// DC's progress callback: lets the compare dialog stay responsive while the
+// tree is listed, and says whether the compare was cancelled
+function TSftpSend.SyncSearchGoesOn: Boolean;
+begin
+  Result:= ProgressProc(PluginNumber, nil, nil, 0) = 0;
+end;
+
 procedure TSftpSend.EndSyncSearch;
 var
   I: Integer;
@@ -260,6 +268,7 @@ var
 begin
   Lister:= TFindTreeLister.Create(FSession, FSFTPSession, WaitSocket, Base);
   try
+    Lister.OnAskContinue:= SyncSearchGoesOn;
     Result:= Lister.Run;
     if Result then
     begin
