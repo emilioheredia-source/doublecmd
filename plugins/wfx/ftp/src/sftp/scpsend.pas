@@ -228,6 +228,7 @@ begin
     Result:= SendCommand(Command);
     if Result then
     begin
+      Ret:= 0;
       E:= EmptyStr;
       Answer:= EmptyStr;
       SetLength(Buffer, TXT_BUFFER_SIZE + 1);
@@ -237,13 +238,17 @@ begin
           Ret:= libssh2_channel_read_stderr(FChannel, Pointer(Buffer), TXT_BUFFER_SIZE);
         until Ret <> LIBSSH2_ERROR_EAGAIN;
         if Ret > 0 then E+= Copy(Buffer, 1, Ret);
+        // Typically the session timeout: the command does not answer
+        if Ret < 0 then Break;
 
         repeat
           Ret:= libssh2_channel_read(FChannel, Pointer(Buffer), TXT_BUFFER_SIZE);
         until Ret <> LIBSSH2_ERROR_EAGAIN;
         if (Ret > 0) then Answer+= Copy(Buffer, 1, Ret);
+        if Ret < 0 then Break;
       end;
-      Result:= (libssh2_channel_get_exit_status(FChannel) = 0) and (Length(E) = 0);
+      if Ret < 0 then FLastError:= Ret;
+      Result:= (Ret >= 0) and (libssh2_channel_get_exit_status(FChannel) = 0) and (Length(E) = 0);
       if Err and (Length(E) > 0) then PrintErrors(E);
     end;
     CloseChannel(FChannel);
@@ -276,7 +281,10 @@ begin
     begin
       Encoding:= EncodingUTF8;
     end;
-  end;
+  end
+  // The server's commands do not answer: do not wait for them at every login
+  else if FLastError = LIBSSH2_ERROR_TIMEOUT then
+    FAuto:= False;
 end;
 
 function TScpSend.AuthKey: Integer;
