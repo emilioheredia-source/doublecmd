@@ -18,7 +18,7 @@ unit SftpTreeList;
 interface
 
 uses
-  Classes, SysUtils, CTypes, libssh;
+  Classes, SysUtils, CTypes, libssh, SftpGunzip;
 
 type
   TDirEntry = record
@@ -62,6 +62,11 @@ type
     FSeenRoot: Boolean;
     FGivenUp: Boolean;           // the command is not waited for any more
     FEntries: Integer;
+    FFindEnded: Boolean;         // find's exit status, the last record, arrived
+    FFindStatus: Integer;
+    FFormatKnown: Boolean;       // compressed or not, seen from the first bytes
+    FFirstBytes: String;
+    FGunzip: TGunzip;            // assigned when the output is compressed
     FReason: String;
     FStartTime, FLastData, FLastAsked: QWord;
     function Fail(const Why: String): Boolean;
@@ -70,6 +75,7 @@ type
     function Command: String;
     function StartCommand: PLIBSSH2_CHANNEL;
     function ReadOutput(Channel: PLIBSSH2_CHANNEL): Boolean;
+    function AddOutput(Data: PByte; Count: Integer; var Pending: String): Boolean;
     function TakeRecords(var Pending: String): Boolean;
     function AddRecord(const Rec: String): Boolean;
     function AddRoot(const Attrs: LIBSSH2_SFTP_ATTRIBUTES; Kind: Char): Boolean;
@@ -78,10 +84,12 @@ type
     procedure NewListing(const Key: String; const Own, Parent: LIBSSH2_SFTP_ATTRIBUTES);
     function DirKey(const RelPath: String): String;
     function WaitForExit(Channel: PLIBSSH2_CHANNEL): Boolean;
+    function OutputIsComplete: Boolean;
     function RootIsComplete: Boolean;
     function RootMatchesSftp: Boolean;
     function CountSftpMatches(Handle: PLIBSSH2_SFTP_HANDLE; Root: TDirListing): Integer;
     function GetMilliseconds: QWord;
+    function GetCompressed: Boolean;
   public
     // Base: the tree's root in server encoding, ending with '/'. Wait is
     // called whenever libssh2 would block.
@@ -97,6 +105,8 @@ type
     property Reason: String read FReason;
     property EntryCount: Integer read FEntries;
     property Milliseconds: QWord read GetMilliseconds;
+    // The server compressed the listing (it has gzip)
+    property Compressed: Boolean read GetCompressed;
   end;
 
 implementation
@@ -281,6 +291,7 @@ begin
     FDirs.Objects[I].Free;
   FDirs.Free;
   FUnreadable.Free;
+  FGunzip.Free;
   inherited Destroy;
 end;
 
@@ -298,7 +309,7 @@ begin
     libssh2_session_set_blocking(FSession, 0);
     Result:= ReadOutput(Channel) and WaitForExit(Channel);
     if not FGivenUp then libssh2_session_set_blocking(FSession, 1);
-    Result:= Result and RootIsComplete and RootMatchesSftp;
+    Result:= Result and OutputIsComplete and RootIsComplete and RootMatchesSftp;
   finally
     // Given up on: freed without waiting, the server ends the command
     libssh2_channel_free(Channel);
@@ -353,17 +364,21 @@ end;
 
 function TFindTreeLister.Command: String;
 var
-  Root: String;
+  Root, Find: String;
 begin
   Root:= FBase;
   if Root <> '/' then Delete(Root, Length(Root), 1);
   // -H follows a root that is a symlink, as SFTP does. Directories that
   // cannot be listed are reported and not entered, so find has nothing to
   // complain about and its exit status tells whether the listing is whole.
-  // '-not', not '!': some login shells treat '!' specially.
-  Result:= 'env LC_ALL=C find -H ' + ShellQuote(Root) +
-           ' \( -type d -not \( -readable -executable \) -printf ''U %P\0'' -prune \)' +
-           ' , -printf ''%y %Y %m %s %T@ %A@ %P\0''';
+  Find:= 'env LC_ALL=C find -H ' + ShellQuote(Root) +
+         ' \( -type d -not \( -readable -executable \) -printf ''U %P\0'' -prune \)' +
+         ' , -printf ''%y %Y %m %s %T@ %A@ %P\0''';
+  // Run by sh, whatever the login shell. A pipe's status is its last
+  // command's, so find's status follows its output as a last record; the
+  // output is compressed where the server has gzip.
+  Result:= 'sh -c ' + ShellQuote('{ ' + Find + '; printf ''E %d\0'' $?; } | ' +
+           'if command -v gzip >/dev/null 2>&1; then gzip -1; else cat; fi');
 end;
 
 function TFindTreeLister.StartCommand: PLIBSSH2_CHANNEL;
@@ -404,8 +419,7 @@ begin
     end;
     if Rc <= 0 then Break;
     FLastData:= GetTickCount64;
-    AppendBytes(Pending, Buffer, Rc);
-    if not TakeRecords(Pending) then
+    if not (AddOutput(@Buffer[0], Rc, Pending) and TakeRecords(Pending)) then
     begin
       // Stop it: waiting for the end of an unwanted listing helps no one
       FGivenUp:= True;
@@ -415,6 +429,29 @@ begin
   until False;
   if Rc < 0 then Exit(Fail('reading its output failed'));
   Result:= (Pending = '') or Fail(UNEXPECTED_OUTPUT);
+end;
+
+// Appends the received bytes to Pending, unpacked if the server compressed them
+function TFindTreeLister.AddOutput(Data: PByte; Count: Integer; var Pending: String): Boolean;
+var
+  First: String;
+begin
+  if not FFormatKnown then
+  begin
+    // gzip shows in the first two bytes
+    AppendBytes(FFirstBytes, Data^, Count);
+    if Length(FFirstBytes) < 2 then Exit(True);
+    FFormatKnown:= True;
+    if LooksLikeGzip(FFirstBytes) then FGunzip:= TGunzip.Create;
+    First:= FFirstBytes;
+    FFirstBytes:= '';
+    Data:= PByte(First);
+    Count:= Length(First);
+  end;
+  if Assigned(FGunzip) then
+    Exit(FGunzip.Feed(Data, Count, Pending) or Fail(UNEXPECTED_OUTPUT));
+  AppendBytes(Pending, Data^, Count);
+  Result:= True;
 end;
 
 function TFindTreeLister.TakeRecords(var Pending: String): Boolean;
@@ -437,6 +474,13 @@ function TFindTreeLister.AddRecord(const Rec: String): Boolean;
 var
   R: TFindRecord;
 begin
+  if FFindEnded then Exit(Fail(UNEXPECTED_OUTPUT));
+  if Copy(Rec, 1, 2) = 'E ' then
+  begin
+    FFindEnded:= True;
+    FFindStatus:= StrToIntDef(Copy(Rec, 3, MaxInt), -1);
+    Exit(True);
+  end;
   if not ParseFindRecord(Rec, R) then Exit(Fail(UNEXPECTED_OUTPUT));
   if R.Unreadable then
   begin
@@ -516,7 +560,14 @@ begin
   while libssh2_channel_wait_closed(Channel) = LIBSSH2_ERROR_EAGAIN do
     if not WaitMore then Exit(False);
   Status:= libssh2_channel_get_exit_status(Channel);
-  Result:= (Status = 0) or Fail(Format('find ended with status %d', [Status]));
+  Result:= (Status = 0) or Fail(Format('the command ended with status %d', [Status]));
+end;
+
+function TFindTreeLister.OutputIsComplete: Boolean;
+begin
+  if not FFindEnded or (Assigned(FGunzip) and not FGunzip.Ended) then
+    Exit(Fail('its output was cut short'));
+  Result:= (FFindStatus = 0) or Fail(Format('find ended with status %d', [FFindStatus]));
 end;
 
 function TFindTreeLister.RootIsComplete: Boolean;
@@ -574,6 +625,11 @@ begin
   finally
     Names.Free;
   end;
+end;
+
+function TFindTreeLister.GetCompressed: Boolean;
+begin
+  Result:= Assigned(FGunzip);
 end;
 
 function TFindTreeLister.GetMilliseconds: QWord;

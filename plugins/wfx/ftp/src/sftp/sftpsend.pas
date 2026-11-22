@@ -273,8 +273,9 @@ begin
     if Result then
     begin
       Lister.MoveListingsTo(FPrefetchCache, FPrefetchSeen);
-      DoStatus(False, Format('Listed %d entries in %d directories with find in %d ms',
-                             [Lister.EntryCount, FPrefetchCache.Count, Lister.Milliseconds]));
+      DoStatus(False, Format('Listed %d entries in %d directories with find in %d ms (%s)',
+                             [Lister.EntryCount, FPrefetchCache.Count, Lister.Milliseconds,
+                              BoolToStr(Lister.Compressed, 'compressed', 'uncompressed')]));
     end
     else
       DoStatus(False, 'Listing with find not used (' + Lister.Reason + '), listing directory by directory');
