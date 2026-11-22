@@ -301,6 +301,8 @@ begin
           SendDlgMsg(pDlg, 'chkAgentSSH', DM_SETCHECK, Data, 0);
           Data:= PtrInt(gConnection.CopySCP);
           SendDlgMsg(pDlg, 'chkCopySCP', DM_SETCHECK, Data, 0);
+          Data:= PtrInt(gConnection.SyncListWithFind);
+          SendDlgMsg(pDlg, 'chkSyncListWithFind', DM_SETCHECK, Data, 0);
           Data:= PtrInt(gConnection.ShowHiddenItems);
           SendDlgMsg(pDlg, 'chkShowHidden', DM_SETCHECK, Data, 0);
           Data:= PtrInt(gConnection.KeepAliveTransfer);
@@ -462,6 +464,8 @@ begin
             gConnection.AgentSSH:= Boolean(Data);
             Data:= SendDlgMsg(pDlg, 'chkCopySCP', DM_GETCHECK, 0, 0);
             gConnection.CopySCP:= Boolean(Data);
+            Data:= SendDlgMsg(pDlg, 'chkSyncListWithFind', DM_GETCHECK, 0, 0);
+            gConnection.SyncListWithFind:= Boolean(Data);
             Data:= SendDlgMsg(pDlg, 'chkShowHidden', DM_GETCHECK, 0, 0);
             gConnection.ShowHiddenItems:= Boolean(Data);
             Data:= SendDlgMsg(pDlg, 'chkKeepAliveTransfer', DM_GETCHECK, 0, 0);

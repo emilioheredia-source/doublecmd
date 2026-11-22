@@ -58,8 +58,11 @@ type
     ShowHiddenItems: Boolean;
     PasswordChanged: Boolean;
     KeepAliveTransfer: Boolean;
+    // SFTP: a sync compare lists the remote tree with one find command
+    SyncListWithFind: Boolean;
     PublicKey, PrivateKey: String;
   public
+    constructor Create;
     procedure Assign(Connection: TConnection);
   end;
 
@@ -128,7 +131,6 @@ uses
 var
   DefaultIniName: String;
   TcpKeepAlive: Boolean = True;
-  SyncListWithFind: Boolean = True;
   ActiveConnectionList, ConnectionList: TStringList;
   IniFile: TIniFile;
   ListLock: TCriticalSection;
@@ -191,6 +193,7 @@ begin
     Connection.InitCommands := IniFile.ReadString('FTP', 'Connection' + sIndex + 'InitCommands', EmptyStr);
     Connection.ShowHiddenItems := IniFile.ReadBool('FTP', 'Connection' + sIndex + 'ShowHiddenItems', True);
     Connection.KeepAliveTransfer := IniFile.ReadBool('FTP', 'Connection' + sIndex + 'KeepAliveTransfer', False);
+    Connection.SyncListWithFind := IniFile.ReadBool('FTP', 'Connection' + sIndex + 'SyncListWithFind', True);
     // add connection to connection list
     ConnectionList.AddObject(Connection.ConnectionName, Connection);
   end;
@@ -236,6 +239,7 @@ begin
     IniFile.WriteString('FTP', 'Connection' + sIndex + 'InitCommands', Connection.InitCommands);
     IniFile.WriteBool('FTP', 'Connection' + sIndex + 'ShowHiddenItems', Connection.ShowHiddenItems);
     IniFile.WriteBool('FTP', 'Connection' + sIndex + 'KeepAliveTransfer', Connection.KeepAliveTransfer);
+    IniFile.WriteBool('FTP', 'Connection' + sIndex + 'SyncListWithFind', Connection.SyncListWithFind);
   end;
   SaveProxyList(IniFile);
   try
@@ -382,7 +386,7 @@ begin
           FtpSend.KeepAliveTransfer := Connection.KeepAliveTransfer;
         end;
         FtpSend.TcpKeepAlive := TcpKeepAlive;
-        FtpSend.SyncListWithFind := SyncListWithFind;
+        FtpSend.SyncListWithFind := Connection.SyncListWithFind;
         FtpSend.TargetHost := Connection.Host;
         FtpSend.PassiveMode:= Connection.PassiveMode;
         FtpSend.AutoTLS:= Connection.AutoTLS;
@@ -1335,9 +1339,6 @@ begin
     // Use TCP keep alive for all connections: Useful for certain
     // firewalls/router if the connection breaks very often.
     TcpKeepAlive := IniFile.ReadBool('General', 'TcpKeepAlive', TcpKeepAlive);
-    // Sync compare over SFTP: list the remote tree with one find command
-    // when the server allows shell commands (falls back by itself)
-    SyncListWithFind := IniFile.ReadBool('General', 'SyncListWithFind', SyncListWithFind);
 
     ReadConnectionList;
   except
@@ -1367,6 +1368,12 @@ end;
 
 { TConnection }
 
+constructor TConnection.Create;
+begin
+  inherited Create;
+  SyncListWithFind:= True;
+end;
+
 procedure TConnection.Assign(Connection: TConnection);
 begin
   Path:= Connection.Path;
@@ -1393,6 +1400,7 @@ begin
   PasswordChanged:= Connection.PasswordChanged;
   ShowHiddenItems:= Connection.ShowHiddenItems;
   KeepAliveTransfer:= Connection.KeepAliveTransfer;
+  SyncListWithFind:= Connection.SyncListWithFind;
 end;
 
 initialization
