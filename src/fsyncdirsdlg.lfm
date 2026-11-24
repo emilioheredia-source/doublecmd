@@ -578,8 +578,8 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
       Top = 2
       Width = 80
       AutoSize = True
-      Caption = 'Expand all'
-      Hint = 'Open every folder, also the ones closed by hand (*)'
+      Caption = 'Expand visible'
+      Hint = 'Open every folder shown, one layer deeper per click; the level stays (*)'
       OnClick = btnExpandAllClick
       ParentShowHint = False
       ShowHint = True
@@ -592,7 +592,7 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
       Width = 80
       AutoSize = True
       Caption = 'Collapse all'
-      Hint = 'Fold everything into the top-level folders, also the ones opened by hand (/)'
+      Hint = 'Close every folder, down to the top-level ones; the level stays (/)'
       OnClick = btnCollapseAllClick
       ParentShowHint = False
       ShowHint = True
