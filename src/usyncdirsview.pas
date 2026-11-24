@@ -94,6 +94,10 @@ type
     function rootSummary: TSyncDirSummary;
 
     procedure toggle( const index: Integer );
+    // Every folder row shown is opened, or every open one closed, as if each
+    // were clicked; the level stays. Seen after the next build.
+    procedure expandVisible;
+    procedure collapseVisible;
     // The row list indexes the selected grid rows stand for
     procedure rowListIndexes( const viewIndexes: TIntegerList; const target: TIntegerList );
     // The last grid row an action on the row at index reaches: the subtree
@@ -378,6 +382,32 @@ begin
   if _closed.IndexOf( dirRec ) >= 0 then
     Exit( True );
   Result:= (_level > 0) and (depth >= _level);
+end;
+
+// The folded folders shown open, with their subfolders folded as before:
+// each call goes one layer deeper
+procedure TSyncDirsView.expandVisible;
+var
+  i: Integer;
+begin
+  for i:= 0 to _count - 1 do
+    if _view[i].kind = vrFoldedFolder then begin
+      _closed.Remove( _view[i].rec );
+      _opened.Add( _view[i].rec );
+    end;
+end;
+
+// Every open folder shown closes, which leaves the top-level folders; opened
+// again, each shows its subfolders closed
+procedure TSyncDirsView.collapseVisible;
+var
+  i: Integer;
+begin
+  for i:= 0 to _count - 1 do
+    if _view[i].kind = vrFolder then begin
+      _opened.Remove( _view[i].rec );
+      _closed.Add( _view[i].rec );
+    end;
 end;
 
 function TSyncDirsView.Count: Integer;

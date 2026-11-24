@@ -355,7 +355,7 @@ type
     procedure takeRunOptions(const dialog: TfrmSyncDirsPerformDlg);
     procedure applyViewSettings;
     procedure setViewLevel(const level: Integer);
-    procedure foldAllAt(const level: Integer);
+    procedure foldVisible(const open: Boolean);
     procedure refreshView;
     procedure refoldView;
     procedure toggleFolderRow(const viewIndex: Integer);
@@ -1368,12 +1368,12 @@ begin
         Key:= 0;
     VK_MULTIPLY:
       begin
-        foldAllAt(0);
+        foldVisible(True);
         Key:= 0;
       end;
     VK_DIVIDE:
       begin
-        foldAllAt(1);
+        foldVisible(False);
         Key:= 0;
       end;
     VK_A:
@@ -1692,29 +1692,28 @@ begin
   refoldView;
 end;
 
-// Every folder folded by the level again, the folds made by hand forgotten,
-// also when the level is already the one asked for: 0 opens everything,
-// 1 leaves only the top-level folders
-procedure TfrmSyncDirsDlg.foldAllAt(const level: Integer);
+// Opens every folder the grid shows, one layer deeper per call, or closes
+// them all down to the top-level folders. The level stays as chosen: these
+// work on what is on screen, the level only sets where folding starts.
+procedure TfrmSyncDirsDlg.foldVisible(const open: Boolean);
 begin
-  if level <> FView.level then
-    setViewLevel(level)
-  else begin
-    FView.forgetManualFolds;
-    refoldView;
-  end;
+  if open then
+    FView.expandVisible
+  else
+    FView.collapseVisible;
+  refoldView;
 end;
 
 procedure TfrmSyncDirsDlg.btnExpandAllClick(Sender: TObject);
 begin
-  foldAllAt(0);
+  foldVisible(True);
   if MainDrawGrid.CanFocus then
     MainDrawGrid.SetFocus;
 end;
 
 procedure TfrmSyncDirsDlg.btnCollapseAllClick(Sender: TObject);
 begin
-  foldAllAt(1);
+  foldVisible(False);
   if MainDrawGrid.CanFocus then
     MainDrawGrid.SetFocus;
 end;
