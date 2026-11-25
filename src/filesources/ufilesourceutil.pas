@@ -309,6 +309,12 @@ begin
         Exit(True);
       if not bForce then
       begin
+        // The plugin chosen by the extension does not know the format: the
+        // file may be another archive type under that name (a 7z named .zip),
+        // so look at the content, as Ctrl+PgDn does, before giving up
+        if (E is EWcxModuleException) and (EWcxModuleException(E).ErrorCode = E_UNKNOWN_FORMAT) and
+           ChooseArchive(aFileView, aFileSource, aFile, True) then
+          Exit(True);
         msgError(E.Message + LineEnding + aFile.FullPath);
         Exit(True);
       end;
