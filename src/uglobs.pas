@@ -731,10 +731,10 @@ var
   gSyncDirsExcludeFiles: string;
   // The sync dialog's view by folder: fold level (0 = none), files shown,
   // actions on a folder row applied to its subfolders
-  gSyncDirsViewLevel: Integer;          // 0 = all levels
   gSyncDirsViewFiles: Boolean;
   gSyncDirsViewIndent: Boolean;
   gSyncDirsActionsSubfolders: Boolean;
+  gSyncDirsViewLevelButtons: Integer;
   gDateTimeFormatSync : String;
 
   { Internal Associations}
@@ -2375,9 +2375,9 @@ begin
   gSyncDirsFileMaskSave := True;
   gSyncDirsExcludeDirs := '';
   gSyncDirsExcludeFiles := '';
-  gSyncDirsViewLevel := 0;
   gSyncDirsViewFiles := True;
   gSyncDirsViewIndent := True;
+  gSyncDirsViewLevelButtons := 5;
   gSyncDirsActionsSubfolders := True;
   gDateTimeFormatSync := DefaultDateTimeFormatSync;
 
@@ -3496,9 +3496,9 @@ begin
       gSyncDirsFileMaskSave := GetAttr(Node, 'FileMask/Save', gSyncDirsFileMaskSave);
       gSyncDirsExcludeDirs := GetValue(Node, 'ExcludeDirectories', gSyncDirsExcludeDirs);
       gSyncDirsExcludeFiles := GetValue(Node, 'ExcludeFiles', gSyncDirsExcludeFiles);
-      gSyncDirsViewLevel := GetValue(Node, 'ViewLevel', gSyncDirsViewLevel);
       gSyncDirsViewFiles := GetValue(Node, 'ViewFiles', gSyncDirsViewFiles);
       gSyncDirsViewIndent := GetValue(Node, 'ViewIndent', gSyncDirsViewIndent);
+      gSyncDirsViewLevelButtons := GetValue(Node, 'ViewLevelButtons', gSyncDirsViewLevelButtons);
       gSyncDirsActionsSubfolders := GetValue(Node, 'ActionsIncludeSubfolders', gSyncDirsActionsSubfolders);
       gDateTimeFormatSync := GetValidDateTimeFormat(GetValue(Node, 'DateTimeFormat', gDateTimeFormatSync), DefaultDateTimeFormatSync);
     end;
@@ -4101,9 +4101,9 @@ begin
     SetAttr(Node, 'FileMask/Save', gSyncDirsFileMaskSave);
     SetValue(Node, 'ExcludeDirectories', gSyncDirsExcludeDirs);
     SetValue(Node, 'ExcludeFiles', gSyncDirsExcludeFiles);
-    SetValue(Node, 'ViewLevel', gSyncDirsViewLevel);
     SetValue(Node, 'ViewFiles', gSyncDirsViewFiles);
     SetValue(Node, 'ViewIndent', gSyncDirsViewIndent);
+    SetValue(Node, 'ViewLevelButtons', gSyncDirsViewLevelButtons);
     SetValue(Node, 'ActionsIncludeSubfolders', gSyncDirsActionsSubfolders);
     SetValue(Node, 'DateTimeFormat', gDateTimeFormatSync);
 

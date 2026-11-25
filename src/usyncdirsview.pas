@@ -46,6 +46,8 @@ type
     depth: Integer;               // 1 = top-level folder
     rowIndex: Integer;            // this row's index in the row list; -1 for a folder without one
     rowFirst, rowLast: Integer;   // folders: every row list index beneath
+    hasContent: Boolean;          // folders: opening it shows rows (files, if shown, or subfolders)
+    lines: QWord;                 // bit k: the row, or its ancestor at depth k, has a later sibling
   end;
 
   { TSyncDirsView }
@@ -55,6 +57,7 @@ type
     type
       TDirInfo = record
         ownRow, fileFirst, fileLast, first, last: Integer;
+        hasSubfolders: Boolean;           // a subfolder with something listed
         summary: TSyncDirSummary;
       end;
   private
@@ -73,12 +76,14 @@ type
     function folderOfRow( const rec: TSyncRec ): Integer;
     procedure collectSubtrees;
     procedure emitRows;
+    procedure markTreeLines;
     procedure addFolderRow( const dirIndex, depth: Integer; const kind: TSyncViewRowKind );
     procedure addFileRows( const dirIndex, depth: Integer );
     procedure addRow( const row: TSyncViewRow );
     procedure rowsReachedBy( const viewRow: TSyncViewRow; out first, last: Integer );
     function depthOf( const dirIndex: Integer ): Integer;
     function isFolded( const dirIndex, depth: Integer ): Boolean;
+    procedure setFold( const dirRec: TSyncRec; const open: Boolean );
   public
     constructor Create( const tree: TTwoLevelTree; const rows: TFlatDirFileList );
     destructor Destroy; override;
@@ -94,10 +99,11 @@ type
     function rootSummary: TSyncDirSummary;
 
     procedure toggle( const index: Integer );
-    // Every folder row shown is opened, or every open one closed, as if each
-    // were clicked; the level stays. Seen after the next build.
-    procedure expandVisible;
-    procedure collapseVisible;
+    // The folders among these grid rows opened or closed, as if each were
+    // clicked; openAllBelow also opens every folder beneath them. Seen after
+    // the next build.
+    procedure openFolders( const viewIndexes: TIntegerList; const open: Boolean );
+    procedure openAllBelow( const viewIndexes: TIntegerList );
     // The row list indexes the selected grid rows stand for
     procedure rowListIndexes( const viewIndexes: TIntegerList; const target: TIntegerList );
     // The last grid row an action on the row at index reaches: the subtree
@@ -221,6 +227,7 @@ begin
   _closed.Clear;
 end;
 
+
 // Each row of the row list belongs to one folder: a folder's own row, or a
 // file row in it. A folder's files are contiguous, right after its own row.
 procedure TSyncDirsView.collectRows;
@@ -281,6 +288,7 @@ begin
     if p < 0 then continue;
     addSummary( _dirs[p].summary, _dirs[d].summary );
     if _dirs[d].first < 0 then continue;
+    _dirs[p].hasSubfolders:= True;
     if (_dirs[p].first < 0) or (_dirs[d].first < _dirs[p].first) then
       _dirs[p].first:= _dirs[d].first;
     if _dirs[d].last > _dirs[p].last then
@@ -312,6 +320,27 @@ begin
     if _showFiles then
       addFileRows( d, depth );
   end;
+  markTreeLines;
+end;
+
+// From the end, the later siblings of a row are the rows at its depth met
+// since the last shallower one: goesOn holds those depths. Rows deeper than
+// MaxLineDepth share its bit, so their lines may run on too far.
+procedure TSyncDirsView.markTreeLines;
+const
+  MaxLineDepth = 62;
+var
+  i, depth: Integer;
+  goesOn: QWord = 0;
+  upToDepth: QWord;
+begin
+  for i:= _count - 1 downto 0 do begin
+    depth:= _view[i].depth;
+    if depth > MaxLineDepth then depth:= MaxLineDepth;
+    upToDepth:= (QWord(1) shl (depth + 1)) - 1;
+    _view[i].lines:= goesOn and upToDepth;
+    goesOn:= (goesOn and (upToDepth shr 1)) or (QWord(1) shl depth);
+  end;
 end;
 
 procedure TSyncDirsView.addFolderRow( const dirIndex, depth: Integer;
@@ -327,6 +356,8 @@ begin
   folder.rowIndex:= _dirs[dirIndex].ownRow;
   folder.rowFirst:= _dirs[dirIndex].first;
   folder.rowLast:= _dirs[dirIndex].last;
+  folder.hasContent:= _dirs[dirIndex].hasSubfolders or
+                      (_showFiles and (_dirs[dirIndex].fileFirst >= 0));
   addRow( folder );
 end;
 
@@ -384,30 +415,43 @@ begin
   Result:= (_level > 0) and (depth >= _level);
 end;
 
-// The folded folders shown open, with their subfolders folded as before:
-// each call goes one layer deeper
-procedure TSyncDirsView.expandVisible;
-var
-  i: Integer;
+// A fold made by hand; it wins over the level until the level changes
+procedure TSyncDirsView.setFold( const dirRec: TSyncRec; const open: Boolean );
 begin
-  for i:= 0 to _count - 1 do
-    if _view[i].kind = vrFoldedFolder then begin
-      _closed.Remove( _view[i].rec );
-      _opened.Add( _view[i].rec );
-    end;
+  _opened.Remove( dirRec );
+  _closed.Remove( dirRec );
+  if open then
+    _opened.Add( dirRec )
+  else
+    _closed.Add( dirRec );
 end;
 
-// Every open folder shown closes, which leaves the top-level folders; opened
-// again, each shows its subfolders closed
-procedure TSyncDirsView.collapseVisible;
+procedure TSyncDirsView.openFolders( const viewIndexes: TIntegerList; const open: Boolean );
 var
   i: Integer;
 begin
-  for i:= 0 to _count - 1 do
-    if _view[i].kind = vrFolder then begin
-      _opened.Remove( _view[i].rec );
-      _closed.Add( _view[i].rec );
+  for i:= 0 to viewIndexes.Count - 1 do
+    if _view[viewIndexes[i]].kind <> vrFile then
+      setFold( _view[viewIndexes[i]].rec, open );
+end;
+
+// The tree lists a folder's subtree right after it, so its subfolders are
+// the folders that follow it while they are deeper
+procedure TSyncDirsView.openAllBelow( const viewIndexes: TIntegerList );
+var
+  i, d: Integer;
+  folder: TSyncViewRow;
+begin
+  for i:= 0 to viewIndexes.Count - 1 do begin
+    folder:= _view[viewIndexes[i]];
+    if folder.kind = vrFile then continue;
+    setFold( folder.rec, True );
+    d:= folder.dirIndex + 1;
+    while (d <= High(_dirs)) and (depthOf( d ) > folder.depth) do begin
+      setFold( _tree.dirItem(d).dirSyncRec, True );
+      Inc( d );
     end;
+  end;
 end;
 
 function TSyncDirsView.Count: Integer;
@@ -440,13 +484,7 @@ begin
   if _view[index].kind = vrFile then
     Exit;
   dirRec:= _view[index].rec;
-  if _view[index].kind = vrFoldedFolder then begin
-    _closed.Remove( dirRec );
-    _opened.Add( dirRec );
-  end else begin
-    _opened.Remove( dirRec );
-    _closed.Add( dirRec );
-  end;
+  setFold( dirRec, _view[index].kind = vrFoldedFolder );
   emitRows;
 end;
 
