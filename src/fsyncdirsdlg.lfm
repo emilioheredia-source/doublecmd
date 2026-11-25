@@ -533,7 +533,7 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
     ChildSizing.TopBottomSpacing = 2
     ChildSizing.HorizontalSpacing = 8
     ChildSizing.Layout = cclLeftToRightThenTopToBottom
-    ChildSizing.ControlsPerLine = 7
+    ChildSizing.ControlsPerLine = 5
     ClientHeight = 27
     ClientWidth = 833
     TabOrder = 8
@@ -541,62 +541,34 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
       Left = 4
       Height = 23
       Top = 2
-      Width = 48
-      Caption = 'Fold at level:'
+      Width = 72
+      Caption = 'Show levels:'
       Layout = tlCenter
       ParentColor = False
     end
-    object cbViewLevel: TComboBox
-      Left = 90
+    object pnlLevels: TPanel
+      Left = 84
       Height = 23
       Top = 2
-      Width = 70
-      DropDownCount = 11
-      ItemHeight = 15
-      ItemIndex = 0
-      Items.Strings = (
-        'All'
-        '1'
-        '2'
-        '3'
-        '4'
-        '5'
-        '6'
-        '7'
-        '8'
-        '9'
-        '10'
-      )
-      OnChange = cbViewLevelChange
-      Style = csDropDownList
+      Width = 30
+      AutoSize = True
+      BevelOuter = bvNone
+      ChildSizing.HorizontalSpacing = 2
+      ChildSizing.Layout = cclLeftToRightThenTopToBottom
       TabOrder = 0
-      Text = 'All'
-    end
-    object btnExpandAll: TButton
-      Left = 168
-      Height = 23
-      Top = 2
-      Width = 80
-      AutoSize = True
-      Caption = 'Expand visible'
-      Hint = 'Open every folder shown, one layer deeper per click; the level stays (*)'
-      OnClick = btnExpandAllClick
-      ParentShowHint = False
-      ShowHint = True
-      TabOrder = 1
-    end
-    object btnCollapseAll: TButton
-      Left = 256
-      Height = 23
-      Top = 2
-      Width = 80
-      AutoSize = True
-      Caption = 'Collapse all'
-      Hint = 'Close every folder, down to the top-level ones; the level stays (/)'
-      OnClick = btnCollapseAllClick
-      ParentShowHint = False
-      ShowHint = True
-      TabOrder = 2
+      object btnLevelAll: TButton
+        Left = 0
+        Height = 23
+        Top = 0
+        Width = 30
+        AutoSize = True
+        Caption = 'All'
+        Hint = 'Every folder open'
+        OnClick = btnLevelClick
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 0
+      end
     end
     object chkViewFiles: TCheckBox
       Left = 344
@@ -607,7 +579,7 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
       Checked = True
       OnChange = chkViewFilesChange
       State = cbChecked
-      TabOrder = 3
+      TabOrder = 1
     end
     object chkViewIndent: TCheckBox
       Left = 430
@@ -618,7 +590,7 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
       Checked = True
       OnChange = chkViewIndentChange
       State = cbChecked
-      TabOrder = 4
+      TabOrder = 2
     end
     object chkActionsSubfolders: TCheckBox
       Left = 510
@@ -629,7 +601,7 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
       Checked = True
       OnChange = chkActionsSubfoldersChange
       State = cbChecked
-      TabOrder = 5
+      TabOrder = 3
     end
   end
   object HeaderDG: TDrawGrid
@@ -965,6 +937,21 @@ object frmSyncDirsDlg: TfrmSyncDirsDlg
     end
     object miDeleteBoth: TMenuItem
       Action = actDeleteBoth
+    end
+    object miSeparatorFolds: TMenuItem
+      Caption = '-'
+    end
+    object miExpandSelected: TMenuItem
+      Caption = 'Expand'
+      OnClick = miExpandClick
+    end
+    object miCollapseSelected: TMenuItem
+      Caption = 'Collapse'
+      OnClick = miCollapseClick
+    end
+    object miExpandAllBelow: TMenuItem
+      Caption = 'Expand all below'
+      OnClick = miExpandAllBelowClick
     end
   end
   object ActionList: TActionList

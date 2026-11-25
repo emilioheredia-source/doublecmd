@@ -35,7 +35,7 @@ uses
   uFileSourceOperationMessageBoxesUI, uFormCommands, uHotkeyManager, uClassesEx,
   uFileSourceOperationOptions, uFileSourceDeleteOperation, KASProgressBar,
   uMasks, uSearchTemplate, uFileSystemUtil, fSyncDirsPerformDlg,
-  uSyncDirsModel, uSyncDirsService, uSyncDirsView;
+  uSyncDirsModel, uSyncDirsService, uSyncDirsView, uSyncDirsTreeLines;
 
 const
   HotkeysCategory = 'Synchronize Directories';
@@ -179,9 +179,12 @@ type
     pnlExclude: TPanel;
     pnlView: TPanel;
     lblViewLevel: TLabel;
-    cbViewLevel: TComboBox;
-    btnExpandAll: TButton;
-    btnCollapseAll: TButton;
+    pnlLevels: TPanel;
+    btnLevelAll: TButton;
+    miSeparatorFolds: TMenuItem;
+    miExpandSelected: TMenuItem;
+    miCollapseSelected: TMenuItem;
+    miExpandAllBelow: TMenuItem;
     chkViewFiles: TCheckBox;
     chkViewIndent: TCheckBox;
     chkActionsSubfolders: TCheckBox;
@@ -240,9 +243,10 @@ type
     procedure btnCloseClick(Sender: TObject);
     procedure btnSearchTemplateClick(Sender: TObject);
     procedure cbExtFilterChange(Sender: TObject);
-    procedure cbViewLevelChange(Sender: TObject);
-    procedure btnExpandAllClick(Sender: TObject);
-    procedure btnCollapseAllClick(Sender: TObject);
+    procedure btnLevelClick(Sender: TObject);
+    procedure miExpandClick(Sender: TObject);
+    procedure miCollapseClick(Sender: TObject);
+    procedure miExpandAllBelowClick(Sender: TObject);
     procedure chkViewFilesChange(Sender: TObject);
     procedure chkViewIndentChange(Sender: TObject);
     procedure chkActionsSubfoldersChange(Sender: TObject);
@@ -354,13 +358,18 @@ type
     function createExclusionTemplate: TSearchTemplate;
     procedure takeRunOptions(const dialog: TfrmSyncDirsPerformDlg);
     procedure applyViewSettings;
-    procedure setViewLevel(const level: Integer);
-    procedure foldVisible(const open: Boolean);
+    procedure showLevel(const level: Integer);
+    procedure createLevelButtons;
+    function selectedViewIndexes: TIntegerList;
+    procedure foldSelected(const open: Boolean);
+    procedure focusGrid;
+    procedure openAllBelowSelected;
     procedure refreshView;
     procedure refoldView;
     procedure toggleFolderRow(const viewIndex: Integer);
     function clickedFoldMarker(const viewIndex, X: Integer): Boolean;
     function rowIndentation(const depth: Integer): Integer;
+    function treeLines: TSyncTreeLines;
     function folderRowName(const dirIndex: Integer): String;
     procedure drawFolderRow(const viewRow: TSyncViewRow; const summary: TSyncDirSummary;
                             const aRect: TRect; const aState: TGridDrawState);
@@ -368,6 +377,7 @@ type
     procedure drawFileSide(const aFile: TFile; const fileName: String;
                            const nameCol, sizeCol, dateCol, indent: Integer; const aRect: TRect);
     procedure drawActionIcon(const rowAction: TSyncRecState; const aRect: TRect);
+    procedure drawTreeLines(const viewIndex: Integer; const aRect: TRect);
     function folderRowAction(const viewIndex: Integer): TSyncRecState;
     function toggleCursorFolder(const kind: TSyncViewRowKind): Boolean;
     procedure ApplyCopyOptions(const operation: TFileSourceOperation);
@@ -464,6 +474,7 @@ resourcestring
   rsSyncUnreadable = '<could not be read>';
   rsSyncFoldersUnreadable = '%d folder(s) could not be read';
   rsSyncNotCompared = 'Not compared yet: press Compare';
+  rsSyncShowLevel = 'Folders open down to level %d, deeper ones closed';
   rsSyncCompareCancelled = 'Compare cancelled, the list is incomplete.';
   rsSyncCompareCancelledWarning = 'The compare was cancelled, so the list covers'
     + ' only part of the tree. Only what it shows will be synchronized; nothing'
@@ -493,23 +504,30 @@ uses
   uWfxPluginCopyInOperation,
   uFileSourceManager, uFileSourceProperty, uShowMsg,
   fDeleteDlg, uTrash, uOperationsManager, uOSForms,
-  uWfxPluginFileSource, WfxPlugin
-  {$IF DEFINED(LCLGTK2)}
-  , uGtk2ListCombo
-  {$ENDIF}
-  ;
+  uWfxPluginFileSource, WfxPlugin;
 
 // With "Indent" on, rows are indented by their depth in the tree and a
 // folder row shows its own name: its files and subfolders sit one step to
 // the right of it. Off, as upstream drew it: no indentation and folder rows
 // with their path from the root. File rows show the file name either way.
-function TfrmSyncDirsDlg.rowIndentation(const depth: Integer): Integer;
 const
-  STEP = 16;
+  INDENT_STEP = 16;
+
+function TfrmSyncDirsDlg.rowIndentation(const depth: Integer): Integer;
 begin
   if NOT chkViewIndent.Checked then
     Exit(0);
-  Result := Max(0, depth - 1) * STEP;
+  Result := Max(0, depth - 1) * INDENT_STEP;
+end;
+
+function TfrmSyncDirsDlg.treeLines: TSyncTreeLines;
+begin
+  Result.canvas := MainDrawGrid.Canvas;
+  Result.left := hCols[0].Left + 2;
+  if chkViewIndent.Checked then
+    Result.step := INDENT_STEP
+  else
+    Result.step := 0;
 end;
 
 function TfrmSyncDirsDlg.folderRowName(const dirIndex: Integer): String;
@@ -974,17 +992,17 @@ begin
   toggleSelectionAction;
 end;
 
-// The [+]/[-] marker at the start of a folder row
+// The [+]/[-] box at the start of a folder row, with a few pixels around it
 function TfrmSyncDirsDlg.clickedFoldMarker(const viewIndex, X: Integer): Boolean;
 const
-  MARKER_WIDTH = 24;
+  MARGIN = 3;
 var
-  markerLeft: Integer;
+  boxLeft: Integer;
 begin
   if FView.row(viewIndex).kind = vrFile then
     Exit(False);
-  markerLeft := hCols[0].Left + 2 + rowIndentation(FView.row(viewIndex).depth);
-  Result := (X >= markerLeft) and (X < markerLeft + MARKER_WIDTH);
+  boxLeft := treeLines.rowLeft(FView.row(viewIndex).depth);
+  Result := (X >= boxLeft - MARGIN) and (X < boxLeft + FOLD_BOX_SIZE + MARGIN);
 end;
 
 procedure TfrmSyncDirsDlg.RestoreProperties(Sender: TObject);
@@ -1026,7 +1044,6 @@ begin
     gSyncDirsByContent          := chkByContent.Checked;
   gSyncDirsExcludeDirs          := Trim(cbExcludeDirs.Text);
   gSyncDirsExcludeFiles         := Trim(cbExcludeFiles.Text);
-  gSyncDirsViewLevel            := FView.level;
   gSyncDirsViewFiles            := chkViewFiles.Checked;
   gSyncDirsViewIndent           := chkViewIndent.Checked;
   gSyncDirsActionsSubfolders    := chkActionsSubfolders.Checked;
@@ -1111,10 +1128,7 @@ begin
   chkViewIndent.Checked  := gSyncDirsViewIndent;
   chkActionsSubfolders.Checked := gSyncDirsActionsSubfolders;
   applyViewSettings;
-  setViewLevel(gSyncDirsViewLevel);
-  {$IF DEFINED(LCLGTK2)}
-  ShowDropDownAsList(cbViewLevel);
-  {$ENDIF}
+  createLevelButtons;
   UpdateStatusBar;
 
   HMSync := HotMan.Register(Self, HotkeysCategory);
@@ -1236,10 +1250,8 @@ end;
 
 procedure TfrmSyncDirsDlg.drawFolderRow(const viewRow: TSyncViewRow;
   const summary: TSyncDirSummary; const aRect: TRect; const aState: TGridDrawState);
-const
-  FOLD_MARKER: array[Boolean] of String = ('[-] ', '[+] ');
 var
-  folderText: String;
+  lines: TSyncTreeLines;
 begin
   with MainDrawGrid.Canvas do
   begin
@@ -1248,12 +1260,15 @@ begin
     else
       Brush.Color := {$IFDEF DARWIN}clInfoBk{$ELSE}clBtnFace{$ENDIF};
     FillRect(aRect);
+    lines := treeLines;
+    if viewRow.hasContent then
+      lines.drawBox(viewRow, aRect.Top, aRect.Bottom);
     Font.Bold := True;
     Font.Color := folderRowColor(viewRow, summary);
-    folderText := FOLD_MARKER[viewRow.kind = vrFoldedFolder] + folderRowName(viewRow.dirIndex);
     with hCols[0] do
       TextRect(Rect(Left, aRect.Top, Left + Width, aRect.Bottom),
-        Left + 2 + rowIndentation(viewRow.depth), aRect.Top + 2, folderText);
+        lines.rowLeft(viewRow.depth) + FOLD_BOX_SIZE + 4, aRect.Top + 2,
+        folderRowName(viewRow.dirIndex));
     with hCols[1] do
       TextRect(Rect(Left, aRect.Top, hCols[2].Left + hCols[2].Width, aRect.Bottom),
         Left + 2, aRect.Top + 2, folderSummaryText(summary));
@@ -1318,6 +1333,28 @@ begin
     Result := FView.summaryOf(viewIndex).singleAction;
 end;
 
+// The lines join the box of a folder row, or stop just before the name of
+// a file or of a folder without a box
+procedure TfrmSyncDirsDlg.drawTreeLines(const viewIndex: Integer; const aRect: TRect);
+var
+  lines: TSyncTreeLines;
+  viewRow: TSyncViewRow;
+  joinAt: Integer;
+  hasChildren: Boolean;
+begin
+  lines := treeLines;
+  viewRow := FView.row(viewIndex);
+  if viewRow.kind = vrFile then
+    joinAt := lines.rowLeft(viewRow.depth) + LEFT_FILE_INDENTATION - 2
+  else if NOT viewRow.hasContent then
+    joinAt := lines.rowLeft(viewRow.depth) + FOLD_BOX_SIZE + 2
+  else
+    joinAt := lines.rowLeft(viewRow.depth) - 1;
+  hasChildren := (viewRow.kind = vrFolder) and (viewIndex + 1 < FView.Count) and
+                 (FView.row(viewIndex + 1).depth > viewRow.depth);
+  lines.drawLines(viewRow, aRect.Top, aRect.Bottom, joinAt, hasChildren);
+end;
+
 procedure TfrmSyncDirsDlg.MainDrawGridDrawCell(Sender: TObject; aCol,
   aRow: Integer; aRect: TRect; aState: TGridDrawState);
 var
@@ -1330,12 +1367,16 @@ begin
   begin
     drawFileRow(viewRow, aRect);
     drawActionIcon(viewRow.rec.action, aRect);
-    Exit;
+  end
+  else begin
+    drawFolderRow(viewRow, FView.summaryOf(aRow), aRect, aState);
+    rowAction := folderRowAction(aRow);
+    if rowAction <> srsDoNothing then
+      drawActionIcon(rowAction, aRect);
   end;
-  drawFolderRow(viewRow, FView.summaryOf(aRow), aRect, aState);
-  rowAction := folderRowAction(aRow);
-  if rowAction <> srsDoNothing then
-    drawActionIcon(rowAction, aRect);
+  // Without Indent every row starts at the left, so there is no tree to draw
+  if chkViewIndent.Checked then
+    drawTreeLines(aRow, aRect);
 end;
 
 // Opens or closes the folder under the cursor when it is of that kind
@@ -1360,20 +1401,20 @@ begin
         toggleSelectionAction;
         Key:= 0;
       end;
-    VK_RIGHT, VK_ADD:
+    VK_RIGHT:
       if toggleCursorFolder(vrFoldedFolder) then
         Key:= 0;
-    VK_LEFT, VK_SUBTRACT:
+    VK_LEFT:
       if toggleCursorFolder(vrFolder) then
         Key:= 0;
-    VK_MULTIPLY:
+    VK_ADD, VK_SUBTRACT:
       begin
-        foldVisible(True);
+        foldSelected(Key = VK_ADD);
         Key:= 0;
       end;
-    VK_DIVIDE:
+    VK_MULTIPLY:
       begin
-        foldVisible(False);
+        openAllBelowSelected;
         Key:= 0;
       end;
     VK_A:
@@ -1614,16 +1655,11 @@ end;
 // for the rows beneath it
 function TfrmSyncDirsDlg.createSelectionIndexes: TIntegerList;
 var
-  i: Integer;
   viewIndexes: TIntegerList;
 begin
   Result:= TIntegerList.Create;
-  viewIndexes:= TIntegerList.Create;
+  viewIndexes:= selectedViewIndexes;
   try
-    for i:= 0 to self.MainDrawGrid.RowCount-1 do begin
-      if MainDrawGrid.IsCellSelected[0,i] then
-        viewIndexes.Add( i );
-    end;
     FView.rowListIndexes( viewIndexes, Result );
   finally
     viewIndexes.Free;
@@ -1668,59 +1704,114 @@ begin
   MainDrawGrid.Invalidate;
 end;
 
+// A folder with nothing inside has no box and nothing to open
 procedure TfrmSyncDirsDlg.toggleFolderRow(const viewIndex: Integer);
 begin
   if (viewIndex < 0) or (viewIndex >= FView.Count) then Exit;
   if FView.row(viewIndex).kind = vrFile then Exit;
+  if NOT FView.row(viewIndex).hasContent then Exit;
   FView.toggle(viewIndex);
   MainDrawGrid.RowCount := FView.Count;
   MainDrawGrid.Row := viewIndex;
   MainDrawGrid.Invalidate;
 end;
 
-// Level 0 = all levels; the list's item index is the level
-procedure TfrmSyncDirsDlg.setViewLevel(const level: Integer);
-var
-  shown: Integer;
+// Every folder open down to the level and closed below it, replacing the
+// folds made by hand; 0 opens everything
+procedure TfrmSyncDirsDlg.showLevel(const level: Integer);
 begin
-  shown := EnsureRange(level, 0, cbViewLevel.Items.Count - 1);
-  if cbViewLevel.ItemIndex <> shown then
-    cbViewLevel.ItemIndex := shown;
-  if shown = FView.level then Exit;
-  FView.level := shown;
+  FView.level := level;
   FView.forgetManualFolds;
   refoldView;
 end;
 
-// Opens every folder the grid shows, one layer deeper per call, or closes
-// them all down to the top-level folders. The level stays as chosen: these
-// work on what is on screen, the level only sets where folding starts.
-procedure TfrmSyncDirsDlg.foldVisible(const open: Boolean);
+// Buttons 1 to gSyncDirsViewLevelButtons, then All; all of them always
+// enabled: a level deeper than the tree just shows everything open
+procedure TfrmSyncDirsDlg.createLevelButtons;
+var
+  level: Integer;
+  button: TButton;
 begin
-  if open then
-    FView.expandVisible
-  else
-    FView.collapseVisible;
+  for level := 1 to gSyncDirsViewLevelButtons do
+  begin
+    button := TButton.Create(Self);
+    button.Parent := pnlLevels;
+    button.Caption := IntToStr(level);
+    button.Tag := level;
+    button.AutoSize := True;
+    button.Constraints.MinWidth := 24;
+    button.Hint := Format(rsSyncShowLevel, [level]);
+    button.ShowHint := True;
+    button.OnClick := @btnLevelClick;
+  end;
+  pnlLevels.SetControlIndex(btnLevelAll, pnlLevels.ControlCount - 1);
+  pnlLevels.ChildSizing.ControlsPerLine := pnlLevels.ControlCount;
+end;
+
+// After a bar button, so the keys act on the grid again
+procedure TfrmSyncDirsDlg.focusGrid;
+begin
+  if MainDrawGrid.CanFocus then
+    MainDrawGrid.SetFocus;
+end;
+
+// The number buttons carry their level in Tag; All has 0
+procedure TfrmSyncDirsDlg.btnLevelClick(Sender: TObject);
+begin
+  showLevel((Sender as TComponent).Tag);
+  focusGrid;
+end;
+
+function TfrmSyncDirsDlg.selectedViewIndexes: TIntegerList;
+var
+  i: Integer;
+begin
+  Result := TIntegerList.Create;
+  for i := 0 to MainDrawGrid.RowCount - 1 do
+    if MainDrawGrid.IsCellSelected[0, i] then
+      Result.Add(i);
+end;
+
+// As if the [+] or [-] of each selected folder were clicked
+procedure TfrmSyncDirsDlg.foldSelected(const open: Boolean);
+var
+  rows: TIntegerList;
+begin
+  rows := selectedViewIndexes;
+  try
+    FView.openFolders(rows, open);
+  finally
+    rows.Free;
+  end;
   refoldView;
 end;
 
-procedure TfrmSyncDirsDlg.btnExpandAllClick(Sender: TObject);
+procedure TfrmSyncDirsDlg.openAllBelowSelected;
+var
+  rows: TIntegerList;
 begin
-  foldVisible(True);
-  if MainDrawGrid.CanFocus then
-    MainDrawGrid.SetFocus;
+  rows := selectedViewIndexes;
+  try
+    FView.openAllBelow(rows);
+  finally
+    rows.Free;
+  end;
+  refoldView;
 end;
 
-procedure TfrmSyncDirsDlg.btnCollapseAllClick(Sender: TObject);
+procedure TfrmSyncDirsDlg.miExpandClick(Sender: TObject);
 begin
-  foldVisible(False);
-  if MainDrawGrid.CanFocus then
-    MainDrawGrid.SetFocus;
+  foldSelected(True);
 end;
 
-procedure TfrmSyncDirsDlg.cbViewLevelChange(Sender: TObject);
+procedure TfrmSyncDirsDlg.miCollapseClick(Sender: TObject);
 begin
-  setViewLevel(cbViewLevel.ItemIndex);
+  foldSelected(False);
+end;
+
+procedure TfrmSyncDirsDlg.miExpandAllBelowClick(Sender: TObject);
+begin
+  openAllBelowSelected;
 end;
 
 procedure TfrmSyncDirsDlg.chkViewFilesChange(Sender: TObject);
@@ -1780,6 +1871,7 @@ begin
   TopPanel.Enabled := False;
   try
     FFullTree.Clear;
+    FView.level := 0;
     FView.forgetManualFolds;
     FCompareOption.Free;
     FCompareOption:= self.createCompareOption;
